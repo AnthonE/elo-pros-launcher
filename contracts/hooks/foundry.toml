@@ -1,0 +1,47 @@
+# The v4 hooks live in their own foundry project ON PURPOSE.
+#
+# The parent project at ../ builds against forge-std ALONE. Dropping a file
+# that imports v4-core into ../src would make `forge build` — and therefore
+# `./deploy_town.sh test`, which is a pre-broadcast gate — fail for everyone
+# until the v4 libraries are installed. A sibling project keeps the town's
+# build green while this one is still being brought up.
+#
+# Nothing here is shared with the parent: separate lib/, separate out/,
+# separate remappings.
+
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.26"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+
+# ⚠ REQUIRED, not a preference. Uniswap v4 uses transient storage (TSTORE /
+# TLOAD), which is Cancun. Without this the PoolManager interface will not
+# compile against our pragma.
+#
+# That chain 4663 supports it is settled by measurement rather than by
+# argument: a 24,009-byte PoolManager is deployed and swapping there
+# (docs/HOOKS.md §0a). Do not re-litigate it; do set the flag.
+evm_version = "cancun"
+
+# v4 hooks are large and the permission bits live in the address, so a hook
+# that will not fit is a redeploy AND a re-mine. Keep the headroom visible.
+bytecode_hash = "none"
+cbor_metadata = false
+
+[profile.default.fuzz]
+runs = 256
+
+[rpc_endpoints]
+rhchain = "https://rpc.mainnet.chain.robinhood.com"
+
+[etherscan]
+# Blockscout's LEGACY /api route rate-limits this box near-permanently and
+# `forge verify-contract` speaks exactly that route, so it cannot verify here
+# at all. Use the /api/v2 recipe in ../RUNBOOK.md §verify instead.
+rhchain = { key = "", url = "https://robinhoodchain.blockscout.com/api" }

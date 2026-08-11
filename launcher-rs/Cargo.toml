@@ -1,0 +1,99 @@
+[workspace]
+resolver = "2"
+members = ["crates/scry-depot", "crates/scry-net", "crates/scry-hive", "crates/scry-launcher", "crates/scry-ui", "crates/scry-broker", "crates/scry-vault"]
+
+# ── the dependency policy ────────────────────────────────────────────────────
+#
+# Operator, 2026-08-05: *"if anything like veersion lock because lost of npm
+# type chain attacks recently."*
+#
+# Four controls, and the first is the one that actually stops the npm attack
+# class. They are stated here because a policy nobody can find is not a policy.
+#
+# 1. `Cargo.lock` IS COMMITTED, and it pins the whole TRANSITIVE tree to exact
+#    versions with a SHA-256 checksum each. This is the control. A registry
+#    that serves different bytes for a version already published fails the
+#    checksum and the build stops. Deleting this file is the supply-chain
+#    regression, not editing a version number.
+# 2. Every direct dependency is pinned `=x.y.z` below. A caret range lets a
+#    compromised maintainer's next patch release in on the next `cargo update`;
+#    an exact pin makes taking it a visible, reviewable diff.
+# 3. The tree is kept SMALL on purpose and counted by a test
+#    (`scry-launcher/tests/supply_chain.rs`). Every crate here is a crate whose
+#    compromise is our compromise, so the count is a budget and not a metric.
+#    ⚠ Raising the cap is a decision; do it in the same commit as the crate.
+# 4. `deny.toml` runs `cargo deny check` — advisories, licences, and a ban on
+#    duplicate versions of the same crate.
+#
+# What this does NOT buy, said plainly so nobody reasons from it: a pinned,
+# checksummed dependency is still someone else's code running as you. The lock
+# stops the bytes CHANGING under you. It does not make the bytes good.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+# ── the windows ──────────────────────────────────────────────────────────────
+# Operator, 2026-08-06: *"fltk it is"* — the toolkit chosen on the budget, not
+# on taste. Measured the same day: fltk +15 packages, eframe/egui +402,
+# iced +414, slint +531, against a tree of 96 and a cap of 110. Every pure-Rust
+# toolkit is 4-5x the entire tree and would retire this budget rather than
+# raise it. `docs/LAUNCHER.md` §10b2 carries the table and the trade.
+#
+# ⚠ LICENCE, and `cargo deny` CANNOT SEE THIS. Both crates declare MIT, which
+# is the Rust binding; `fltk-sys` vendors the FLTK C++ library, which is the
+# FLTK License — LGPL with exceptions. Exception 3 permits static linking with
+# no source obligation and exception 4 waives shipping the licence text, so the
+# only live requirement is that "programs must still identify their use of
+# FLTK". That credit is in `crates/scry-ui/src/lib.rs` and a test asserts it,
+# because a licence gate reading crate metadata will never fail for its absence.
+fltk = "=1.5.23"
+# ── the hive's speaking key ──────────────────────────────────────────────────
+# `k256` + `bech32` are +13 packages and they are the clearest earned
+# dependency in this workspace. `SDK.md` §2a already made this call in Python
+# — *signing belongs in an audited library rather than in code written here* —
+# and a hand-rolled BIP-340 with a subtly wrong nonce leaks the key silently.
+# RustCrypto is the reputable pure-Rust answer; no C, no libsecp256k1 build.
+bech32 = "=0.12.0"
+getrandom = "=0.3.4"
+k256 = { version = "=0.13.4", default-features = false, features = ["schnorr", "ecdsa"] }
+sha3 = { version = "=0.10.8", default-features = false }
+scrypt = { version = "=0.11.0", default-features = false }
+aes = { version = "=0.8.4", default-features = false }
+ctr = { version = "=0.9.2", default-features = false }
+
+# ── speaking at all ──────────────────────────────────────────────────────────
+# buzz binds an event's author to the NIP-42-authenticated CONNECTION
+# (`meter/hive.py` §hive_publish, measured 2026-07-25), so a note carried over
+# the house's socket is refused — silently. Posting therefore needs our own
+# authenticated WebSocket, and this is the standard sync client.
+#
+# ⚠ Deliberately WITHOUT its own TLS feature. `rustls`/`webpki-roots` are
+# declared here at the versions `ureq` already resolved, so the workspace links
+# ONE TLS stack and one root store; letting tungstenite bring its own added a
+# second copy of the CA bundle to the binary for nothing.
+tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "=1.0.9"
+rustls-pemfile = "=2.2.0"
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+# ── a passphrase that does not appear on the screen ──────────────────────────
+# Asked directly rather than through `rpassword`, which is three packages to
+# clear ECHO in a termios struct. This one is ALREADY in the tree (`getrandom`
+# depends on it on unix), so declaring it here adds a dependency edge and zero
+# packages — the budget is unmoved and `supply_chain.rs` proves it.
+libc = "=0.2.189"
+tempfile = "=3.24.0"
+ureq = { version = "=3.1.2", default-features = false, features = ["rustls"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

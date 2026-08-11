@@ -1,0 +1,241 @@
+[
+  {
+    "canonical_utf8": "{\"mixed\":[1,\"two\",null,true,{\"k\":\"v\"},[]]}",
+    "depot": {
+      "mixed": [
+        1,
+        "two",
+        null,
+        true,
+        {
+          "k": "v"
+        },
+        []
+      ]
+    },
+    "digest": "0x9041625317562855f8ac82e16e1fb82ede7075ab7dce162088e37bf681372a85",
+    "name": "arrays"
+  },
+  {
+    "canonical_utf8": "{\"max_i64\":9223372036854775807,\"neg\":-9223372036854775808,\"zero\":0}",
+    "depot": {
+      "max_i64": 9223372036854775807,
+      "neg": -9223372036854775808,
+      "zero": 0
+    },
+    "digest": "0x3a9feffa8ad1ffa65007212a2c20a088acecc1cca01c38d97a13e49bb9c7cc40",
+    "name": "big_ints"
+  },
+  {
+    "canonical_utf8": "{\"f\":false,\"n\":null,\"t\":true}",
+    "depot": {
+      "f": false,
+      "n": null,
+      "t": true
+    },
+    "digest": "0x22e00dc2f7b01420f940fbdbfbdf34fa0667cc6500186495023ba37722cbd05e",
+    "name": "booleans_and_null"
+  },
+  {
+    "canonical_utf8": "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":[1,{\"g\":\"h\"}]}}}}}}",
+    "depot": {
+      "a": {
+        "b": {
+          "c": {
+            "d": {
+              "e": {
+                "f": [
+                  1,
+                  {
+                    "g": "h"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "digest": "0x9f2c251c62ee300da9219c168993f46facbeb21410e6266fbeade721ca841c44",
+    "name": "deep"
+  },
+  {
+    "canonical_utf8": "{}",
+    "depot": {},
+    "digest": "0x44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "name": "empty_object"
+  },
+  {
+    "canonical_utf8": "{\"\":\"empty key is legal json\"}",
+    "depot": {
+      "": "empty key is legal json"
+    },
+    "digest": "0xabe6b29180ff26732c796296aa2114e3fcc6110c7f49bc00f1ae74c907d89d82",
+    "name": "empty_string_key"
+  },
+  {
+    "canonical_utf8": "{\"backslash\":\"a\\\\b\",\"bell\":\"a\\u0007b\",\"cr\":\"a\\rb\",\"del\":\"ab\",\"newline\":\"a\\nb\",\"nul_ish\":\"a\\u0001b\",\"quote\":\"a\\\"b\",\"slash\":\"a/b\",\"tab\":\"a\\tb\"}",
+    "depot": {
+      "backslash": "a\\b",
+      "bell": "a\u0007b",
+      "cr": "a\rb",
+      "del": "ab",
+      "newline": "a\nb",
+      "nul_ish": "a\u0001b",
+      "quote": "a\"b",
+      "slash": "a/b",
+      "tab": "a\tb"
+    },
+    "digest": "0xd6477621e071cf2523fe7c9b9465a11585ccd7af394dbff5315406294c8c1249",
+    "name": "escapes"
+  },
+  {
+    "canonical_utf8": "{\"a\":1,\"b\":2}",
+    "depot": {
+      "a": 1,
+      "b": 2
+    },
+    "digest": "0x43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777",
+    "name": "flat"
+  },
+  {
+    "canonical_utf8": "{\"_what\":\"A worked example of what Gates' desktop build publishes when it exists. This file is an EXAMPLE and its hashes are not of anything — do not point a manifest at it. It is here so the shape is reviewable before the first build, and so `test_launcher.py` has something with every field set to check the parser against.\",\"build\":\"0.1.0-alpha.1\",\"depot_version\":1,\"files\":[{\"bytes\":24117256,\"executable\":true,\"path\":\"gates\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"},{\"bytes\":18874368,\"executable\":false,\"path\":\"lib/libgates_sim.so\",\"sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\"},{\"bytes\":5242880,\"executable\":false,\"path\":\"assets/world.pak\",\"sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},{\"bytes\":8,\"executable\":false,\"path\":\"LICENSE\",\"sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"}],\"launch\":{\"args\":[\"--server\",\"{server}\",\"--identity\",\"{wallet}\"],\"cwd\":\".\",\"env\":{\"LD_LIBRARY_PATH\":\"lib\"},\"exec\":\"gates\"},\"notary\":{\"_note\":\"Excluded from the digest, because it is written about it. Recompute with `python3 -c \\\"import json,sys;sys.path.insert(0,'launcher');from scrylauncher.depot import digest;print(digest(json.load(open('launcher/examples/gates.depot.example.json'))))\\\"` and compare against ScryNotary's event log.\",\"digest\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"seq\":null,\"tx\":null},\"platform\":\"linux-x86_64\",\"root\":\"https://scry.moreright.xyz/depot/gates/0.1.0-alpha.1\",\"slug\":\"gates\",\"total_bytes\":48234512}",
+    "depot": {
+      "_what": "A worked example of what Gates' desktop build publishes when it exists. This file is an EXAMPLE and its hashes are not of anything — do not point a manifest at it. It is here so the shape is reviewable before the first build, and so `test_launcher.py` has something with every field set to check the parser against.",
+      "build": "0.1.0-alpha.1",
+      "depot_version": 1,
+      "files": [
+        {
+          "bytes": 24117256,
+          "executable": true,
+          "path": "gates",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "bytes": 18874368,
+          "executable": false,
+          "path": "lib/libgates_sim.so",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "bytes": 5242880,
+          "executable": false,
+          "path": "assets/world.pak",
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "bytes": 8,
+          "executable": false,
+          "path": "LICENSE",
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ],
+      "launch": {
+        "args": [
+          "--server",
+          "{server}",
+          "--identity",
+          "{wallet}"
+        ],
+        "cwd": ".",
+        "env": {
+          "LD_LIBRARY_PATH": "lib"
+        },
+        "exec": "gates"
+      },
+      "notary": {
+        "_note": "Excluded from the digest, because it is written about it. Recompute with `python3 -c \"import json,sys;sys.path.insert(0,'launcher');from scrylauncher.depot import digest;print(digest(json.load(open('launcher/examples/gates.depot.example.json'))))\"` and compare against ScryNotary's event log.",
+        "digest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "seq": null,
+        "tx": null
+      },
+      "platform": "linux-x86_64",
+      "root": "https://scry.moreright.xyz/depot/gates/0.1.0-alpha.1",
+      "slug": "gates",
+      "total_bytes": 48234512
+    },
+    "digest": "0x74df4e402d3f86dc1262787e5b24e0315d4959c86df072c1b4371441f0e79a1e",
+    "name": "gates_example"
+  },
+  {
+    "canonical_utf8": "{\"0\":5,\"A\":4,\"_\":6,\"a\":2,\"m\":3,\"z\":1}",
+    "depot": {
+      "0": 5,
+      "A": 4,
+      "_": 6,
+      "a": 2,
+      "m": 3,
+      "z": 1
+    },
+    "digest": "0x28a46073e7f04f319cf361bc3d182102e8109b252f3c329513f6921d7a9b207f",
+    "name": "key_order"
+  },
+  {
+    "canonical_utf8": "{\"outer\":{\"a\":[3,2,1],\"z\":{\"a\":2,\"y\":1}}}",
+    "depot": {
+      "outer": {
+        "a": [
+          3,
+          2,
+          1
+        ],
+        "z": {
+          "a": 2,
+          "y": 1
+        }
+      }
+    },
+    "digest": "0x225d732779a774ef948e6453f51aa72b541d3984c707ebad24de04717ea88126",
+    "name": "nested_sorting"
+  },
+  {
+    "canonical_utf8": "{\"a\":1,\"notary\":{\"tx\":\"0xdead\"},\"signature\":\"0xbeef\"}",
+    "depot": {
+      "a": 1,
+      "notary": {
+        "tx": "0xdead"
+      },
+      "signature": "0xbeef"
+    },
+    "digest": "0x015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+    "name": "notary_excluded"
+  },
+  {
+    "canonical_utf8": "{\"notary\":{\"tx\":\"0xdead\"}}",
+    "depot": {
+      "notary": {
+        "tx": "0xdead"
+      }
+    },
+    "digest": "0x44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "name": "notary_only"
+  },
+  {
+    "canonical_utf8": "{\"emoji\":\"🐝 hive\"}",
+    "depot": {
+      "emoji": "🐝 hive"
+    },
+    "digest": "0xf77b0ea8eabdb53aaf1eae3df310abf68f0ef719d3509fbb2e382b32ac296989",
+    "name": "surrogate_pair"
+  },
+  {
+    "canonical_utf8": "{\"e\":2,\"é\":1,\"龍\":3}",
+    "depot": {
+      "e": 2,
+      "é": 1,
+      "龍": 3
+    },
+    "digest": "0x258c9ab133614f3e795da73fad3464686392639b207f05ef6a8eaf3f7ab3e7d5",
+    "name": "unicode_keys"
+  },
+  {
+    "canonical_utf8": "{\"cjk\":\"龍\",\"glyph\":\"☠\",\"name\":\"the barrow — a delve\"}",
+    "depot": {
+      "cjk": "龍",
+      "glyph": "☠",
+      "name": "the barrow — a delve"
+    },
+    "digest": "0x64c9d3475789d46b989c0b9b42339e93684368949d7ac518fb5dc04d3d93ed7b",
+    "name": "unicode_values"
+  }
+]

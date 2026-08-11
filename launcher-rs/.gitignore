@@ -1,0 +1,11 @@
+# Build output only.
+/target/
+
+# ⚠ Cargo.lock is NOT ignored, and must never be.
+#
+# It pins the entire transitive dependency tree to exact versions with a
+# SHA-256 checksum each, which is the control that stops the npm-style attack
+# the workspace manifest's policy is about. A binary crate committing its lock
+# is also cargo's own recommendation. Deleting or ignoring this file is the
+# supply-chain regression — not editing a version number.
+!Cargo.lock

@@ -1,0 +1,26 @@
+[package]
+name = "scry-hive"
+description = "the hive, read — the town's talk annex, ripped out of hive.html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bech32 = { workspace = true }
+getrandom = { workspace = true }
+k256 = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+scry-depot = { path = "../scry-depot" }
+scry-net = { path = "../scry-net" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tungstenite = { workspace = true }
+webpki-roots = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }

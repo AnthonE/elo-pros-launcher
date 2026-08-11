@@ -1,0 +1,11 @@
+# forge build artifacts — cache/ can carry sensitive values (RPC URLs)
+out/
+cache/
+broadcast/
+
+# town.env IS committed — it is the address ledger between phases and the
+# repo's own rule is to commit it alongside deployments.json. Its .bak is the
+# transient copy `town_set` writes before each rewrite, so it is one phase
+# stale by construction: committing it would put two disagreeing address
+# ledgers in the tree, which is the exact confusion town.env exists to end.
+town.env.bak

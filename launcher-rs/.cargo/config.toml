@@ -1,0 +1,12 @@
+# Cross-compiling to Windows from linux, so `cargo check --target
+# x86_64-pc-windows-gnu` actually links instead of stopping at a missing
+# linker. mingw-w64 is the only toolchain that gets there without a Windows
+# box: the MSVC target needs `lib.exe`, which `ring`'s build script demands and
+# which does not exist here (`docs/LAUNCHER.md` §12).
+#
+# This is a DEVELOPER convenience for verifying the Windows build. A real
+# Windows release is built on Windows with MSVC; this proves the code compiles
+# and links for the platform, which is the thing that silently rots otherwise.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"

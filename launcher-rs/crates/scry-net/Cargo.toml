@@ -1,0 +1,12 @@
+[package]
+name = "scry-net"
+description = "reads that distinguish 'nothing there' from 'we could not look'"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+scry-depot = { path = "../scry-depot" }
+serde_json = { workspace = true }
+ureq = { workspace = true }

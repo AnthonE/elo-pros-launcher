@@ -1,0 +1,269 @@
+{
+  "_comment": [
+    "Canonical record of scry contracts that are live on-chain.",
+    "foundry's broadcast/ is gitignored (transient gas/tx noise), so a deploy",
+    "receipt lives only on whichever machine ran it. This file is the durable",
+    "record — update it in the same commit as any broadcast.",
+    "An entry here means BROADCAST AND LIVE. Contracts that are written but",
+    "unrun (ScryReputation, ScryJobBoard, ScryInsurancePool) are absent on",
+    "purpose: run `forge test` before broadcast, then add them here."
+  ],
+  "chains": {
+    "4663": {
+      "name": "RH-Chain",
+      "contracts": {
+        "SCRY": {
+          "address": "0xDa2a4b23459e9ca88183e990802be644AcA7C4B0",
+          "source": null,
+          "script": null,
+          "external": true,
+          "consumed_by": "SCRY_TOKEN — arena, bank, hive, holder_snapshot, holders, munus, pools, holdings (GET /holdings/{wallet})",
+          "note": "The reserve. EXTERNAL AND PRE-EXISTING: fair-launched on a launchpad, not deployed by any script in this repo, which is why it carries no deployer, tx or source (TOKENOMICS.md SCRY, PHASES.md). Recorded here because it is broadcast and live -- it is token1 of the live SCRY/WETH pool -- and because its ABSENCE was the root of the address sprawl: with no durable record to read, seven modules each fell back to os.getenv(\"SCRY_TOKEN\", \"0xDa2a...\"), an env var whose default is a literal. 72 files in this repo carry that literal. Fixed supply: nothing mints SCRY, so reward pools are funded by explicit public transfer.",
+          "verified_live": "2026-08-06 — GET /api/pools reports it as token1 of 0xEA8D769eEdEC0eaF19698aEAF4fb3e24f77d7462"
+        },
+        "ScryVowRegistry": {
+          "address": "0x08131e7660639bbd086dffa9375c2a563f1d3590",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x7b94173f1730089c21d909a60f5a87c49424007ac9fbbcf6587b526387c46c29",
+          "source": "src/ScryVowRegistry.sol",
+          "script": "script/DeployScryVowRegistry.s.sol",
+          "consumed_by": "SCRY_VOW_REGISTRY (meter/ecosystem.config.js)"
+        },
+        "ScryNotary": {
+          "address": "0x0C15fA7829458118e3d26229F58FE0443f8b792c",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x4664f44d44f6c17bec3bbc5fe769e97e1507daef8b4371e8e3d5a2522843c368",
+          "block": 18565232,
+          "source": "src/ScryNotary.sol",
+          "script": "script/DeployScryNotary.s.sol",
+          "consumed_by": "SCRY_NOTARY (meter/ecosystem.config.js) — GET /inscribe, GET /onchain, the augury seed beacon",
+          "gate": "forge test --match-contract ScryNotary: 7/7 PASS (2026-07-24)",
+          "note": "permissionless, ownerless, holds no funds - notarize(bytes32,string,string) writes a readable label+memo into the event log with on-chain first-seen priority",
+          "broadcast": "2026-07-25"
+        },
+        "SpoilsToken:OBOL": {
+          "address": "0xa003af4a6c38629a986545afc8f9312c7eb76220",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xfd7475b06ba8556d69c422393b2722faca4a3d9d125d5988e2e305de30465a6b",
+          "source": "src/SpoilsToken.sol",
+          "script": "script/DeploySpoils.s.sol",
+          "consumed_by": "SCRY_OBOL_TOKEN + SCRY_SPOILS_ADDRS.OBOL (meter/ecosystem.config.js) — /api/tokens, /api/pools",
+          "note": "UNCAPPED by design (cap=0); minter is still the deploy wallet until gardener/granary/rotate. Supply after launch 17,767,650 = 17,650,000 pooled + 17,650 canary + 100,000 Garden seed.",
+          "broadcast": "2026-07-29",
+          "verified": true
+        },
+        "SpoilsToken:MYRRH": {
+          "address": "0xde967108cc27db651e8cfec7dd18db814508b893",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x032aa297dd0a1e0115a98c59dc923e250b6c792c7c3c4f85410e85f90c03af09",
+          "source": "src/SpoilsToken.sol",
+          "script": "script/DeploySpoils.s.sol",
+          "consumed_by": "SCRY_MYRRH_TOKEN + SCRY_SPOILS_ADDRS.MYRRH (meter/ecosystem.config.js)",
+          "note": "cap 21,000,000 IMMUTABLE and a lifetime mint budget (_burn never decrements). Supply after launch 2,492,470 = 2,470,000 pooled + 2,470 canary + 20,000 Garden seed.",
+          "broadcast": "2026-07-29",
+          "verified": true
+        },
+        "ScryGarden:MYRRH-OBOL": {
+          "address": "0x41da298526fcf79f69d16076f22a4692d52aabc7",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x789fcc0ed4bd740e1ef25b3fdeebf3d716245edc5fe32a02b339cd7f8d82e278",
+          "source": "src/ScryGarden.sol",
+          "script": "script/DeploySpoils.s.sol",
+          "consumed_by": "the farm's pid 0 (gardener phase, not yet deployed)",
+          "note": "x*y=k, 0.3% fee, opened at exactly 5 OBOL/MYRRH with 100,000 OBOL + 20,000 MYRRH. token0=MYRRH token1=OBOL. SEED total 44,721.359…; 1,000 wei is MINIMUM_LIQUIDITY locked forever (first-depositor guard) and the deploy wallet holds all the rest — removeLiquidity has no owner gate, no timelock.",
+          "broadcast": "2026-07-29",
+          "verified": true
+        },
+        "ScryHarvest:OBOL": {
+          "address": "0x4e9d1837efba102b121c97409da08addcb028d8e",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xb54a66b56ddd7b0121b6f8da52ae35ca3da305d08b7503fc921b8d4ca38e8ad3",
+          "source": "src/ScryHarvest.sol",
+          "script": "script/DeployHarvest.s.sol",
+          "consumed_by": "the players' OBOL merkle claim",
+          "note": "deployed UNFUNDED and with NO root, which is correct: /api/tokens/claim-root is the empty root and total_committed is 0. Fund before posting a non-empty root, never after.",
+          "broadcast": "2026-07-29",
+          "verified": true
+        },
+        "ScryBank": {
+          "address": "0xac3227F678D30BEDc7F50176fC78E55e13E58de4",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "source": "src/ScryBank.sol",
+          "script": "script/DeployScryEconomy.s.sol",
+          "consumed_by": "SCRY_BANK (meter/ecosystem.config.js) + watchtower/bank.config.json bank -> GET /bank, the bank page",
+          "note": "stake SCRY -> xSCRY. OPENS EMPTY AND MUST STAY EMPTY: enter() reads the pool before pulling the deposit, so while totalSupply()==0 the first depositor of any size redeems the whole balance. TREASURY.md P9's 9M waits on a real stake; status prints NOT SEEDABLE until then. totalSupply read back 0 at broadcast.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryFeeSplitter": {
+          "address": "0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "source": "src/ScryFeeSplitter.sol",
+          "script": "script/DeployScryEconomy.s.sol",
+          "consumed_by": "SCRY_FEE_SPLITTER (meter/ecosystem.config.js) + watchtower/bank.config.json feeSplitter; the mandatory immutable for ScryEidolon / ScrySteleEdition / DeployScryMarket",
+          "note": "the one posted route for every SCRY fee. Split READ BACK OFF CHAIN at broadcast: 0x…dEaD 5000 / ScryBank 4000 / dev wallet 0xb474a952… 1000 (SENTENCES 2026-07-27; prizes take no line, so no escrow exists). operator() = the deploy wallet -> multisig per HELD-KEYS.md. setSplit can repost; fees collected before a repost pay out under the split they were collected under.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryCovenant": {
+          "address": "0xf2ddf64a5256c7f004520f12A125D56c6fAf7CE4",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x053b4a7ebe1f792c86656c277b3eadb6a5e83354a6c86568eba3dca5913f4d1e",
+          "source": "src/ScryCovenant.sol",
+          "script": "script/DeployScryCovenant.s.sol",
+          "consumed_by": "SCRY_COVENANT (meter/ecosystem.config.js on the deploy box) -> meter/scry_ops.py covenantCount, GET /onchain",
+          "note": "ONE oath text, N wallets. Permissionless, ownerless, holds no funds - gas is the price. Full oath text lands in CovenantOpened so a human reads words on the explorer, not a hash. renounce() is first-class and recorded: memberCount never falls, activeCount does. No constructor args, no operator, nothing to retire.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryPact": {
+          "address": "0x9E666aDA6EC24C4Ef5F5e78013202585D0f323c2",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xfbdfbe479535291012da96a21165abbddcf9d0a2b27e553c55872aed8f1b6ec7",
+          "source": "src/ScryPact.sol",
+          "script": "script/DeployScryPact.s.sol",
+          "consumed_by": "SCRY_PACT (meter/ecosystem.config.js on the deploy box) -> meter/scry_ops.py pactCount, GET /onchain",
+          "note": "the bilateral cousin of the covenant: 2+ parties, DIFFERENT obligations, ONE document. Not an escrow (holds no funds), not enforcement (slashes nothing), never a verdict. Full terms + every party's role land in PactProposed. Permissionless, ownerless, free. No constructor args, nothing to retire.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryShrine": {
+          "address": "0x013F6575CBAb64C5831062F9eb662eB3219925dE",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "source": "src/ScryShrine.sol",
+          "script": "script/DeployShrine.s.sol",
+          "consumed_by": "SHRINE (contracts/town.env) -> the barrow's votive mirror",
+          "note": "burns only: no grant, no minter, no funds, no way in but offer(). baseStep 100e18 (LAUNCH-DECISIONS.md's 10x redenomination; immutable, no setter). Altar 0 = OBOL 1 point/token, altar 1 = MYRRH 5 points/token, the Book's 5:1 base rate. A rank is a public record and buys nothing - not reputation, not access, not odds. owner() = the deploy wallet, whose only powers are addOffering / setOfferingEnabled / transferOwner.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryShrine:DUPLICATE-DEAD": {
+          "address": "0x8b4e33C3AA06b9376C4E8dd8DFe8B2ffFB4fE86C",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "source": "src/ScryShrine.sol",
+          "script": "script/DeployShrine.s.sol",
+          "status": "DEAD - do not wire, do not verify, do not publish",
+          "note": "A SECOND shrine broadcast by mistake on 2026-07-30: `shrine --arm` was run, its output was truncated by a `head -12` in the pipeline that read it, the broadcast was not seen, and the phase was re-run. Identical bytecode and identical altars to the live one. It holds no funds and never took an offering (totalVotive 0 at the time of writing), but it was a LIVE contract a stranger could have burned real OBOL into for a rank no surface reads - so both altars were closed the same day: setOfferingEnabled(0,false) 0x89edb57f… and setOfferingEnabled(1,false) 0x514891ec…, read back false. offer() now reverts 'altar closed'. It was deliberately NOT submitted for verification — and that turned out not to be ours to decide: Blockscout serves the canonical shrine's source at this address too, by identical-bytecode match (`is_fully_verified` and `is_partially_verified` both read false here, and every external-verifier flag is false, but /api/v2/smart-contracts returns the source). So the intended mitigation of 'leave it unfindable' never held, and the one that actually holds is the one already applied: BOTH ALTARS ARE CLOSED, so offer() reverts.",
+          "broadcast": "2026-07-30",
+          "verified": "bytecode-match only — NOT submitted by us"
+        },
+        "ScryOrchard": {
+          "address": "0x4cB19FC98F37a2615C02515bFbb10174d8c35b69",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x84b4342a0ee3a3df7c8f6972a98f3153a584868fcf480e1f09a55c2b34e1bdd6",
+          "source": "src/ScryOrchard.sol",
+          "script": "script/DeployOrchard.s.sol",
+          "consumed_by": "ORCHARD (contracts/town.env) - the v3 LP staking seasons",
+          "note": "DEPLOYED WITH NO SEASON POSTED, which is the correct opening state - a season is a funded pot and its own operator act (RUNBOOK.md 2 7b: preflight with SEASON_POT for the <=10% reserve cap, then stewardMint -> approve -> createIncentive). rewardToken/npm/factory all IMMUTABLE and read back off chain: OBOL 0xA003af4A / NPM 0x73991a25 / factory 0x1f7d7550. The orchard NEVER mints - a season is funded up front or it does not exist - so this deploy moved no minter and is safe under the 2026-07-30 closing-act hold. Seasons pay OBOL, never MYRRH (SEASONS.md 4); the 2026-07-26 farm flip moved the GARDENER to MYRRH and left this alone.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryGacha": {
+          "address": "0xb63Ce4F300193413884fBf1568548c9b48ba3b0f",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xf15a12d72f1af8d0c7c1d8013b6b93fe883a8753a692637287c37b69e451dfaa",
+          "source": "src/ScryGacha.sol",
+          "script": "script/DeployGacha.s.sol",
+          "consumed_by": "SCRY_GACHA + SCRY_GACHA_POOLS (meter/ecosystem.config.js on the deploy box) -> GET /gacha, GET /gacha/book, watchtower/gacha.html",
+          "note": "READ BACK OFF CHAIN at broadcast: feeSink 0xb474a952 (the dev wallet, operator 2026-07-30, on the standing 07-29 sentence for this class), drawDelay 100 IMMUTABLE, tollRate 0, owner = the deploy wallet. The first pool - StonkBrokers 0x539CdD04 - was OPENED in the same broadcast (openPool, one CALL after the CREATE): min backing 0.01 ETH, surcharge 1000 bps, standing bid 8500 bps FIXED. It holds no NFTs yet, so quote() reads (0x0,0) - an empty pool, not a broken one. Backing, price, fees and bids are native ETH between depositors and buyers; the SCRY toll rail is in the bytecode and DISARMED. drawDelay is 100 L2 blocks read through ArbSys(0x64), NOT Solidity's block.number - on Nitro that would be the parent chain's and would turn a ~10s reveal into ~20 minutes (RUNBOOK 0c).",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryGranary:OBOL": {
+          "address": "0x57a270a37610A750B302889ECD13d48DA78fD3B7",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xcfd1a130c2a3d6e61d09d70ccd0fff9b37cfc03c2a4e6141baa95c044e09f422",
+          "source": "src/ScryGranary.sol",
+          "script": "script/DeployGranary.s.sol",
+          "consumed_by": "GRANARY_OBOL (contracts/town.env) — the silo's drip, every season pot, and the cashier's posted daily cap",
+          "note": "HOLDS OBOL's MINTER SLOT as of 2026-07-30 — read back off chain, OBOL.minter() == this. `spoils()` is the only immutable; steward is the deploy wallet and keeps setGrant / revokeGrant / stewardMint (UNCAPPED) / rotateMinterAway. Nothing was retired: rotateMinterAway hands the slot anywhere, including back to an EOA. The only terminal act is transferSteward, which is TWO-STEP (the successor must call acceptSteward) and which nothing in deploy_town.sh calls.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryGranary:MYRRH": {
+          "address": "0x1fc285b4Fa3a6923b0E5e2fc7A7F0d8765C7f69d",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0xca0f9cab488a4ae745562845d9a5162484e357ded5cc225c45db85e6b11d7a29",
+          "source": "src/ScryGranary.sol",
+          "script": "script/DeployGardener.s.sol",
+          "consumed_by": "GRANARY_MYRRH + the bare GRANARY alias (contracts/town.env) — the farm's crop",
+          "note": "HOLDS MYRRH's MINTER SLOT as of 2026-07-30. ⚠ A ScryGranary binds ONE token, so this and the OBOL one are NOT interchangeable — town.env's bare `GRANARY` alias names THIS (MYRRH) one, and RUNBOOK 7b/7c both warn that a stewardMint on the wrong granary mints the wrong coin. Steward is the deploy wallet.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScryGardener": {
+          "address": "0xa390Da8dB5B5967e25225a5EFeAb22F955417b97",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x4e445a36abdcfb7b11fd10e7031d44db02b198b49d8d6af1762ec67e5cf62cfc",
+          "source": "src/ScryGardener.sol",
+          "script": "script/DeployGardener.s.sol",
+          "consumed_by": "GARDENER (town.env) + watchtower/gardens.config.json -> the farm page",
+          "note": "MYRRH's ONLY SOURCE (FARMING.md 3a) — until this, MYRRH was buy-only and every token of it had been hand-minted. pid 0 = the MYRRH/OBOL Garden SEED. ⚠ IMMUTABLE, no setter: unlockTime 1793238731 = 2026-10-29T01:52Z, the cliff 67% of every harvest locks until; and the halving SHAPE (every 4y, 10 halvings, a 40-year run). Adjustable forever: rewardPerSecond (era-0 base 6944444444444444 = 599 MYRRH/day), lockBps 6700, addPool, setAllocPoint. Its granary grant is 12,500 MYRRH/day and is SIZED BY THE CLIFF, not by emission (final tx 0x416838be…, read back off chain). It spent part of 2026-07-30 at 1,250 — the old '~2x era 0' justification died when era 0 was cut 6,000 -> 600 — and was set back the same day: the 2x ratio was never what binds it. `unlockTime` is. Only the immediate 33% (~198 MYRRH/day) is mintable while rewards lock; on the cliff ~36,120 MYRRH becomes claimable at once and claimLocked is clamped by this same cap, so 12,500 clears the lump in ~3 days against ~29 at 1,250. Nothing is lost at either — claimLocked re-credits the shortfall and zeroes before the call (the 2026-07-27 reentrancy fix) — so the only question was how long a farmer who already waited 90 days waits again. Cost: 0.06% of MYRRH's cap per day, and setGrant lowers immediately with no notice period.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        },
+        "ScrySilo": {
+          "address": "0x2989f6016aC43058B7F1DEC363Ba27100CA34C73",
+          "deployer": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+          "tx": "0x029440d595e1f2e07722c4c1a6530eed691d4bbae4bf0e05f6965b380dd5b7bb",
+          "source": "src/ScrySilo.sol",
+          "script": "script/DeploySilo.s.sol",
+          "consumed_by": "SILO (contracts/town.env)",
+          "note": "Bound to the OBOL granary, read back off chain. ⚠ IMMUTABLE: maxBreakBps 5000 — the seal-break burn at t=0. Grant read back at 250e18 OBOL/day, the posted rate; RUNBOOK 7d records a 10x-low 25e18 as the bug this replaced, where ~4 of every 5 harvested OBOL would silently become a stash IOU with nothing reverting. rewardPerSecond 1388888888888888 = ~120 OBOL/day, adjustable.",
+          "broadcast": "2026-07-30",
+          "verified": true
+        }
+      },
+      "pools": {
+        "_comment": "canonical Uniswap v3, 1% tier, full range. LP position NFTs (6) held by the dev wallet 0xb474a95200bC5de8950E445B1E9d524f4de0f18D. Opened 2026-07-29 at the LAUNCH-DECISIONS table; prices read back off slot0.",
+        "OBOL/SCRY": {
+          "address": "0xfba63d463d7d2b868dd023ef41e9903cd296de12",
+          "opening_price": "10 SCRY per OBOL",
+          "scry_side": 76576500
+        },
+        "MYRRH/SCRY": {
+          "address": "0xa8b10968383bd31e68e5a024029cefd678020590",
+          "opening_price": "50 SCRY per MYRRH",
+          "scry_side": 23523500
+        },
+        "MYRRH/OBOL": {
+          "address": "0x18f02c6f868b1012140f06a08775abbc8158cb15",
+          "opening_price": "5 OBOL per MYRRH",
+          "scry_side": 0
+        }
+      },
+      "claims": {
+        "launch-2026-07-30-b23662441": {
+          "_what": "drop one, the stealth drop. A FRESH ScryHarvest per token per drop — never reuse these for drop two: roots here are CUMULATIVE and claim_plan emits PER-DROP ABSOLUTE amounts, so a shared instance silently underpays or zeroes any wallet in both.",
+          "drop_id": "launch-2026-07-30-b23662441",
+          "snapshot": "snapshots/scry-holders.b23662441.json — block 23,662,441, 217 holders, verified, sum_raw exactly 1,000,000,000 SCRY",
+          "plan": "snapshots/airdrop-plan.launch-2026-07-30-b23662441.json — 55 recipients, reproduces byte-for-byte from its own pinned params",
+          "OBOL": {
+            "address": "0x85Dd9f4C97dD9E2E126725B96a8E86cc302F692e",
+            "tx": "0x49bb2f93f7d07ce245de1a39b85a16135552b8cbc8aade12819b4d8e7207e9e9",
+            "root": "0x33a8fa75b9a24b8ee3409b7f8d4dbd1b63d4dc73c9d0092f9cafa44ecd01e6ea",
+            "total_wei": "450233000000000000000000",
+            "funded_tx": "0x4d525ec5c260e1be7e5e3bac0061e881c4ccc672c7b8b3a2078a0b1e04081645",
+            "merkle": "snapshots/launch-2026-07-30-b23662441.obol.merkle.json",
+            "note": "balance == totalCommitted == owedUnderRoot == 450,233 OBOL, all three read back off chain. Fully backed at open.",
+            "verified": true
+          },
+          "MYRRH": {
+            "address": "0x58EFb8fc14AfF5A604a634aE22Ed674EF835578d",
+            "tx": "0xb991bb08efe06d5ff6096462db3f2af4d4341e60f1ceef3939faca04d63ce41e",
+            "root": "0x87e26ca9e3373e97329130e63374e859976c385e8457ff7b10f5c2b1b237195d",
+            "total_wei": "2400000000000000000000",
+            "funded_tx": "0xe2125fa43cfe2051c1497c4a2d016170e962adbb337feca4516b39c71afabda5",
+            "merkle": "snapshots/launch-2026-07-30-b23662441.myrrh.merkle.json",
+            "note": "the golden-ticket pot: 12 shares x 200 MYRRH landing on 10 wallets (one drew two). Fully backed.",
+            "verified": true
+          },
+          "SCRY": null,
+          "_scry_note": "no SCRY leg — drop one pays none by design; the 10,000,000 SCRY ticket pot is drop two, funded from collected LP fees.",
+          "broadcast": "2026-07-30",
+          "_still_needed": "SCRY_CLAIM_DROP + SCRY_CLAIM_OBOL + SCRY_CLAIM_MYRRH on the meter, and the merkle JSON published into SCRY_CLAIM_DIR. Until then the roots are live on chain but no surface serves a proof."
+        }
+      }
+    }
+  }
+}

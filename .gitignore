@@ -1,0 +1,9 @@
+# Build output. The publish script mirrors TRACKED files only, so nothing here
+# is ever published from upstream — this exists so that building or testing
+# inside a clone of THIS repo does not dirty it.
+/launcher-rs/target/
+/contracts/out/
+/contracts/cache/
+/contracts/broadcast/
+__pycache__/
+*.pyc

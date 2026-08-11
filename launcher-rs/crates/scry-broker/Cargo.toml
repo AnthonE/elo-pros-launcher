@@ -1,0 +1,25 @@
+[package]
+name = "scry-broker"
+description = "the door a game knocks on — the scry overlay protocol, served"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# No new dependency, and that is worth stating: the wire is newline-delimited
+# JSON over a local stream socket, and both halves of that are in std plus the
+# serde_json this workspace already has. The Windows transport is a named pipe
+# through raw kernel32 externs, the same way `scry-depot`'s `is_alive` reaches
+# OpenProcess — a socket does not justify a crate.
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# Dev-only, and a deliberate CYCLE: `scry-vault` depends on this crate for the
+# `Signer` trait, and cargo permits a dev-dependency to point back. It buys the
+# strongest version of the parity test — the vendored SDK talking over a real
+# socket to a host holding a REAL key, whose signature is then recovered back to
+# the address. A stub signature would prove the wire and nothing about whether a
+# game server can actually verify what it receives.
+scry-vault = { path = "../scry-vault" }

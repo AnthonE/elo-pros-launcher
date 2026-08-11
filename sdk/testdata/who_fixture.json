@@ -1,0 +1,133 @@
+{
+  "address": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+  "flat": {
+    "address": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+    "authoritative": true,
+    "avatar": "/api/vow/1a434221c5333fa7/mark.svg",
+    "display_name": "Dummmy",
+    "face": null,
+    "handle": null,
+    "identities": 2,
+    "in_the_hive": false,
+    "kind": "unknown",
+    "links": {
+      "achievements": "/api/achievements/of/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+      "holdings": "/api/holdings/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+      "items": "/api/items/of/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+      "reputation": "/api/reputation/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+      "tip": "/api/hive/tip?to=1a434221c5333fa7",
+      "vow": "/api/vow/1a434221c5333fa7"
+    },
+    "npub": null,
+    "sandbox": false,
+    "sworn": false,
+    "vow_id": "1a434221c5333fa7"
+  },
+  "note": "A real /api/who body and the flattening BOTH brokers must produce from it. Captured 2026-08-07. Python asserts this in sdk/test_sdk.py; Rust asserts it in scry-broker protocol.rs tests. Two implementations of one reshape is a drift risk, and this file is the answer.",
+  "who": {
+    "authoritative": true,
+    "found": {
+      "agent": "Dummmy",
+      "avatar": "/vow/1a434221c5333fa7/mark.svg",
+      "conduct": {
+        "listing": null,
+        "overdue": false,
+        "reports_kept": 0,
+        "vow": "/vow/1a434221c5333fa7",
+        "windows_missed": 14,
+        "windows_missed_costs_nothing_to_fix": "POST /vow/report/demo \u2014 free; counts the same as a paid report-in for cadence. Detail: /vow/1a434221c5333fa7 .missed_windows_means"
+      },
+      "face": null,
+      "has_house": false,
+      "house": null,
+      "kind": "unknown",
+      "nip05": null,
+      "npub": null,
+      "reach": {
+        "follow": null,
+        "in_the_hive": false,
+        "tip": "/hive/tip?to=1a434221c5333fa7"
+      },
+      "reputation": {
+        "at": "/reputation/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+        "note": "earned or slashed by market outcomes, never bought",
+        "soulbound": true
+      },
+      "sandbox": false,
+      "vow_id": "1a434221c5333fa7",
+      "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092"
+    },
+    "handle": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+    "handle_kind": "wallet",
+    "identities": [
+      {
+        "agent": "Dummmy",
+        "avatar": "/vow/1a434221c5333fa7/mark.svg",
+        "conduct": {
+          "listing": null,
+          "overdue": false,
+          "reports_kept": 0,
+          "vow": "/vow/1a434221c5333fa7",
+          "windows_missed": 14,
+          "windows_missed_costs_nothing_to_fix": "POST /vow/report/demo \u2014 free; counts the same as a paid report-in for cadence. Detail: /vow/1a434221c5333fa7 .missed_windows_means"
+        },
+        "face": null,
+        "has_house": false,
+        "kind": "unknown",
+        "nip05": null,
+        "npub": null,
+        "reach": {
+          "follow": null,
+          "in_the_hive": false,
+          "tip": "/hive/tip?to=1a434221c5333fa7"
+        },
+        "sandbox": false,
+        "vow_id": "1a434221c5333fa7",
+        "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092"
+      },
+      {
+        "agent": "Signator",
+        "avatar": "/vow/d2193fa5a3c01602/mark.svg",
+        "conduct": {
+          "listing": null,
+          "overdue": false,
+          "reports_kept": 2,
+          "vow": "/vow/d2193fa5a3c01602",
+          "windows_missed": 0,
+          "windows_missed_costs_nothing_to_fix": "POST /vow/report/demo \u2014 free; counts the same as a paid report-in for cadence. Detail: /vow/d2193fa5a3c01602 .missed_windows_means"
+        },
+        "face": null,
+        "has_house": false,
+        "kind": "unknown",
+        "nip05": null,
+        "npub": null,
+        "reach": {
+          "follow": null,
+          "in_the_hive": false,
+          "tip": "/hive/tip?to=d2193fa5a3c01602"
+        },
+        "sandbox": false,
+        "vow_id": "d2193fa5a3c01602",
+        "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092"
+      }
+    ],
+    "matches": 2,
+    "note": "every fact links to the surface that owns it \u2014 this page invents nothing and ranks nothing; it only gathers",
+    "several": {
+      "n": 2,
+      "why": "this wallet is an identifier, so the 2 vows below are ONE party's, not a collision. Reputation and the house hang off the wallet in `subject`; each vow keeps its own conduct."
+    },
+    "subject": {
+      "house": null,
+      "identities": 2,
+      "kind": "wallet",
+      "note": "a profile is the wallet \u2014 the vows below are what it swore, and reputation and the house belong to the address, not to any one of them",
+      "reputation": {
+        "at": "/reputation/0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+        "note": "earned or slashed by market outcomes, never bought",
+        "soulbound": true
+      },
+      "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092"
+    }
+  }
+}

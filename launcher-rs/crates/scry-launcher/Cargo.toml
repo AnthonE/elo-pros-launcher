@@ -1,0 +1,37 @@
+[package]
+name = "scry-launcher"
+description = "the scry desktop client — install, verify, update and start a game's native build"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "scry"
+path = "src/main.rs"
+
+# No argument-parsing crate on purpose. `clap` is excellent and it is also the
+# single largest dependency this binary would have; a launcher CLI is a dozen
+# verbs and a flag, and the dependency policy in the workspace manifest says
+# the tree is a budget. Parsing lives in `args.rs` and is tested.
+[dependencies]
+scry-depot = { path = "../scry-depot" }
+scry-hive = { path = "../scry-hive" }
+scry-net = { path = "../scry-net" }
+# The account lives behind one crate on purpose (`scry-vault`'s own module
+# note): one crate holds keys and every other crate provably does not. The CLI
+# asking for it does not weaken that — it is the same single door, opened from
+# the half of this client that runs without a display.
+scry-vault = { path = "../scry-vault" }
+# For the `Signer` trait alone, so `scry account sign` goes through the SAME
+# implementation the window does. A second signing path in the CLI is how the
+# two halves start disagreeing about what they signed.
+scry-broker = { path = "../scry-broker" }
+serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = { workspace = true }
