@@ -1,0 +1,99 @@
+# Build the macOS client on Apple hardware.
+#
+# ⚠ THIS FILE IS MIRRORED FROM AnthonE/scry-forge (deploy/scryward/release.yml).
+# Editing it here is overwritten by the next publish.
+#
+# Why this exists at all: Linux and Windows are cross-built on the origin box
+# (mingw links the Windows half fine), but Apple's SDK is required to link a
+# macOS binary and there is no legal way to have one on that box. So the Mac
+# build happens on a Mac, and this is the only Mac we have.
+#
+# It builds BOTH architectures and `lipo`s them into one universal binary, so a
+# downloader does not have to know whether their Mac is Intel or Apple Silicon.
+#
+# ⚠ The artifact is UNSIGNED AND UNNOTARIZED. We hold no Apple Developer
+# certificate, so Gatekeeper will refuse it on first run until the user does
+# right-click ▸ Open or clears the quarantine attribute. That is stated on the
+# download page rather than papered over.
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the build to (e.g. v0.2.0). Leave blank to build only."
+        required: false
+        default: ""
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14          # Apple Silicon; cross-builds the x86_64 half too
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add both Apple targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version && cmake --version | head -1
+
+      - name: Build and package the universal tarball
+        run: python3 launcher-rs/build_release.py --macos
+
+      # The tarball lands in watchtower/dl/ because build_release.py writes
+      # relative to the repo root. Only the tarball is taken: the SHA256SUMS it
+      # writes alongside covers just this one file, and the real one is rebuilt
+      # on the origin from the whole directory once all three artifacts are in.
+      - name: Name what was built
+        id: art
+        run: |
+          f=$(ls watchtower/dl/scry-*-macos-universal.tar.gz)
+          echo "path=$f" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$f")" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$f"
+          tar -tzf "$f"
+
+      - name: Prove the binary is actually universal
+        run: |
+          tar -xzf "${{ steps.art.outputs.path }}" -C /tmp
+          d=/tmp/$(basename "${{ steps.art.outputs.name }}" .tar.gz)
+          file "$d/scry" "$d/scry-gui"
+          lipo -archs "$d/scry"
+          lipo -archs "$d/scry-gui"
+          # A universal binary reports both arches. If lipo prints one, the
+          # fuse silently produced a single-arch file and half the Macs that
+          # download this would get an executable that cannot run.
+          for b in scry scry-gui; do
+            archs=$(lipo -archs "$d/$b")
+            case "$archs" in
+              *arm64*x86_64*|*x86_64*arm64*) echo "ok  $b: $archs" ;;
+              *) echo "FAIL $b is not universal: $archs" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Smoke the CLI on the runner
+        run: |
+          d=/tmp/$(basename "${{ steps.art.outputs.name }}" .tar.gz)
+          "$d/scry" --version || "$d/scry" version || true
+          # Non-fatal: the point of the run above is that the binary LOADS on
+          # macOS — which is the one thing no cross-build could ever tell us.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: ${{ steps.art.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag }}"
+          [ -z "$tag" ] && tag="${GITHUB_REF_NAME}"
+          gh release upload "$tag" "${{ steps.art.outputs.path }}" --clobber

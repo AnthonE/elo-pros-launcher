@@ -61,6 +61,21 @@ WIN_TARGET = "x86_64-pc-windows-gnu"
 LINUX_BIN = HERE / "target" / "release"
 WIN_BIN = HERE / "target" / WIN_TARGET / "release"
 
+# ── macOS, and why it is not in the default run ──────────────────────────────
+#
+# Apple builds need Apple's SDK to LINK — `scry-gui` binds Cocoa through FLTK,
+# and even the headless `scry` needs libSystem. There is no macOS SDK on the
+# build box and osxcross is not installed, so `--macos` is a mode that runs ON
+# a Mac (the scryward CI job on a GitHub `macos-*` runner) and not a
+# cross-target the Linux run can quietly skip. Trying it here fails at the
+# linker, which is the honest outcome — a "macOS build" produced without the
+# SDK would not be one.
+#
+# ONE artifact, both architectures. `lipo` fuses arm64 and x86_64 into a
+# universal binary so a downloader does not have to know which Mac they own,
+# which is the Apple-idiomatic answer and keeps the site to one macOS row.
+MAC_TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+
 PKG = "scry"
 
 
@@ -78,6 +93,7 @@ VERSION = version()
 DEB_NAME = f"{PKG}_{VERSION}_amd64.deb"
 TGZ_NAME = f"{PKG}-{VERSION}-linux-x86_64.tar.gz"
 ZIP_NAME = f"{PKG}-{VERSION}-windows-x86_64.zip"
+MAC_NAME = f"{PKG}-{VERSION}-macos-universal.tar.gz"
 
 # ── the Depends line, and why it is checked rather than trusted ──────────────
 #
@@ -419,6 +435,50 @@ def build_tgz(cli: bytes, gui: bytes) -> bytes:
                    [f"./{root}/"])
 
 
+def build_mac_tgz(cli: bytes, gui: bytes) -> bytes:
+    """The same shape as the Linux tarball — two binaries and the copyright.
+
+    No .app bundle and no .dmg on purpose: `scry-gui` is a plain executable, an
+    unsigned bundle buys nothing Gatekeeper will honour, and a .dmg would only
+    add a mount step in front of the same two files. Unsigned and unnotarized
+    is stated on the download page rather than papered over — first run needs
+    right-click ▸ Open, or `xattr -d com.apple.quarantine`.
+    """
+    root = f"{PKG}-{VERSION}-macos-universal"
+    return _tar_gz([(f"./{root}/scry", cli, 0o755),
+                    (f"./{root}/scry-gui", gui, 0o755),
+                    (f"./{root}/COPYRIGHT", COPYRIGHT.encode(), 0o644)],
+                   [f"./{root}/"])
+
+
+def lipo(name: str) -> bytes:
+    """Fuse the per-arch builds into one universal binary."""
+    ins = [HERE / "target" / t / "release" / name for t in MAC_TARGETS]
+    for p in ins:
+        if not p.is_file():
+            raise SystemExit(f"{p} is missing — build both macOS targets first")
+    out = HERE / "target" / f"universal-{name}"
+    subprocess.run(["lipo", "-create", *[str(p) for p in ins], "-output", str(out)],
+                   check=True)
+    return out.read_bytes()
+
+
+def write_sums() -> None:
+    """Rebuild SHA256SUMS from what is actually in dl/.
+
+    Rebuilt from the DIRECTORY, never from any one packager's idea of the list,
+    because artifacts now arrive from two machines: Linux and Windows are cross
+    built here, macOS comes off a Mac in CI. A reader checking one file should
+    not have to know which packager wrote it.
+    """
+    lines = []
+    for p in sorted(OUT.iterdir()):
+        if p.is_file() and p.name != "SHA256SUMS":
+            lines.append(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}")
+    (OUT / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote {OUT / 'SHA256SUMS'}  ({len(lines)} artifacts)")
+
+
 def build_zip(cli: bytes, gui: bytes) -> bytes:
     return _zip([("scry.exe", cli), ("scry-gui.exe", gui),
                  ("README.txt", README_WIN.replace("\n", "\r\n").encode()),
@@ -448,7 +508,38 @@ def main(argv=None) -> int:
                     help="verify the committed artifacts against SHA256SUMS")
     ap.add_argument("--no-cargo", action="store_true",
                     help="package binaries already in target/, do not build")
+    ap.add_argument("--macos", action="store_true",
+                    help="build and package the macOS universal tarball. Must run "
+                         "ON a Mac — Apple's SDK is required to link")
+    ap.add_argument("--sums", action="store_true",
+                    help="rebuild SHA256SUMS from dl/ and exit. Run after dropping "
+                         "a CI-built artifact in")
     args = ap.parse_args(argv)
+
+    if args.sums:
+        write_sums()
+        return 0
+
+    # macOS is its own run because it happens on different hardware. It writes
+    # ONE artifact and then rebuilds the sums from the directory, so it composes
+    # with the Linux/Windows run rather than replacing its output.
+    if args.macos:
+        if sys.platform != "darwin":
+            print(f"--macos must run on a Mac; this is {sys.platform}. Apple's SDK is\n"
+                  f"required to link, so there is no honest cross-build from here.\n"
+                  f"The scryward CI job builds it on a macos runner.", file=sys.stderr)
+            return 2
+        if not args.no_cargo:
+            for target in MAC_TARGETS:
+                print(f"building {target}")
+                cargo(target)
+        data = build_mac_tgz(lipo("scry"), lipo("scry-gui"))
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / MAC_NAME).write_bytes(data)
+        print(f"wrote {OUT / MAC_NAME}  {len(data):,}B  "
+              f"sha256 {hashlib.sha256(data).hexdigest()}")
+        write_sums()
+        return 0
 
     # --check never builds and never needs a toolchain. It is the gate the site
     # suite runs, so it must work on a machine with no cargo at all: it asks
