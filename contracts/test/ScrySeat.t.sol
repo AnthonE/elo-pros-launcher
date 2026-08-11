@@ -43,6 +43,44 @@ contract MockSCRY {
 /// Refuses ETH — proves `sweep()` surfaces a failed push instead of eating it.
 contract RejectingProceeds {}
 
+/// Stands in for `ScrySeatArt`. It ECHOES its arguments rather than drawing
+/// anything, which is the only thing worth asserting on this side of the hinge:
+/// that the collection hands the renderer the seat's LIVE tier, its door and the
+/// revealed salt. The art itself is gated by `art/seat/test_parity.py`, which
+/// runs the real renderer in an EVM — duplicating that here would prove nothing
+/// and drift.
+contract SeatMockRenderer {
+    function tokenURI(uint256 tokenId, uint8 tier, uint8 door, string calldata salt)
+        external
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            "R:", vm2s(tokenId), "/", vm2s(tier), "/", vm2s(door), "/", bytes(salt).length == 0 ? "sealed" : salt
+        );
+    }
+
+    function contractURI() external pure returns (string memory) {
+        return "R:collection";
+    }
+
+    function vm2s(uint256 v) internal pure returns (string memory) {
+        if (v == 0) return "0";
+        uint256 n = v;
+        uint256 len;
+        while (n != 0) {
+            len++;
+            n /= 10;
+        }
+        bytes memory s = new bytes(len);
+        while (v != 0) {
+            s[--len] = bytes1(uint8(48 + (v % 10)));
+            v /= 10;
+        }
+        return string(s);
+    }
+}
+
 contract ScrySeatTest is Test {
     ScrySeat seat;
     MockSCRY scry;
@@ -860,6 +898,129 @@ contract ScrySeatTest is Test {
         assertEq(seat.contractURI(), "https://scry.moreright.xyz/api/seat/collection");
         vm.expectRevert("no such seat");
         seat.tokenURI(999);
+    }
+
+    // ═══ the renderer hinge — AND IT IS THE PATH THAT SHIPS ═══
+    // ⚠ Every metadata test above this line exercises `renderer == address(0)`,
+    // the baseURI bootstrap. `DeploySeat.s.sol` wires `ScrySeatArt` on the same
+    // broadcast that deploys the collection, so the fallback is what NOTHING in
+    // production uses — and the delegation, the freeze and the ERC-4906 notices
+    // that ride them had no coverage on either side of the hinge at all.
+
+    function test_the_renderer_is_handed_the_seats_live_tier_door_and_salt() public {
+        uint256 id = _mintOneTo(alice); // door 4
+        seat.setRenderer(address(new SeatMockRenderer()));
+        assertEq(seat.tokenURI(id), "R:1/0/4/sealed", "benched, sealed, paid door");
+
+        (uint256[] memory costs,) = _ladder();
+        scry.mint(alice, costs[2]);
+        vm.startPrank(alice);
+        scry.approve(address(seat), costs[2]);
+        seat.activate(id, 3);
+        vm.stopPrank();
+        assertEq(seat.tokenURI(id), "R:1/3/4/sealed", "the tier the renderer sees is the LIVE one");
+
+        seat.closeMint();
+        seat.revealSalt(SALT);
+        assertEq(seat.tokenURI(id), string.concat("R:1/3/4/", SALT), "and the salt arrives on reveal");
+        assertEq(seat.contractURI(), "R:collection", "the collection document delegates too");
+    }
+
+    function test_setRenderer_zero_takes_the_built_in_path_back() public {
+        uint256 id = _mintOneTo(alice);
+        seat.setRenderer(address(new SeatMockRenderer()));
+        assertEq(seat.tokenURI(id), "R:1/0/4/sealed");
+        seat.setRenderer(address(0));
+        assertEq(seat.tokenURI(id), "https://scry.moreright.xyz/api/seat/1/metadata");
+        assertEq(seat.contractURI(), "https://scry.moreright.xyz/api/seat/collection");
+    }
+
+    /// ⚠ ONE WAY, FROM EVERY KEY, FOREVER. This is the answer to the question
+    /// this audience actually asks of an NFT — *can the team change my picture* —
+    /// and it has to be arithmetic rather than a promise.
+    function test_freezeMetadata_is_one_way_and_shuts_both_pointers() public {
+        _mintOneTo(alice);
+        address r = address(new SeatMockRenderer());
+        seat.setRenderer(r);
+        assertFalse(seat.metadataFrozen());
+
+        seat.freezeMetadata();
+        assertTrue(seat.metadataFrozen());
+        assertEq(seat.renderer(), r, "the pointer freezes where it stands");
+
+        vm.expectRevert("metadata frozen");
+        seat.setRenderer(address(0));
+        vm.expectRevert("metadata frozen");
+        seat.setBaseURI("ipfs://somewhere-else");
+        vm.expectRevert("already frozen");
+        seat.freezeMetadata();
+
+        // and the owner's own key buys nothing back
+        seat.transferOwnership(alice);
+        vm.prank(alice);
+        vm.expectRevert("metadata frozen");
+        seat.setRenderer(address(0));
+    }
+
+    function test_only_the_owner_moves_metadata() public {
+        vm.startPrank(alice);
+        vm.expectRevert("not owner");
+        seat.setRenderer(address(1));
+        vm.expectRevert("not owner");
+        seat.freezeMetadata();
+        vm.stopPrank();
+    }
+
+    // ═══ ERC-4906: the collection declares it, so it has to emit it ═══
+    // ⚠ `MetadataUpdate` was DECLARED AND NEVER EMITTED. With a renderer wired,
+    // tier is a live attribute of the token — so an activation and a
+    // clear-on-transfer both rewrite the served JSON, and a marketplace goes on
+    // serving its cache until an event says otherwise. `supportsInterface`
+    // returns true for 0x49064906; that has to be a fact rather than a claim.
+
+    event MetadataUpdate(uint256 _tokenId); // mirrored locally for expectEmit
+
+    function test_activating_emits_the_erc4906_notice() public {
+        uint256 id = _mintOneTo(alice);
+        (uint256[] memory costs,) = _ladder();
+        scry.mint(alice, costs[0]);
+        vm.startPrank(alice);
+        scry.approve(address(seat), costs[0]);
+        vm.expectEmit(true, true, true, true, address(seat));
+        emit MetadataUpdate(id);
+        seat.activate(id, 1);
+        vm.stopPrank();
+    }
+
+    function test_the_tier_clear_emits_the_notice_too() public {
+        uint256 id = _mintOneTo(alice);
+        (uint256[] memory costs,) = _ladder();
+        scry.mint(alice, costs[0]);
+        vm.startPrank(alice);
+        scry.approve(address(seat), costs[0]);
+        seat.activate(id, 1);
+        vm.expectEmit(true, true, true, true, address(seat));
+        emit MetadataUpdate(id);
+        seat.transferFrom(alice, bob, id);
+        vm.stopPrank();
+        assertEq(seat.tierOf(id), 0);
+    }
+
+    /// The mirror image, and the reason the emit sits INSIDE the `held != 0`
+    /// branch: moving a benched seat changes no served byte, so it owes no
+    /// notice. An event on every transfer would be noise a marketplace pays to
+    /// re-fetch nothing.
+    function test_a_transfer_that_clears_nothing_emits_no_notice() public {
+        uint256 id = _mintOneTo(alice);
+        vm.recordLogs();
+        vm.prank(alice);
+        seat.transferFrom(alice, bob, id);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("MetadataUpdate(uint256)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertTrue(logs[i].topics[0] != sig, "a benched seat emitted a metadata notice");
+        }
+        assertEq(logs.length, 1, "one Transfer, and nothing else");
     }
 
     function test_balances_track_transfers() public {

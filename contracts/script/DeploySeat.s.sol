@@ -31,15 +31,19 @@ import "../src/ScrySeatArt.sol";
 ///   # addresses — read the real ones out of deployments.json, never retype:
 ///   export SEAT_SCRY=0x...                # chains.4663.contracts.SCRY
 ///   export SEAT_SPLITTER=0x...            # chains.4663.contracts.ScryFeeSplitter
+///   # THE WELDED FIGURES — no defaults, and the run aborts naming the one you
+///   # missed. A cap of 0 is a real answer (it collapses §4's scheduling knob to
+///   # "wait for a playable title"); it just has to be typed, because an
+///   # unclaimable door is immutable and looks exactly like an open one.
+///   export SEAT_SUPPLY=8192               # operator, 2026-08-08
+///   export SEAT_SNAPSHOT_CAP=...          # door 1's reserve
+///   export SEAT_PLAY_CAP=...              # door 2 — reserved; waits on a title
+///   export SEAT_BUILD_CAP=...             # door 3 — the board is live today
+///   export SEAT_TREASURY_CAP=100          # operator, 2026-08-08
+///   export SEAT_BURN_BPS=5000             # the welded activation burn
 ///   # optional:
 ///   # export SEAT_PROCEEDS=0x...          # where swept ETH lands; default dev wallet
-///   # export SEAT_SUPPLY=8192             # operator, 2026-08-08
-///   # export SEAT_SNAPSHOT_CAP=...        # door 1's reserve
-///   # export SEAT_PLAY_CAP=...            # door 2 — reserved; waits on a title
-///   # export SEAT_BUILD_CAP=...           # door 3 — the board is live today
-///   # export SEAT_TREASURY_CAP=100        # operator, 2026-08-08
 ///   # export SEAT_ROYALTY_BPS=500         # ERC-2981, to the splitter. Max 1000
-///   # export SEAT_BURN_BPS=5000           # the welded activation burn
 ///   # export SEAT_BASE_URI=https://scry.moreright.xyz/api
 ///   # THE LADDER — comma-separated, ascending, same length, SUBLINEAR.
 ///   # ⚠ THE WEIGHTS BELOW ARE THE OPERATOR'S, CLOSED 2026-08-11 (SENTENCES.md,
@@ -107,6 +111,28 @@ contract DeploySeat is Script {
         }
     }
 
+    /// ⚠ A WELDED FIGURE HAS NO DEFAULT, AND THIS IS THE FUNCTION THAT MEANS IT.
+    /// The header above has always promised that supply, the reserved caps and
+    /// the burn "must be typed, and the run aborts rather than guess" — but only
+    /// the ladder actually aborted; the rest were `vm.envOr(..., 0)`. A deploy
+    /// that forgot `SEAT_SNAPSHOT_CAP` therefore welded a collection where door 1
+    /// can NEVER mint: `setDoorRoot(1, …)` still succeeds, the card still reads
+    /// the door as open, and every `claim` reverts "door's reserve spent" for as
+    /// long as the contract exists, because the caps are immutable. A cap of 0
+    /// is a legitimate and documented choice (§4's scheduling knob) — it just has
+    /// to be a choice somebody made, which is exactly the difference a default
+    /// erases. `type(uint256).max` is the sentinel because no cap can be it.
+    function _mustUint(string memory name) internal view returns (uint256 v) {
+        v = vm.envOr(name, type(uint256).max);
+        require(
+            v != type(uint256).max,
+            string.concat(
+                "set ", name, " - it is welded at construction and immutable afterwards, so this "
+                "script will not guess it. 0 is a valid answer; it has to be typed"
+            )
+        );
+    }
+
     /// Whole SCRY in the env, 18-decimal units into the constructor. The env is
     /// typed by a person, so it takes the unit a person says out loud.
     function _costs(string memory csv) internal pure returns (uint256[] memory out) {
@@ -135,15 +161,17 @@ contract DeploySeat is Script {
         address proceeds = vm.envOr("SEAT_PROCEEDS", DEV_WALLET);
 
         uint256[5] memory caps = [
-            vm.envOr("SEAT_SUPPLY", uint256(8192)),
-            vm.envOr("SEAT_SNAPSHOT_CAP", uint256(0)),
-            vm.envOr("SEAT_PLAY_CAP", uint256(0)),
-            vm.envOr("SEAT_BUILD_CAP", uint256(0)),
-            vm.envOr("SEAT_TREASURY_CAP", uint256(100))
+            _mustUint("SEAT_SUPPLY"),
+            _mustUint("SEAT_SNAPSHOT_CAP"),
+            _mustUint("SEAT_PLAY_CAP"),
+            _mustUint("SEAT_BUILD_CAP"),
+            _mustUint("SEAT_TREASURY_CAP")
         ];
 
+        // The royalty is not in the welded set: it is a request marketplaces may
+        // ignore, and 500 is the posted figure rather than a guess at one.
         uint96 royaltyBps = uint96(vm.envOr("SEAT_ROYALTY_BPS", uint256(500)));
-        uint16 burnBps = uint16(vm.envOr("SEAT_BURN_BPS", uint256(5000)));
+        uint16 burnBps = uint16(_mustUint("SEAT_BURN_BPS"));
         bytes32 commitment = vm.envBytes32("SEAT_SALT_COMMITMENT");
 
         // Sequential, not an inline default: a url literal inside envOr's

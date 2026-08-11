@@ -592,6 +592,84 @@ contract ScryCisternTest is Test {
         cistern.claim(1, a, _zeros());
     }
 
+    // ── the round is a SNAPSHOT, in both of its terms ════════════════════════
+    // ⚠ THE BUG THESE FOUR EXIST FOR. `claim` and `recycle` tested
+    // `openedAt + roundWindow` against the CURRENT storage knob rather than the
+    // round's own, so `setRoundWindow` — untimelocked, because it cannot time a
+    // buy — reached backwards into every round already running. Nothing could
+    // leave the contract, but an operator holding seats could cancel everybody
+    // else's unclaimed share on demand and recapture a weighted slice of it in
+    // the next round. `Round.totalWeight` had always been snapshotted for the
+    // mirror-image reason; `Round.window` now is too.
+
+    function test_shortening_the_window_cannot_close_a_round_already_open() public {
+        uint256 a = _seatFor(alice);
+        uint256 b = _seatFor(bob);
+        _activate(alice, a, 1);
+        _activate(bob, b, 1);
+        _fill(THRESHOLD);
+        _tick();
+        cistern.open();
+        assertEq(cistern.rounds(0).window, WINDOW, "the round carries the term it opened under");
+
+        // alice takes hers; bob has not moved yet
+        vm.prank(alice);
+        cistern.claim(0, a, _zeros());
+
+        cistern.setRoundWindow(1); // the operator slams it shut
+        vm.warp(_now() + 2); // past the NEW window, nowhere near the round's own
+
+        assertEq(cistern.roundWindow(), 1, "the knob did move");
+        vm.expectRevert("round still open");
+        cistern.recycle(0);
+
+        (uint256 share, string memory why) = cistern.previewClaim(0, b);
+        assertGt(share, 0, "and preview agrees the round is still live");
+        assertEq(why, "");
+
+        vm.prank(bob);
+        uint256 got = cistern.claim(0, b, _zeros());
+        assertGt(got, 0, "bob's share was never the operator's to cancel");
+    }
+
+    function test_lengthening_the_window_cannot_reopen_a_round_already_closed() public {
+        uint256 a = _seatFor(alice);
+        _activate(alice, a, 1);
+        _fill(THRESHOLD);
+        _tick();
+        cistern.open();
+
+        vm.warp(_now() + WINDOW); // the round's own term is up
+        cistern.setRoundWindow(365 days);
+
+        vm.prank(alice);
+        vm.expectRevert("round window closed");
+        cistern.claim(0, a, _zeros());
+        cistern.recycle(0); // and it is still recyclable, by anyone
+    }
+
+    function test_the_new_window_governs_the_NEXT_round() public {
+        uint256 a = _seatFor(alice);
+        _activate(alice, a, 1);
+        _fill(THRESHOLD);
+        _tick();
+        cistern.open();
+        assertEq(cistern.rounds(0).window, WINDOW);
+
+        cistern.setRoundWindow(1 days); // a real, forward-looking policy change
+        vm.prank(alice);
+        cistern.claim(0, a, _zeros());
+
+        _fill(THRESHOLD);
+        _tick();
+        cistern.open();
+        assertEq(cistern.rounds(1).window, 1 days, "round 1 opened under the new term");
+        assertEq(cistern.rounds(0).window, WINDOW, "and round 0 kept its own, forever");
+
+        vm.warp(_now() + 1 days);
+        cistern.recycle(1); // round 1 closes on ITS window
+    }
+
     // ── the wall: no admin path to anyone's money ════════════════════════════
 
     function test_there_is_no_rescue_pause_or_admin_withdrawal() public {

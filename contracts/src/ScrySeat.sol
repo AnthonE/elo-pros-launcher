@@ -136,9 +136,15 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///
 ///         BIRTH GEAR IS DERIVED, NEVER STORED, AND HAS NO WITHDRAW PATH.
 ///         `saltCommitment` is `sha256(salt)`, immutable at deploy and before
-///         mint #1; every seat's rolled cosmetic is `sha256(salt ‖ tokenId)`,
+///         mint #1; every seat's rolled cosmetic is `keccak256(salt ‖ tokenId)`,
 ///         published after mint-out so anyone recomputes the whole run in any
-///         language and checks it against the commitment. This is
+///         language and checks it against the commitment.
+///         ⚠ THE TWO HASHES ARE DIFFERENT AND BOTH HALVES ARE LOAD-BEARING:
+///         `sha256` SEALS the salt, `keccak256` ROLLS each seat off it
+///         (`ScrySeatArt.traitsOf`, `art/seat/sprites.py`). This header said
+///         sha256 for both, which is the one error that makes an honest
+///         recomputation come out wrong — and recomputability is the entire
+///         point of committing. This is
 ///         `ScryEidolon`'s sealed-salt deck, harvested exactly as `SCRY-HIVE.md` §8
 ///         directs — the collection it was written for is dropped, the
 ///         machinery is the best thing in the repo. StonkBrokers seed a real
@@ -415,7 +421,7 @@ contract ScrySeat is ReentrancyGuard {
     /// #1 — the check is the honesty anchor, so a wrong or convenient salt
     /// reverts.
     /// ⚠ THE ORDER IS LOAD-BEARING. Reveal before the run ends and a minter
-    /// computes `sha256(salt ‖ nextTokenId)` before paying, which turns a
+    /// computes `keccak256(salt ‖ nextTokenId)` before paying, which turns a
     /// sealed deck into a menu. Hence: minted out, or closed.
     function revealSalt(string calldata salt) external onlyOwner {
         require(bytes(revealedSalt).length == 0, "already revealed");
@@ -539,6 +545,13 @@ contract ScrySeat is ReentrancyGuard {
             SafeERC20.safeTransferFrom(address(scry), msg.sender, feeSplitter, toSplitter, "splitter leg failed");
         }
         emit Activated(tokenId, tier, owed, burned);
+        // ⚠ ERC-4906, AND IT IS NOT DECORATION HERE. `ScrySeatArt` renders tier
+        // as a live attribute of the token, so a seat that sits down has NEW
+        // metadata — and a marketplace serves whatever it cached until an event
+        // tells it otherwise. This contract declares 0x49064906 in
+        // `supportsInterface`, so the notice has to exist or the declaration is
+        // a claim nothing backs.
+        emit MetadataUpdate(tokenId);
     }
 
     /// The seat's distribution weight, x100. A benched seat weighs nothing —
@@ -685,6 +698,11 @@ contract ScrySeat is ReentrancyGuard {
             totalWeight -= _tierWeight[held - 1];
             tierSetAt[tokenId] = uint64(block.timestamp);
             emit TierCleared(tokenId, held);
+            // The clear rewrites the token's metadata exactly as an activation
+            // does, so it carries the same ERC-4906 notice (see `activate`).
+            // Only when a tier actually fell: the election is not rendered, so
+            // clearing one changes no served byte and owes no event.
+            emit MetadataUpdate(tokenId);
         }
         Election storage e = _election[tokenId];
         for (uint256 i = 0; i < MAX_ELECTION; i++) {

@@ -91,14 +91,16 @@ interface ISwapRouter {
 ///         route, no router and no counterparty — so this contract works on the
 ///         day it is deployed with no pools posted at all.
 ///
-///         **A round is a snapshot, and a tier change never reaches backwards
-///         into one.** `Round.totalWeight` is read at `open()`; a seat whose
-///         `tierSetAt` is later than `openedAt` sits that round out and counts
-///         from the next. Without that rule, upgrading between the open and the
-///         claim mints a larger share out of everybody else's.
+///         **A round is a snapshot, and NOTHING reaches backwards into one.**
+///         Both of the round's terms are fixed at `open()`: `totalWeight`, so a
+///         seat whose `tierSetAt` is later than `openedAt` sits that round out
+///         and counts from the next; and `window`, so the operator's knob
+///         decides the NEXT round rather than one already running. The first
+///         stops a holder upgrading a larger share out of everybody else's; the
+///         second stops the house cancelling one. Neither is conduct.
 ///
-///         **Unclaimed value is never stranded and never swept.** After
-///         `roundWindow` anyone calls `recycle`, and the remainder simply
+///         **Unclaimed value is never stranded and never swept.** After the
+///         round's own window anyone calls `recycle`, and the remainder simply
 ///         becomes part of the next round's pot. It cannot leave to an
 ///         operator, because nothing here can.
 ///
@@ -125,7 +127,7 @@ contract ScryCistern is ReentrancyGuard {
 
     address public operator;
     uint16 public tipBps;
-    uint32 public roundWindow; // seconds a round stays claimable before recycle
+    uint32 public roundWindow; // seconds a round stays claimable; copied into each round at open()
     uint256 public threshold; // the bar
 
     /// SCRY owed to open rounds. `pooled()` is the balance minus this, so a
@@ -139,6 +141,19 @@ contract ScryCistern is ReentrancyGuard {
         uint256 paid;
         uint256 totalWeight;
         uint64 openedAt;
+        /// ⚠ THE WINDOW IS SNAPSHOTTED, NOT READ LIVE, and that is the same rule
+        /// `totalWeight` above obeys for the same reason. `claim` and `recycle`
+        /// used to test `openedAt + roundWindow` against the CURRENT storage
+        /// knob, so `setRoundWindow` — which carries no timelock, because it
+        /// cannot time a buy — reached backwards into every round already open:
+        /// set it to 1 and every pending claim reverts "round window closed" and
+        /// every open round becomes recyclable in the same block. Nothing leaves
+        /// the contract that way (nothing can), but an operator holding seats
+        /// would be converting other holders' unclaimed shares into a pot they
+        /// draw from, on demand and with no delay. It ran the other way too: a
+        /// longer window re-opened rounds that had already closed.
+        /// A round is a snapshot. The knob decides the NEXT one.
+        uint32 window;
         bool recycled;
     }
 
@@ -250,7 +265,14 @@ contract ScryCistern is ReentrancyGuard {
 
         roundId = _rounds.length;
         _rounds.push(
-            Round({pot: potAfterTip, paid: 0, totalWeight: tw, openedAt: uint64(block.timestamp), recycled: false})
+            Round({
+                pot: potAfterTip,
+                paid: 0,
+                totalWeight: tw,
+                openedAt: uint64(block.timestamp),
+                window: roundWindow,
+                recycled: false
+            })
         );
         outstanding += potAfterTip;
 
@@ -276,7 +298,7 @@ contract ScryCistern is ReentrancyGuard {
         require(roundId < _rounds.length, "no such round");
         Round storage r = _rounds[roundId];
         require(!r.recycled, "round recycled");
-        require(block.timestamp < r.openedAt + roundWindow, "round window closed");
+        require(block.timestamp < r.openedAt + r.window, "round window closed");
         require(!claimed[roundId][tokenId], "already claimed");
 
         address holder = seat.ownerOf(tokenId);
@@ -372,7 +394,7 @@ contract ScryCistern is ReentrancyGuard {
         require(roundId < _rounds.length, "no such round");
         Round storage r = _rounds[roundId];
         require(!r.recycled, "already recycled");
-        require(block.timestamp >= r.openedAt + roundWindow, "round still open");
+        require(block.timestamp >= r.openedAt + r.window, "round still open");
         remainder = r.pot - r.paid;
         r.recycled = true;
         if (remainder > 0) outstanding -= remainder; // the SCRY stays put; pooled() picks it back up
@@ -396,7 +418,7 @@ contract ScryCistern is ReentrancyGuard {
         if (roundId >= _rounds.length) return (0, "no such round");
         Round storage r = _rounds[roundId];
         if (r.recycled) return (0, "round recycled");
-        if (block.timestamp >= r.openedAt + roundWindow) return (0, "round window closed");
+        if (block.timestamp >= r.openedAt + r.window) return (0, "round window closed");
         if (claimed[roundId][tokenId]) return (0, "already claimed");
         if (seat.tierSetAt(tokenId) >= r.openedAt) return (0, "tier moved after this round opened");
         uint256 w = seat.weightOf(tokenId);
@@ -450,7 +472,9 @@ contract ScryCistern is ReentrancyGuard {
     }
 
     /// The tip and the window move immediately: neither can time a buy. The tip
-    /// is capped in bytecode and the window only decides how long a holder has.
+    /// is capped in bytecode, and the window is copied into each round at
+    /// `open()` — so this sets the term of the NEXT round and cannot shorten or
+    /// extend one that is already running (`Round.window`).
     function setTip(uint16 bps) external onlyOperator {
         require(bps <= MAX_TIP_BPS, "tip too fat");
         tipBps = bps;
