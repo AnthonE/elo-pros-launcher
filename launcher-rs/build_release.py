@@ -266,7 +266,7 @@ ICON = """\
 COPYRIGHT = """\
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: scry
-Source: https://github.com/AnthonE/scry
+Source: https://github.com/AnthonE/scryward
 
 Files: *
 Copyright: 2026 MoreRight
@@ -316,7 +316,7 @@ Invent. If it cannot reach the origin it says so — which is a different
 sentence from "there are none", and the difference is the point.
 
 The design of record is https://scry.moreright.xyz/read.html?doc=LAUNCHER
-The source is https://github.com/AnthonE/scry
+The source is https://github.com/AnthonE/scryward
 """
 
 
