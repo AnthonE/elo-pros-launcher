@@ -1,26 +1,89 @@
 //! Open a window so it can be looked at. `cargo run -p scry-ui --example shot -- games`
 use fltk::{app, prelude::*};
-use scry_ui::windows::{self, Row};
+use scry_ui::windows::{self, Price, Row, Shelf};
+
+/// A library row. Spelled out rather than defaulted so a capture cannot
+/// silently stop exercising a field.
+fn row(slug: &str, build: &str, bytes: i64, stale: Option<bool>, name: Option<&str>) -> Row {
+    Row {
+        slug: slug.into(),
+        build: build.into(),
+        bytes,
+        digest: "0xf43be2a2".into(),
+        stale,
+        name: name.map(str::to_string),
+        icon: None,
+        why: (stale.is_none()).then(|| "the origin was not reached".to_string()),
+    }
+}
+
+/// A shelf row, with the REAL blurb the origin serves for Gates.
+///
+/// That is the point of this helper and not a detail: the old capture used a
+/// hand-shortened blurb, which is exactly why the overrun never showed up in a
+/// screenshot. The live one is 140 characters (`GET /api/launcher/manifests`)
+/// and it is what ran off the window.
+fn shelf(slug: &str, name: &str, blurb: &str, state: &str, installable: bool,
+         installed: bool, price: Price) -> Shelf {
+    Shelf {
+        slug: slug.into(),
+        name: name.into(),
+        blurb: blurb.into(),
+        state: state.into(),
+        installable,
+        installed,
+        price,
+        icon: None,
+    }
+}
+
+const GATES_BLURB: &str = "Wake with nothing on a hostile island. Gather, craft, build, \
+                           raid, lose it all, again. 100-player shards on a public server \
+                           that is up now.";
 
 fn main() {
     let which = std::env::args().nth(1).unwrap_or_else(|| "menu".into());
     let a = app::App::default();
     let mut w = match which.as_str() {
         "games" => windows::games(&[
-            Row { slug: "gates".into(), build: "0.1.0-g607af0314".into(),
-                  bytes: 75_829_730, digest: "0xf43be2a2".into(), stale: Some(false) },
-            Row { slug: "gates".into(), build: "0.2.0-gdeadbee".into(),
-                  bytes: 75_829_730, digest: "0xabc".into(), stale: Some(true) },
-            Row { slug: "unreached".into(), build: "0.1.0".into(),
-                  bytes: 4_100_000, digest: "0x0".into(), stale: None },
-        ]),
-        "empty" => windows::games(&[]),
+            row("gates", "0.1.0-g607af0314", 75_829_730, Some(false), Some("Gates")),
+            row("gates", "0.2.0-gdeadbee", 75_829_730, Some(true), Some("Gates")),
+            row("unreached", "0.1.0", 4_100_000, None, None),
+        ]).window,
+        "empty" => windows::games(&[]).window,
         "about" => windows::about(),
-        "store" => windows::store(&[], false),
+        "store" => windows::store(&[], false, "dns error: no such host").window,
         "store2" => windows::store(&[
-            ("Gates".into(), "survival — 100-player shards. Wake with nothing on a hostile island.".into()),
-            ("The Barrow".into(), "a three-room delve — fight, sneak, or leave".into()),
-        ], true),
+            shelf("gates", "Gates", GATES_BLURB, "live", true, false, Price::Free),
+            shelf("barrow", "The Barrow", "a three-room delve — fight, sneak, or leave",
+                  "in-build", false, false, Price::Free),
+            shelf("sold", "A Title With A Price", GATES_BLURB, "live", true, false,
+                  Price::Posted { line: "$10.00, paid in ETH".into() }),
+            shelf("dark", "A Title We Could Not Price", GATES_BLURB, "live", true, false,
+                  Price::Unknown { why: "could not reach the origin".into() }),
+            shelf("mine", "Already Installed", GATES_BLURB, "live", true, true, Price::Free),
+        ], true, "").window,
+        // The passphrase prompt, in both shapes. `pass2` is the browser
+        // pairing's — the whole message being signed rides in the prompt.
+        "pass" => windows::passphrase("Unlock", "Passphrase:").window,
+        "pass2" => windows::passphrase(
+            "Sign the browser in",
+            "About to sign exactly this, and nothing else:\n\n\
+             scry.moreright.xyz wants to sign you in\naddress: 0x7E5F…95Bdf\n\
+             code: ABCD2345\nissued: 2026-08-12T09:00:00Z\n\nPassphrase:").window,
+        "notice" => windows::notice(windows::Note::Done, "Account created",
+            "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf\n\n\
+             The keystore is the only copy of this key.\n\
+             Back it up. The passphrase cannot be reset.", false).window,
+        "notice2" => windows::notice(windows::Note::Refused, "The game door did not open",
+            "Games will still install and start — they will just play anonymously.\n\n\
+             The usual cause is another copy of scry already running.\n\n\
+             Nothing retries this while the program is open, so a restart is the fix.",
+            true).window,
+        "lock" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+            "unlock the account on this machine to carry on").window,
+        "lock2" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+            "it locked itself while you were away — every signature resets that clock").window,
         // All four shard states are capturable, because a reader must be able
         // to tell them apart at a glance — and three of them are the ones that
         // get drawn wrong. `unreadable` in particular must never look like
