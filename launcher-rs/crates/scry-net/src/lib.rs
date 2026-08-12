@@ -31,6 +31,13 @@ pub const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
 /// "manifest" is a hostile origin, not a big game.
 pub const MAX_DOC_BYTES: u64 = 8 * 1024 * 1024;
 
+/// A shelf icon, not an asset. The store draws these at 48px, so anything past
+/// this is either the wrong file or an origin spending a player's connection on
+/// a thumbnail. Over the cap is a REFUSAL rather than a truncation: half a PNG
+/// decodes to nothing, and "the icon did not fit" is a better sentence for a
+/// log than "the icon is corrupt".
+pub const MAX_ART_BYTES: u64 = 512 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct Fetched<T> {
     pub value: Option<T>,
@@ -282,6 +289,37 @@ impl Net {
         match shardlist::parse_status(&bytes) {
             Ok(s) => Fetched::good(s),
             Err(e) => Fetched::bad(e.to_string()),
+        }
+    }
+
+    /// A shelf icon's bytes — a capsule or a card the origin serves for a
+    /// title.
+    ///
+    /// **On the quick agent on purpose.** Art is decoration on a row whose
+    /// words are already correct, so a slow or dead image host must cost the
+    /// Store four seconds and not sixty. A row whose art did not arrive draws
+    /// the placeholder and says nothing false; that is the only failure mode
+    /// this read has.
+    ///
+    /// Over [`MAX_ART_BYTES`] is refused rather than truncated — see the
+    /// constant. The bytes are still UNTRUSTED after this returns: an image
+    /// decoder is a parser, and `scry_ui::art` is where a failed decode
+    /// becomes a placeholder instead of a panic.
+    pub fn art(&self, url: &str) -> Fetched<Vec<u8>> {
+        let got = self.get_bytes(url, MAX_ART_BYTES + 1, true);
+        match got.value {
+            Some(b) if b.len() as u64 > MAX_ART_BYTES => Fetched::bad(format!(
+                "the art is over {} KB, so it is not a shelf icon",
+                MAX_ART_BYTES / 1024
+            )),
+            Some(b) => Fetched::good(b),
+            None => Fetched {
+                value: None,
+                ok: got.ok,
+                reachable: got.reachable,
+                status: got.status,
+                why: got.why,
+            },
         }
     }
 

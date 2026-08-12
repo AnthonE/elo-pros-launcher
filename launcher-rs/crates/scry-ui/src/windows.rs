@@ -11,6 +11,7 @@
 //! traceable to the crate whose tests cover it, and it is what makes these
 //! constructible in a test with no display and no games root.
 
+use crate::art::{self, Icon};
 use crate::chrome;
 use crate::theme::{self, Tone};
 use fltk::{button, enums, frame, input, prelude::*, window};
@@ -30,6 +31,17 @@ pub struct Row {
     pub bytes: i64,
     pub digest: String,
     pub stale: Option<bool>,
+    /// The title's own name, when the origin could be asked for one. An
+    /// install knows only its slug, so this stays `None` on a machine that has
+    /// never reached the catalog — and a row falls back to the slug rather
+    /// than to a blank.
+    pub name: Option<String>,
+    /// The shelf art, already fetched and sniffed. `None` is a normal state
+    /// and draws the placeholder (`art::icon_box`).
+    pub icon: Option<Icon>,
+    /// Why `stale` is `None`, when the caller knows. Never a guess — see
+    /// [`Row::status_line`].
+    pub why: Option<String>,
 }
 
 impl Row {
@@ -43,17 +55,35 @@ impl Row {
             bytes: i.total_bytes,
             digest: i.depot_digest.clone(),
             stale: None,
+            name: None,
+            icon: None,
+            why: None,
         }
+    }
+
+    /// What the row is titled. The origin's name when there is one, the slug
+    /// when there is not — never an empty line, and never an invented name.
+    pub fn title(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.slug)
     }
 
     /// The line under the title. Three states, three sentences, and the third
     /// says which of the two it is not.
+    ///
+    /// ⚠ **The third one used to assert a reason it had not measured.** It read
+    /// *"not checked — the origin was not reached"*, which was written for a
+    /// startup that asked the origin nothing at all: the origin might be fine
+    /// and the row still said it was not reached. It carries [`Row::why`] now
+    /// when there is one, and claims nothing when there is not.
     pub fn status_line(&self) -> String {
         let size = human_bytes(self.bytes);
         match self.stale {
             Some(true) => format!("{} · an update is published", size),
             Some(false) => format!("{} · up to date", size),
-            None => format!("{} · not checked — the origin was not reached", size),
+            None => match &self.why {
+                Some(w) => format!("{size} · not checked — {w}"),
+                None => format!("{size} · not checked against the origin"),
+            },
         }
     }
 
@@ -85,6 +115,11 @@ impl Row {
         }
     }
 }
+
+/// How tall one shelf row is, in px. Set by the icon and not by the text: the
+/// square is [`art::ICON`] and a row has to hold it with a hairline of padding
+/// either side, or the art clips into the row above.
+const ROW_H: i32 = art::ICON + 12;
 
 /// `72.3 MB`, the way the CLI already prints it. One implementation would be
 /// better than two; this is the smaller of the two and the CLI's is not public.
@@ -182,57 +217,111 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
         y += 20;
     }
 
+    // ⚠ This said *"the pass is a token"* until 2026-08-12. The pass is a
+    // designed, undeployed platform product; the thing a player actually owns
+    // is the COPY — the title's ticket, an ERC-721 (`TICKET.md` §0). Naming
+    // the wrong object on the first screen of the client is how a stranger
+    // learns the wrong word for what they bought.
     chrome::label(16, y + 12, 520, 16,
-                  "nothing you own lives in here — the pass is a token and items are on chain",
+                  "nothing you own lives in here — your copies are tokens and items are on chain",
                   theme::DIM, 11);
     w.end();
     MainMenu { window: w, version_line }
+}
+
+/// The controls on one drawn Games row, handed back for a caller to wire.
+///
+/// ⚠ **This struct is the fix for a dead button, not a refactor.** Until
+/// 2026-08-12 `games()` built its Play button as a local and dropped it, so
+/// every row in the library was painted and pressable and did **nothing** —
+/// the exact defect `MENU`'s `built` flag exists to prevent, one window in. A
+/// screenshot could not see it and no test could reach it, because there was
+/// nothing to reach. Handing the widgets back is what makes `wiring::wire_games`
+/// possible at all.
+#[derive(Clone)]
+pub struct GameControls {
+    pub slug: String,
+    pub build: String,
+    /// Play, or Update when a newer build is published — the label is
+    /// [`Row::action`] and the caller reads it back to know which it wired.
+    pub act: button::Button,
+    /// Re-hash every file the depot names. Its own control, because verifying
+    /// is the one thing this client can do that no other storefront's can.
+    pub verify: button::Button,
+}
+
+/// The Games window and the controls on it.
+pub struct GamesWindow {
+    pub window: window::Window,
+    /// One per drawn row, in row order. Empty when nothing is installed.
+    pub rows: Vec<GameControls>,
+    /// Re-read what is on disk and re-ask the origin what is published. The
+    /// library was measured once at startup, so a game installed from the
+    /// Store did not appear here until the next launch — a restart standing in
+    /// for a read.
+    pub refresh: button::Button,
 }
 
 /// The Games window — installed builds, and whether each is current.
 ///
 /// Takes rows rather than a games root: the window does no I/O, so it can be
 /// built in a test with no display, no disk and no origin.
-pub fn games(rows: &[Row]) -> window::Window {
+pub fn games(rows: &[Row]) -> GamesWindow {
     // The well fits the rows, with a floor so an empty shelf is still a window
     // and not a slot. Same reason the menu is sized to its entries: acres of
     // empty olive read as a failed draw, not as a finished screen.
-    let well_h = (rows.len() as i32 * 48 + 24).clamp(96, 520);
-    let mut w = window::Window::new(120, 120, 620, well_h + 100, None);
+    let well_h = (rows.len() as i32 * ROW_H + 24).clamp(96, 520);
+    let mut w = window::Window::new(120, 120, 660, well_h + 100, None);
     w.set_label("scry — games");
     w.set_color(theme::BG);
 
     chrome::label(16, 12, 400, 20, "my games", theme::HEAD, 16);
+    let mut refresh = chrome::button(516, 14, 128, 24, "Refresh", Tone::Plain);
+    refresh.set_align(enums::Align::Center | enums::Align::Inside);
 
-    let well = chrome::well(16, 40, 588, well_h);
+    let mut controls = Vec::new();
+    let well = chrome::well(16, 40, 628, well_h);
     if rows.is_empty() {
         // The baseline restating itself, said once and plainly. Not an error
         // state and not styled as one.
-        chrome::label(28, 56, 560, 18, "nothing installed yet", theme::MUTED, 13);
-        chrome::label(28, 78, 560, 18,
-                      "a title with a published desktop build appears here once it is installed",
+        chrome::label(28, 56, 600, 18, "nothing installed yet", theme::MUTED, 13);
+        chrome::label(28, 78, 600, 18,
+                      "install one from the Store — it appears here with a Play button",
                       theme::DIM, 11);
     } else {
         let mut y = 48;
         for (i, row) in rows.iter().enumerate() {
             if i % 2 == 1 {
-                let mut band = fltk::frame::Frame::new(18, y - 4, 584, 44, None);
+                let mut band = fltk::frame::Frame::new(18, y - 4, 624, ROW_H - 4, None);
                 band.set_frame(enums::FrameType::FlatBox);
                 band.set_color(theme::WELL_ALT);
             }
-            chrome::label(28, y, 300, 18, &row.slug, theme::INK, 14);
-            chrome::label(28, y + 18, 400, 16, &row.status_line(), theme::MUTED, 11);
-            let mut act = chrome::button(486, y + 2, 100, 28, row.action(), row.tone());
+            art::icon_box(26, y - 1, art::ICON, &row.slug, row.icon.as_ref());
+            // A title's name and its build id both come from a depot somebody
+            // else wrote, so both are clipped — see `chrome::label_untrusted`.
+            chrome::label_untrusted(80, y, 300, 18, row.title(), theme::INK, 14);
+            chrome::label_untrusted(80, y + 18, 340, 16, &row.status_line(),
+                                    theme::MUTED, 11);
+            let mut act = chrome::button(432, y + 6, 96, 28, row.action(), row.tone());
             act.set_align(enums::Align::Center | enums::Align::Inside);
-            y += 48;
+            let mut verify = chrome::button(538, y + 6, 96, 28, "Verify", Tone::Plain);
+            verify.set_align(enums::Align::Center | enums::Align::Inside);
+            controls.push(GameControls {
+                slug: row.slug.clone(),
+                build: row.build.clone(),
+                act,
+                verify,
+            });
+            y += ROW_H;
         }
     }
     well.end();
 
-    chrome::label(16, well_h + 52, 400, 16,
-                  "verify re-hashes every file the depot names", theme::DIM, 11);
+    chrome::label(16, well_h + 52, 600, 16,
+                  "verify re-hashes every file the depot names, then checks the digest",
+                  theme::DIM, 11);
     w.end();
-    w
+    GamesWindow { window: w, rows: controls, refresh }
 }
 
 /// The About window — and the one place the FLTK credit is shown to a human.
@@ -259,71 +348,263 @@ pub fn about() -> window::Window {
     w
 }
 
+/// What a copy of one title costs, as the origin actually answered.
+///
+/// **Three states, and the third is the one the repo's trap is about.**
+/// `/api/ticket/{slug}` answers `ticketed: false` for a title with no ticket
+/// contract — a real answer meaning *free to download* — and a client that
+/// rendered a failed read as `Free` would be giving a game away on the strength
+/// of a dropped packet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Price {
+    /// No ticket contract is configured, so there is nothing to buy. The
+    /// origin's own words: *"free to download — nothing here is for sale"*.
+    Free,
+    /// A ticket contract is armed and a rail is open. `line` is the posted
+    /// amount as the ORIGIN wrote it — this client never does the arithmetic
+    /// on a price and never converts one.
+    Posted { line: String },
+    /// We could not read the ticket route. **Not free, and not for sale** —
+    /// unknown, said out loud.
+    Unknown { why: String },
+}
+
+/// One row on the store shelf, already measured.
+///
+/// Every field here is somebody else's text or somebody else's measurement.
+/// Nothing on this struct is computed by the window that draws it, which is
+/// what keeps the Store constructible in a test with no origin.
+pub struct Shelf {
+    pub slug: String,
+    pub name: String,
+    pub blurb: String,
+    /// The listing's own word — `live`, `in-build`. Rendered verbatim and
+    /// never translated into a promise.
+    pub state: String,
+    /// Is a build for THIS platform published in a depot? A title can be
+    /// `live` on the shelf and have nothing this machine can install.
+    pub installable: bool,
+    /// Is it already on this disk? Decides whether the row offers Install or
+    /// points at the library.
+    pub installed: bool,
+    pub price: Price,
+    pub icon: Option<Icon>,
+}
+
+impl Shelf {
+    /// The money line under the blurb. One sentence, and it never says free
+    /// for a read that failed.
+    pub fn price_line(&self) -> String {
+        match &self.price {
+            Price::Free => "free to download — no copy is for sale yet".into(),
+            Price::Posted { line } => format!("a copy costs {line}"),
+            Price::Unknown { why } => format!("the price could not be read — {why}"),
+        }
+    }
+
+    /// What the row's own control says, and what it will do.
+    ///
+    /// **The label and the act agree by construction**, which is the rule
+    /// `tests/rows.rs` was written for after a row said *"an update is
+    /// published"* over a Play button. A caller reads [`Act`] rather than
+    /// re-parsing this string.
+    pub fn act(&self) -> Act {
+        match (&self.price, self.installed, self.installable) {
+            (_, true, _) => Act::Installed,
+            (Price::Posted { .. }, _, _) => Act::Buy,
+            (Price::Unknown { .. }, _, _) => Act::Page,
+            (Price::Free, _, true) => Act::Install,
+            (Price::Free, _, false) => Act::Unpublished,
+        }
+    }
+}
+
+/// What a shelf row's main control does. An enum rather than a label, because
+/// the caller has to *do* one of these and reading the verb back off a string
+/// is how a Buy button ends up installing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Act {
+    /// Fetch and hash-verify the build, here, now.
+    Install,
+    /// Open the title's buy box in a browser. **The buy is not in this
+    /// client**: a purchase is a wallet signing a transaction, and this
+    /// program holds no wallet and will not grow one (`TICKET.md` §8a — the
+    /// launcher never renders an amount it computed).
+    Buy,
+    /// Already on this disk. Points at Games rather than offering a second
+    /// copy.
+    Installed,
+    /// Nothing this machine can install yet. Drawn and not pressable — hiding
+    /// it would make a listed title look unlisted.
+    Unpublished,
+    /// We could not read enough to offer either, so the honest control is the
+    /// one that shows the player the page and lets them read it themselves.
+    Page,
+}
+
+impl Act {
+    pub fn label(self) -> &'static str {
+        match self {
+            Act::Install => "Install",
+            Act::Buy => "Buy a copy…",
+            Act::Installed => "Installed",
+            Act::Unpublished => "No build yet",
+            Act::Page => "Open the page…",
+        }
+    }
+
+    /// **Nothing on this shelf wears the reserved green fill**, and that is
+    /// deliberate rather than an omission. A solid green fill is reserved for
+    /// an act that moves money (`theme::Tone`); pressing Buy here opens a
+    /// browser, and the act that moves money happens in a wallet this client
+    /// does not hold. Painting it green would promise a purchase this window
+    /// cannot make.
+    ///
+    /// ⚠ `Unpublished` is `Plain` and drawn through `chrome::button_off`, not
+    /// `Gold`. Gold is an OUTLINE for a control whose thing is not armed — and
+    /// an outline plus FLTK's `deactivate()` renders as a washed-out pale box
+    /// that reads as neither. Caught by looking at the capture. The repo
+    /// already has the right shape for *present and plainly not pressable* and
+    /// the Servers window's **Full** button uses it, so this does too.
+    pub fn tone(self) -> Tone {
+        Tone::Plain
+    }
+
+    pub fn pressable(self) -> bool {
+        !matches!(self, Act::Unpublished)
+    }
+}
+
+/// The controls on one drawn shelf row, handed back for a caller to wire.
+#[derive(Clone)]
+pub struct ShelfControls {
+    pub slug: String,
+    pub act: Act,
+    /// The main control — install, buy, or open the page.
+    pub button: button::Button,
+    /// Always offered, whatever the main control says: reading about a game
+    /// before deciding is the normal path through a store.
+    pub page: button::Button,
+}
+
+/// The Store window and the controls on it.
+pub struct StoreWindow {
+    pub window: window::Window,
+    pub rows: Vec<ShelfControls>,
+    /// Re-read the catalog. **The shelf is fetched once at startup**, so
+    /// without this a player whose wifi was down when the client opened is
+    /// looking at "could not read" until they restart the program — which is
+    /// the *"if we need the user to reboot"* complaint in its smallest form.
+    pub refresh: button::Button,
+}
+
 /// The Store — the curated shelf.
 ///
 /// **The catalog is the origin's, never this client's.** `catalog.py` says why:
 /// a second hand-kept list would be a second count and one of them would always
 /// be stale. So this renders what it was handed and says plainly when it was
 /// handed nothing — which is a different sentence from "the shelf is empty".
-pub fn store(titles: &[(String, String)], reachable: bool) -> window::Window {
-    let well_h = (titles.len() as i32 * 40 + 24).clamp(120, 460);
-    let mut w = window::Window::new(140, 140, 620, well_h + 190, None);
+///
+/// ⚠ **There is no pass block here and there was one until 2026-08-12.** The
+/// window opened on a panel headed THE PASS advertising *"buy once, in SCRY —
+/// the library follows your wallet"*, which is a designed, undeployed,
+/// platform-wide product (`GATES.md` §4) and **not what a player buys**. What
+/// they buy is a **copy of one game**: the title's ticket, an ERC-721 that is
+/// the licence to that title's official servers (`TICKET.md` §0). Leading the
+/// store with the other object put the wrong noun on the one screen where a
+/// buyer decides. The money sentence now lives per row, where the thing being
+/// sold actually is, and it comes from `/api/ticket/{slug}` rather than from a
+/// paragraph typed here.
+pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
+    let well_h = (rows.len() as i32 * SHELF_H + 24).clamp(140, 520);
+    let mut w = window::Window::new(140, 140, 700, well_h + 132, None);
     w.set_label("scry — store");
     w.set_color(theme::BG);
 
     chrome::label(16, 12, 400, 20, "the store", theme::HEAD, 16);
+    chrome::label(16, 34, 480, 16, "one payment, one copy, and the copy is yours to resell",
+                  theme::MUTED, 11);
+    let mut refresh = chrome::button(556, 14, 128, 26, "Refresh", Tone::Plain);
+    refresh.set_align(enums::Align::Center | enums::Align::Inside);
 
-    // The package block the original client put at the top of its store. Ours
-    // is the pass, and it is GOLD because no pass contract is deployed — an
-    // outline, never a fill, so it cannot be mistaken for an armed state
-    // (`GATES.md` §10 row 1, `SITE-PLATFORM.md` §14b).
-    let pass = chrome::panel(16, 40, 588, 92);
-    chrome::label(28, 50, 300, 18, "THE PASS", theme::GOLD, 13);
-    for (i, line) in [
-        "buy once, in SCRY — the library follows your wallet",
-        "resale is native: sell the pass when you are done",
-        "half of every pass burns under the posted split",
-    ]
-    .iter()
-    .enumerate()
-    {
-        chrome::label(28, 70 + (i as i32 * 16), 420, 14, line, theme::MUTED, 11);
-    }
-    chrome::label(456, 56, 140, 14, "no price set", theme::GOLD, 11);
-    let mut not_armed = chrome::button(456, 74, 132, 26, "NOT ARMED", Tone::Gold);
-    not_armed.set_align(enums::Align::Center | enums::Align::Inside);
-    not_armed.deactivate();
-    pass.end();
-    chrome::label(16, 136, 588, 14,
-                  "No pass contract is deployed and no price is set, so this buys nothing today.",
-                  theme::DIM, 11);
-
-    let shelf = chrome::well(16, 158, 588, well_h);
+    let mut controls = Vec::new();
+    let shelf = chrome::well(16, 58, 668, well_h);
     if !reachable {
         // The repo's own trap, at the one place it would cost a player a game.
-        chrome::label(28, 174, 560, 18, "the catalog could not be read", theme::GOLD, 13);
-        chrome::label(28, 196, 560, 16,
+        chrome::label(28, 74, 640, 18, "the catalog could not be read", theme::GOLD, 13);
+        chrome::label(28, 96, 640, 16,
                       "this is not an empty shelf — the origin did not answer, so nothing is known",
                       theme::MUTED, 11);
-    } else if titles.is_empty() {
-        chrome::label(28, 174, 560, 18, "nothing listed yet", theme::MUTED, 13);
+        chrome::label_untrusted(28, 116, 640, 16, why, theme::DIM, 11);
+        chrome::label(28, 140, 640, 16, "Refresh asks again — nothing here needs a restart",
+                      theme::DIM, 11);
+    } else if rows.is_empty() {
+        chrome::label(28, 74, 640, 18, "nothing listed yet", theme::MUTED, 13);
+        chrome::label(28, 96, 640, 16,
+                      "the origin answered and its shelf is empty — a real answer, not a failed read",
+                      theme::DIM, 11);
     } else {
-        let mut y = 172;
-        for (i, (name, blurb)) in titles.iter().enumerate() {
+        let mut y = 72;
+        for (i, row) in rows.iter().enumerate() {
             if i % 2 == 1 {
-                let mut band = fltk::frame::Frame::new(18, y - 4, 584, 38, None);
+                let mut band = fltk::frame::Frame::new(18, y - 6, 664, SHELF_H - 4, None);
                 band.set_frame(enums::FrameType::FlatBox);
                 band.set_color(theme::WELL_ALT);
             }
-            chrome::label(28, y, 240, 16, name, theme::INK, 13);
-            chrome::label(28, y + 16, 550, 14, blurb, theme::MUTED, 11);
-            y += 40;
+            art::icon_box(26, y, art::ICON, &row.slug, row.icon.as_ref());
+            // ⚠ **Every one of these four is `label_untrusted` and that is the
+            // overrun fix.** A name, a blurb, a state word and a price line all
+            // come from the origin, and FLTK draws a label at the TEXT's
+            // natural width — straight past the widget's box, over the button
+            // beside it and off the edge of the window. Gates' real blurb is
+            // 140 characters and did exactly that. A character cap is not a
+            // substitute (see `chrome::label_untrusted`); clipping to the box
+            // is the only bound that holds for any text.
+            chrome::label_untrusted(80, y, 292, 18, &row.name, theme::INK, 14);
+            // The listing's own word, beside the name rather than floating
+            // under it: `live` and `in-build` are a property OF the title, and
+            // a tag adrift in the middle of a row reads as a stray label.
+            let state_ink = if row.state == "live" { theme::MUTED } else { theme::GOLD };
+            let mut state = chrome::label_untrusted(376, y + 2, 84, 15, &row.state,
+                                                    state_ink, 10);
+            state.set_align(enums::Align::Right | enums::Align::Inside | enums::Align::Clip);
+            chrome::label_untrusted(80, y + 19, 380, 15, &row.blurb, theme::MUTED, 11);
+            let price_ink = match row.price {
+                Price::Unknown { .. } => theme::GOLD,
+                _ => theme::DIM,
+            };
+            chrome::label_untrusted(80, y + 35, 380, 15, &row.price_line(), price_ink, 10);
+
+            let act = row.act();
+            // `button_off` for the one that cannot be pressed — see
+            // `Act::tone`. Everything else is an ordinary pale button.
+            let mut button = if act.pressable() {
+                chrome::button(470, y + 8, 110, 28, act.label(), act.tone())
+            } else {
+                chrome::button_off(470, y + 8, 110, 28, act.label())
+            };
+            button.set_align(enums::Align::Center | enums::Align::Inside);
+            let mut page = chrome::button(588, y + 8, 84, 28, "Page…", Tone::Plain);
+            page.set_align(enums::Align::Center | enums::Align::Inside);
+            controls.push(ShelfControls { slug: row.slug.clone(), act, button, page });
+            y += SHELF_H;
         }
     }
     shelf.end();
+
+    chrome::label(16, well_h + 68, 668, 16,
+                  "a copy is an NFT and all sales are final — the exit is resale, never a refund",
+                  theme::DIM, 11);
+    chrome::label(16, well_h + 86, 668, 16,
+                  "buying opens your browser: the wallet is yours and this client never holds one",
+                  theme::DIM, 11);
     w.end();
-    w
+    StoreWindow { window: w, rows: controls, refresh }
 }
+
+/// How tall one store row is. Taller than a Games row because it carries a
+/// money sentence the library does not.
+const SHELF_H: i32 = art::ICON + 20;
 
 /// What the caller measured about a title's shard list.
 ///
@@ -600,11 +881,17 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
 /// Cloned handles share the widget — see [`AccountWindow`].
 #[derive(Clone)]
 pub struct SigningWindow {
-    pub window: window::Window,
     /// Present only for the one backend that can be unlocked — `local`. The
-    /// others hold no key here, so there is nothing an unlock could open, and
-    /// a button that did nothing would be the dead control this menu already
-    /// refuses elsewhere.
+    /// others hold no key here, so there is nothing an unlock could open.
+    ///
+    /// ⚠ **`Some` does not mean pressable.** With `local` and no keystore yet
+    /// the buttons are built and **deactivated**, and `wiring::adopt` activates
+    /// them the moment an account exists. They used to be `None` in that state,
+    /// which is why making an account ended with *"Restart the launcher to
+    /// unlock it in Signing"* — the control could not be added to a window
+    /// already built, so the player was sent to restart the program for a
+    /// button. A window that can refresh itself beats a notice that asks for a
+    /// reboot (operator, 2026-08-12).
     pub unlock: Option<button::Button>,
     /// Unlock's inverse, present alongside it: forget the key NOW, without
     /// waiting for the idle relock or closing the window. The button a
@@ -612,11 +899,13 @@ pub struct SigningWindow {
     pub lock: Option<button::Button>,
     /// The status line, refreshed after an unlock rather than rebuilt.
     pub status: frame::Frame,
+    pub window: window::Window,
 }
 
 /// `unlockable` is separate from `kind` on purpose: the backend is `local`
-/// whether or not a keystore exists yet, and offering to unlock a key that has
-/// not been made would be the dead control this menu refuses everywhere else.
+/// whether or not a keystore exists yet, and a key that has not been made
+/// cannot be unlocked — so the controls are drawn deactivated with a sentence
+/// saying why, rather than hidden or omitted.
 pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool) -> SigningWindow {
     let mut w = window::Window::new(200, 200, 620, 320, None);
     w.set_label("scry — signing");
@@ -635,16 +924,25 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
     // Gold, not green: a configured signer is not an armed one, and only an
     // act that moves money earns the reserved fill.
     let tone = if kind == "none" { Tone::Gold } else { Tone::Plain };
-    let (unlock, lock) = if unlockable {
+    let (unlock, lock) = if kind == "local" {
         let mut b = chrome::button(456, 138, 132, 26, "Unlock…", Tone::Plain);
         b.set_align(enums::Align::Center | enums::Align::Inside);
         // Beside its inverse, plain like it: locking is an ordinary act too,
         // and the one a player reaches for before walking away.
         let mut l = chrome::button(312, 138, 132, 26, "Lock now", Tone::Plain);
         l.set_align(enums::Align::Center | enums::Align::Inside);
+        if !unlockable {
+            // Built, off, and SAID — the menu's own rule, one window in. What
+            // this buys over omitting them: `adopt` can turn them on in place
+            // when an account is made, so nobody is asked to restart.
+            b.deactivate();
+            l.deactivate();
+            chrome::label(28, 132, 270, 16, "no account on this machine yet — make one in Account",
+                          theme::GOLD, 11);
+        }
         (Some(b), Some(l))
     } else {
-        let mut test = chrome::button(456, 138, 132, 26, "Nothing to test", tone);
+        let mut test = chrome::button(456, 138, 132, 26, "Nothing to unlock", tone);
         test.set_align(enums::Align::Center | enums::Align::Inside);
         test.deactivate();
         (None, None)
@@ -827,4 +1125,274 @@ pub fn consent(
     // can lose behind the main window is one they cannot answer.
     w.make_modal(true);
     ConsentWindow { window: w, allow, refuse }
+}
+
+// ── the three windows this client used to borrow from the toolkit ───────────
+//
+// Operator, 2026-08-12: *"the passphrase screen doesnt match anything else."*
+// It did not, and it could not: `dialog::password_default` and
+// `dialog::message_default` draw FLTK's own stock dialog — a light grey box
+// with a blue `?` glyph — over a client whose every other pixel is the 2003
+// client's olive. Three windows below replace all three stock dialogs, and
+// they are windows rather than a themed wrapper because a stock dialog cannot
+// be reskinned: its colours, its icon and its layout are inside the C++ side.
+//
+// What that buys beyond looking right: a passphrase prompt that can say WHOSE
+// account it is asking about, a notice that can carry a Restart button, and a
+// lock screen that can refuse to go away.
+
+/// A prompt with a masked field, plus the controls that answer it.
+#[derive(Clone)]
+pub struct AskWindow {
+    pub window: window::Window,
+    /// `SecretInput`, so the passphrase is never painted. This is also the one
+    /// field in the client a private key is typed into (Import), which is why
+    /// there is no unmasked variant of this window to reach for by mistake.
+    pub field: input::SecretInput,
+    pub ok: button::Button,
+    pub cancel: button::Button,
+    /// A place to say *"that passphrase did not open it"* without building a
+    /// second window and losing what the player typed.
+    pub status: frame::Frame,
+}
+
+/// Ask for a secret, in the client's own skin.
+///
+/// `prompt` is whatever the caller wants said. It may be one line (*"Passphrase:"*)
+/// or many — the browser pairing puts the ENTIRE message being signed in here,
+/// deliberately, so a player reads what they are signing in the same window
+/// that asks for the passphrase to sign it. So a multi-line prompt is drawn in
+/// a scrolling well and a one-line prompt is drawn as a label: an unbounded
+/// prompt in a fixed window would otherwise push the field off the bottom, and
+/// a prompt whose Cancel is out of reach is one answered by the window manager.
+pub fn passphrase(title: &str, prompt: &str) -> AskWindow {
+    use fltk::text;
+
+    let lines: Vec<&str> = prompt.lines().collect();
+    let multi = lines.len() > 1;
+    let well_h = if multi {
+        (lines.len() as i32 * 15 + 20).clamp(60, 220)
+    } else {
+        0
+    };
+    let field_y = if multi { 74 + well_h + 14 } else { 92 };
+    let win_h = field_y + 104;
+
+    let mut w = window::Window::new(260, 200, 520, win_h, None);
+    w.set_label(&format!("scry — {title}"));
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 480, 22, title, theme::HEAD, 16);
+
+    if multi {
+        chrome::label(16, 46, 488, 16, "read this before you type", theme::DIM, 11);
+        let well = chrome::well(16, 68, 488, well_h);
+        let mut body = text::TextDisplay::new(20, 72, 480, well_h - 8, None);
+        let mut buf = text::TextBuffer::default();
+        buf.set_text(prompt);
+        body.set_buffer(buf);
+        body.set_color(theme::WELL);
+        body.set_text_color(theme::INK);
+        // Monospace for the same reason the consent prompt uses it: this is
+        // bytes about to be signed, and a proportional font hides trailing
+        // spaces and makes homoglyph padding easier to miss.
+        body.set_text_font(enums::Font::Courier);
+        body.set_text_size(11);
+        body.set_frame(enums::FrameType::NoBox);
+        body.wrap_mode(text::WrapMode::AtBounds, 0);
+        well.end();
+        chrome::label(16, field_y - 22, 488, 16, "Passphrase", theme::MUTED, 11);
+    } else {
+        chrome::label_untrusted(16, 46, 488, 18, prompt, theme::INK, 13);
+        chrome::label(16, field_y - 22, 488, 16,
+                      "it is never shown, never stored, and never leaves this machine",
+                      theme::DIM, 11);
+    }
+
+    let mut field = input::SecretInput::new(16, field_y, 488, 28, None);
+    field.set_color(theme::WELL);
+    field.set_text_color(theme::INK);
+    field.set_text_size(14);
+    field.set_frame(enums::FrameType::ThinDownBox);
+    field.set_cursor_color(theme::INK);
+    // Enter answers. A prompt whose only OK is a mouse target is one that
+    // interrupts typing to be dismissed.
+    //
+    // ⚠ `EnterKeyAlways` and not `EnterKey`. The plain one fires only when the
+    // value CHANGED since the last callback — so after a refused passphrase,
+    // retyping the same thing and pressing Enter does nothing at all, which is
+    // the exact moment a player is most likely to try it.
+    field.set_trigger(enums::CallbackTrigger::EnterKeyAlways);
+
+    let status = chrome::label(16, field_y + 32, 488, 16, "", theme::RED, 11);
+
+    let mut cancel = chrome::button(16, field_y + 54, 120, 30, "Cancel", Tone::Plain);
+    cancel.set_align(enums::Align::Center | enums::Align::Inside);
+    // Plain, never green: typing a passphrase spends nothing and unlocks a key
+    // that is already on this disk (`theme::Tone`).
+    let mut ok = chrome::button(384, field_y + 54, 120, 30, "Continue", Tone::Plain);
+    ok.set_align(enums::Align::Center | enums::Align::Inside);
+
+    w.end();
+    // Modal, because the caller is parked on the answer.
+    w.make_modal(true);
+    AskWindow { window: w, field, ok, cancel, status }
+}
+
+/// Which of the two things a notice is. The window draws them differently and
+/// a caller cannot pass a colour, so a refusal can never be styled as a
+/// success by accident.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Note {
+    Done,
+    Refused,
+}
+
+/// A notice, plus its controls.
+#[derive(Clone)]
+pub struct NoticeWindow {
+    pub window: window::Window,
+    pub ok: button::Button,
+    /// Present only when the caller asked for it. See [`notice`].
+    pub restart: Option<button::Button>,
+}
+
+/// Tell the player something, in the client's own skin.
+///
+/// `restart` offers a **Restart scry now** button beside the dismissal.
+/// Operator, 2026-08-12: *"if we need the user to reboot say so and try to
+/// self reboot or something."* Two halves, and the first one matters more:
+///
+/// * **Say so.** A notice that ends *"restart the launcher"* and leaves the
+///   player to find the window's close box has told them a chore, not offered
+///   one.
+/// * **Do it.** `wiring::restart_now` re-execs THIS binary with the same
+///   arguments. That is a restart and it is not an update — the client still
+///   never replaces its own bytes (`docs/client/LAUNCHER.md` §8, and the
+///   update notice one screen over says why).
+///
+/// ⚠ **The best restart is the one that is not needed**, and the case this was
+/// built for no longer exists: making an account used to end *"restart the
+/// launcher to unlock it in Signing"* because the Unlock button was built at
+/// startup from a keystore that did not exist yet. `signing()` now draws that
+/// control always and `wiring::adopt` activates it in place. Offer a restart
+/// where a restart is genuinely the fix; do not use it to paper over a window
+/// that could refresh itself.
+pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindow {
+    let lines = body.lines().count().max(1) as i32;
+    let text_h = (lines * 17 + 8).clamp(40, 320);
+    let win_h = 58 + text_h + 56;
+
+    let mut w = window::Window::new(280, 220, 520, win_h, None);
+    w.set_label(&format!("scry — {title}"));
+    w.set_color(theme::BG);
+
+    let (head_ink, head) = match kind {
+        Note::Done => (theme::HEAD, title),
+        // GOLD and not RED: most refusals in this client are a wrong
+        // passphrase or an origin that did not answer, and painting those the
+        // breach colour teaches a player to ignore it. RED stays for a failed
+        // hash.
+        Note::Refused => (theme::GOLD, title),
+    };
+    chrome::label(16, 12, 488, 22, head, head_ink, 15);
+
+    let mut y = 44;
+    for line in body.lines() {
+        // A refusal quotes an origin, a vault or a game, so every line of it
+        // is drawn clipped.
+        chrome::label_untrusted(16, y, 488, 16, line, theme::MUTED, 11);
+        y += 17;
+    }
+
+    let restart_b = restart.then(|| {
+        let mut b = chrome::button(16, win_h - 44, 160, 30, "Restart scry now", Tone::Plain);
+        b.set_align(enums::Align::Center | enums::Align::Inside);
+        b
+    });
+    let mut ok = chrome::button(384, win_h - 44, 120, 30, "OK", Tone::Plain);
+    ok.set_align(enums::Align::Center | enums::Align::Inside);
+
+    w.end();
+    w.make_modal(true);
+    NoticeWindow { window: w, ok, restart: restart_b }
+}
+
+/// The lock screen and its controls.
+#[derive(Clone)]
+pub struct LockWindow {
+    pub window: window::Window,
+    pub field: input::SecretInput,
+    pub unlock: button::Button,
+    /// The only other way out, and it is honest about what it does. There is
+    /// deliberately no *"skip"* — see [`lock`].
+    pub quit: button::Button,
+    pub status: frame::Frame,
+}
+
+/// The lock screen — the passphrase gate in front of the whole client.
+///
+/// Operator, 2026-08-12: *"when i return to the app it should prompt for my
+/// passphrase and not go pass that."*
+///
+/// **Two buttons, and the missing third is the design.** Unlock, or quit.
+/// There is no *"browse locked"* door, because the ask was for a gate and a
+/// gate with a bypass is a notification. What that costs is real and is stated
+/// on the window itself: a player who only wants to read the store still has
+/// to type their passphrase, and `SCRY_LOCK_SCREEN=0` is the posted way out
+/// (`CLAUDE.md` invariant 10 — every shortcut keeps a door).
+///
+/// **What it is not: a security boundary.** The keystore is encrypted at rest
+/// and this window does not change that in either direction. Anyone who can
+/// run programs as you can read the same file with or without this screen;
+/// what it narrows is the walk-by window on an unlocked key, which is the same
+/// thing the idle relock buys and the same thing `scry-vault/local.rs` says
+/// about itself. Do not let it grow a claim it cannot keep.
+///
+/// `why` says which of the two arrivals this is — a launch, or a relock while
+/// the player was away — because those want different sentences and a single
+/// generic one would be wrong for both.
+pub fn lock(address: &str, why: &str) -> LockWindow {
+    let mut w = window::Window::new(300, 240, 520, 296, None);
+    w.set_label("scry — locked");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 14, 488, 22, "scry is locked", theme::HEAD, 17);
+    chrome::label(16, 40, 488, 16, why, theme::MUTED, 11);
+
+    let well = chrome::well(16, 66, 488, 62);
+    chrome::label(28, 76, 464, 16, "the account on this machine", theme::DIM, 11);
+    // An address is a value read out of a keystore file — clipped like
+    // anything else this program did not author.
+    chrome::label_untrusted(28, 96, 464, 18, address, theme::INK, 13);
+    well.end();
+
+    chrome::label(16, 140, 488, 16, "Passphrase", theme::MUTED, 11);
+    let mut field = input::SecretInput::new(16, 160, 488, 30, None);
+    field.set_color(theme::WELL);
+    field.set_text_color(theme::INK);
+    field.set_text_size(14);
+    field.set_frame(enums::FrameType::ThinDownBox);
+    field.set_cursor_color(theme::INK);
+    // See `passphrase` — `EnterKeyAlways`, because a retype after a refusal is
+    // not a change and the plain trigger would swallow it.
+    field.set_trigger(enums::CallbackTrigger::EnterKeyAlways);
+
+    let status = chrome::label(16, 194, 488, 16, "", theme::RED, 11);
+
+    let mut quit = chrome::button(16, 216, 140, 30, "Quit scry", Tone::Plain);
+    quit.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut unlock = chrome::button(384, 216, 120, 30, "Unlock", Tone::Plain);
+    unlock.set_align(enums::Align::Center | enums::Align::Inside);
+
+    chrome::label(16, 254, 488, 14,
+                  "no passphrase can be reset — the keystore is the only copy of your key",
+                  theme::DIM, 10);
+    chrome::label(16, 270, 488, 14,
+                  "SCRY_LOCK_SCREEN=0 turns this screen off; games play without an account",
+                  theme::DIM, 10);
+
+    w.end();
+    w.make_modal(true);
+    LockWindow { window: w, field, unlock, quit, status }
 }

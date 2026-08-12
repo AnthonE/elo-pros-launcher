@@ -29,8 +29,8 @@
 //! pressing Escape write a key encrypted under the empty string.
 
 use crate::theme;
-use crate::windows::{AccountWindow, SigningWindow};
-use fltk::{app, dialog, prelude::*};
+use crate::windows::{self, AccountWindow, Note, SigningWindow};
+use fltk::{app, prelude::*};
 use scry_broker::signer::Signer;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -48,8 +48,14 @@ use std::sync::{Arc, Mutex};
 /// can see.
 pub type Shared = Arc<Mutex<scry_vault::LocalSigner>>;
 
-/// How the wiring asks for a secret. `None` means the player cancelled.
-pub type Ask = Rc<dyn Fn(&str) -> Option<String>>;
+/// How the wiring asks for a secret: `(heading, prompt)`, and `None` means the
+/// player cancelled.
+///
+/// ⚠ **The heading is a separate argument and not decoration.** One of the
+/// four things asked for through here is a **private key**, not a passphrase,
+/// and a window headed *"Passphrase"* over a field wanting 64 hex characters
+/// is a client asking for the wrong secret. Every caller names what it wants.
+pub type Ask = Rc<dyn Fn(&str, &str) -> Option<String>>;
 
 /// How it reports back — a message, and an alert for a refusal.
 pub type Tell = Rc<dyn Fn(Told, &str)>;
@@ -60,17 +66,124 @@ pub enum Told {
     Refused,
 }
 
-/// The real dialogs. Masked, because two of the three things asked for here are
+/// The real prompt. Masked, because two of the three things asked for here are
 /// secrets and the third is a private key.
+///
+/// ⚠ **This was `dialog::password_default` until 2026-08-12**, which draws
+/// FLTK's stock dialog: a light grey box with a blue `?` glyph, over a client
+/// that is olive everywhere else. Operator: *"the passphrase screen doesnt
+/// match anything else."* It could not be themed — the colours and the icon
+/// are inside the toolkit's C++ side — so it is `windows::passphrase` now, a
+/// real window in the client's own chrome.
 pub fn real_ask() -> Ask {
-    Rc::new(|prompt| dialog::password_default(prompt, ""))
+    Rc::new(ask_in_window)
 }
 
 pub fn real_tell() -> Tell {
-    Rc::new(|kind, text| match kind {
-        Told::Done => dialog::message_default(text),
-        Told::Refused => dialog::alert_default(text),
+    Rc::new(|kind, text| {
+        let (note, title) = match kind {
+            Told::Done => (Note::Done, "Done"),
+            Told::Refused => (Note::Refused, "That did not work"),
+        };
+        show_notice(note, title, text, false);
     })
+}
+
+/// Put up the client's own passphrase window and park on the answer.
+///
+/// **Runs a nested event loop**, exactly as `dialog::password_default` did and
+/// as `ask_consent` does. Every exit that is not Continue is a cancel: the
+/// window manager's close, Escape, the app shutting down. That direction costs
+/// a retype when it is wrong, where the other direction would write a keystore
+/// encrypted under whatever happened to be in the field.
+pub fn ask_in_window(title: &str, prompt: &str) -> Option<String> {
+    let mut win = windows::passphrase(title, prompt);
+    let answer: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let (a, mut w, f) = (Rc::clone(&answer), win.window.clone(), win.field.clone());
+    let mut submit = move || {
+        *a.borrow_mut() = Some(f.value());
+        w.hide();
+    };
+    let mut ok = win.ok.clone();
+    let mut on_ok = submit.clone();
+    ok.set_callback(move |_| on_ok());
+    // Enter in the field is the same act as pressing Continue.
+    let mut field = win.field.clone();
+    field.set_callback(move |_| submit());
+
+    let mut cancel = win.cancel.clone();
+    let mut w2 = win.window.clone();
+    cancel.set_callback(move |_| w2.hide());
+
+    win.window.show();
+    let _ = win.field.take_focus();
+    while win.window.shown() {
+        if !app::wait() {
+            break;
+        }
+    }
+    win.window.hide();
+    let got = answer.borrow().clone();
+    got
+}
+
+/// Put up the client's own notice window and park on it.
+///
+/// Returns whether the player asked for a restart, which is only ever `true`
+/// when the caller offered one.
+pub fn show_notice(kind: Note, title: &str, body: &str, offer_restart: bool) -> bool {
+    let mut win = windows::notice(kind, title, body, offer_restart);
+    let wants = Rc::new(std::cell::Cell::new(false));
+
+    let mut ok = win.ok.clone();
+    let mut w = win.window.clone();
+    ok.set_callback(move |_| w.hide());
+
+    if let Some(b) = win.restart.clone() {
+        let mut b = b;
+        let (flag, mut w) = (Rc::clone(&wants), win.window.clone());
+        b.set_callback(move |_| {
+            flag.set(true);
+            w.hide();
+        });
+    }
+
+    win.window.show();
+    while win.window.shown() {
+        if !app::wait() {
+            break;
+        }
+    }
+    win.window.hide();
+    wants.get()
+}
+
+/// Start this program again and stop being it.
+///
+/// Operator, 2026-08-12: *"if we need the user to reboot say so and try to
+/// self reboot or something."* This is the second half. It re-execs **the same
+/// binary with the same arguments** — it is a restart and never an update, and
+/// the difference is the whole of why this is allowed to exist: the client
+/// still refuses to replace its own bytes, because a binary that rewrites
+/// itself is the one part of this program that would need absolute trust
+/// (`docs/client/LAUNCHER.md` §8; the update notice says the same thing one
+/// screen over).
+///
+/// ⚠ **`exit` and not a return, and the ordering matters.** The game door is a
+/// unix socket the child will unlink and rebind (`transport::Listener::bind`),
+/// and this process holds a listener whose `Drop` removes that path — so a
+/// tidy shutdown here would delete the socket the child just made.
+/// `std::process::exit` runs no destructors, which is what makes handing the
+/// door over safe.
+pub fn restart_now() -> Result<std::convert::Infallible, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    std::process::Command::new(&exe)
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("could not start {}: {e}", exe.display()))?;
+    std::process::exit(0);
 }
 
 /// Make and import — the whole of "how do I get an account".
@@ -95,7 +208,8 @@ pub fn wire_account(
         );
         let (ask, tell) = (Rc::clone(&ask), Rc::clone(&tell));
         b.set_callback(move |_| {
-            let Some(pass) = ask_twice(&ask, &tell, "A passphrase for the new account:") else {
+            let Some(pass) = ask_twice(&ask, &tell, "A new account",
+                                       "Choose a passphrase for it:") else {
                 return;
             };
             match scry_vault::LocalSigner::create(&ks, &pass) {
@@ -117,14 +231,16 @@ pub fn wire_account(
         b.set_callback(move |_| {
             // Masked like a passphrase: this input IS a private key, and it is
             // the one field in this program that must never be painted.
-            let Some(raw) = ask("The private key to adopt (64 hex characters):") else {
+            let Some(raw) = ask("Import a key",
+                                "The private key to adopt — 64 hex characters:") else {
                 return;
             };
             let secret = match parse_secret(&raw) {
                 Ok(s) => s,
                 Err(e) => return tell(Told::Refused, &e),
             };
-            let Some(pass) = ask_twice(&ask, &tell, "A passphrase to encrypt it with:") else {
+            let Some(pass) = ask_twice(&ask, &tell, "Import a key",
+                                       "Choose a passphrase to encrypt it with:") else {
                 return;
             };
             match scry_vault::LocalSigner::import(&ks, &pass, &secret) {
@@ -167,7 +283,7 @@ pub fn wire_signing(
     let signer = Arc::clone(signer);
     let mut status = signing_w.status.clone();
     b.set_callback(move |_| {
-        let Some(pass) = ask("Passphrase:") else {
+        let Some(pass) = ask("Unlock this account", "It stays unlocked until this launcher closes.") else {
             return;
         };
         let mut s = signer.lock().expect("signer lock");
@@ -185,6 +301,181 @@ pub fn wire_signing(
             Err(e) => tell(Told::Refused, &e),
         }
     });
+}
+
+// ── the two shelves, and the buttons that used to do nothing ────────────────
+//
+// Operator, 2026-08-12: *"i litarelly cant click anything to buy the game or
+// anything."* They were right twice over. The Games window painted a **Play**
+// button per row and dropped the widget on the floor, so the library's one
+// verb was a picture. The Store painted no control at all — two labels a row,
+// and no way to install, buy, or even read about a title. Both windows hand
+// their controls back now (`windows::GamesWindow`, `windows::StoreWindow`) and
+// these are what put behaviour on them.
+
+/// What a shelf row needs done, decided here so the window stays free of I/O
+/// and the binary stays free of policy.
+pub trait Storefront {
+    /// Fetch and hash-verify a title's published build. Long — the caller
+    /// blocks the UI thread on it, deliberately: an install with a spinner
+    /// this client cannot draw is worse than one that plainly holds still.
+    fn install(&self, slug: &str) -> Result<String, String>;
+    /// Re-hash everything a build's depot names.
+    fn verify(&self, slug: &str, build: &str) -> Result<String, String>;
+    /// Start what is installed.
+    fn play(&self, slug: &str) -> Result<String, String>;
+    /// Open a url in the player's browser. The buy step and the store page
+    /// both come through here, because this client holds no wallet.
+    fn open(&self, url: &str) -> Result<(), String>;
+    /// The title's page on the origin — where a buy actually happens.
+    fn page_url(&self, slug: &str) -> String;
+}
+
+/// Give the Games window's rows their behaviour.
+///
+/// **Play and Update are the same button and a different verb**, which is why
+/// the label is read back off [`crate::windows::Row::action`] rather than
+/// guessed: a row saying *"an update is published"* over a Play button is the
+/// exact defect `tests/rows.rs` exists for, and wiring it as Play would have
+/// re-introduced it one layer down.
+pub fn wire_games(
+    games_w: &crate::windows::GamesWindow,
+    front: Rc<dyn Storefront>,
+    tell: Tell,
+) {
+    for row in &games_w.rows {
+        let (slug, build) = (row.slug.clone(), row.build.clone());
+        let updating = row.act.label() == "Update";
+        let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let mut act = row.act.clone();
+        act.set_callback(move |b| {
+            b.deactivate();
+            b.set_label(if updating { "Updating…" } else { "Starting…" });
+            app::redraw();
+            app::flush();
+            let done = if updating {
+                front_c.install(&slug)
+            } else {
+                front_c.play(&slug)
+            };
+            match done {
+                Ok(said) => {
+                    b.set_label(if updating { "Play" } else { "Running" });
+                    b.activate();
+                    if updating {
+                        tell_c(Told::Done, &said);
+                    }
+                }
+                Err(e) => {
+                    // Said on the control the player pressed AND in a window.
+                    // A failure reported only to a console nobody is reading
+                    // has not been reported.
+                    b.set_label("Failed");
+                    b.activate();
+                    tell_c(Told::Refused, &e);
+                }
+            }
+            app::redraw();
+        });
+
+        let (slug, build) = (row.slug.clone(), build);
+        let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let mut verify = row.verify.clone();
+        verify.set_callback(move |b| {
+            b.deactivate();
+            b.set_label("Hashing…");
+            app::redraw();
+            app::flush();
+            match front_c.verify(&slug, &build) {
+                Ok(said) => {
+                    b.set_label("Verify");
+                    tell_c(Told::Done, &said);
+                }
+                Err(e) => {
+                    b.set_label("Verify");
+                    tell_c(Told::Refused, &e);
+                }
+            }
+            b.activate();
+            app::redraw();
+        });
+    }
+}
+
+/// Give the Store's rows their behaviour.
+///
+/// **Buy opens a browser and this is not a limitation to route around.** A
+/// purchase is a wallet signing a transaction; this client holds no wallet by
+/// design and the whole buy box already exists as a page that has been driven
+/// end to end (`TICKET.md` §8a). What the launcher owns is the half after the
+/// money: install, verify, play.
+///
+/// `after_install` is called once an install lands. The binary re-reads both
+/// shelves with it — the Store row becomes *Installed* and the game appears in
+/// the library — because the alternative is a message telling a player their
+/// game is in a window that will not show it until the next launch.
+pub fn wire_store(
+    store_w: &crate::windows::StoreWindow,
+    front: Rc<dyn Storefront>,
+    tell: Tell,
+    after_install: Rc<dyn Fn()>,
+) {
+    use crate::windows::Act;
+    for row in &store_w.rows {
+        let slug = row.slug.clone();
+        let act = row.act;
+        let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let after = Rc::clone(&after_install);
+        let mut button = row.button.clone();
+        button.set_callback(move |b| match act {
+            Act::Install => {
+                b.deactivate();
+                b.set_label("Installing…");
+                app::redraw();
+                app::flush();
+                match front_c.install(&slug) {
+                    Ok(said) => {
+                        b.set_label("Installed");
+                        tell_c(Told::Done, &said);
+                        after();
+                    }
+                    Err(e) => {
+                        b.set_label("Install");
+                        b.activate();
+                        tell_c(Told::Refused, &e);
+                    }
+                }
+                app::redraw();
+            }
+            Act::Buy | Act::Page => {
+                let url = front_c.page_url(&slug);
+                if let Err(e) = front_c.open(&url) {
+                    tell_c(
+                        Told::Refused,
+                        &format!("{e}\n\nOpen it yourself:\n{url}"),
+                    );
+                }
+            }
+            Act::Installed => tell_c(
+                Told::Done,
+                "You already have this one — it is in Games, with a Play button.",
+            ),
+            // Not pressable, so this is unreachable by a click. Kept as a real
+            // arm rather than a catch-all so adding a sixth `Act` fails to
+            // compile instead of silently doing nothing.
+            Act::Unpublished => {}
+        });
+
+        let slug = row.slug.clone();
+        let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let mut page = row.page.clone();
+        page.set_callback(move |_| {
+            let url = front_c.page_url(&slug);
+            if let Err(e) = front_c.open(&url) {
+                tell_c(Told::Refused, &format!("{e}\n\nOpen it yourself:\n{url}"));
+            }
+        });
+    }
 }
 
 /// How often the main thread looks for a game waiting at the door.
@@ -403,9 +694,8 @@ pub fn pair_browser(
 
     // The full message rides in the prompt: the player reads what is signed
     // in the same dialog that asks for the passphrase to sign it.
-    let prompt =
-        format!("About to sign exactly this, and nothing else:\n\n{message}\n\nPassphrase:");
-    let Some(pass) = ask(&prompt) else {
+    let prompt = format!("About to sign exactly this, and nothing else:\n\n{message}");
+    let Some(pass) = ask("Sign the browser in", &prompt) else {
         return Err("Cancelled — nothing was signed.".into());
     };
 
@@ -521,26 +811,162 @@ const RELOCK_POLL: f64 = 30.0;
 /// `local.rs` says it first — the process that draws the window holds the key,
 /// and rung 2's answer is the arca, not a timer. This narrows the WINDOW a
 /// walk-by has, which is real, and nothing more.
-pub fn serve_relock(signer: Shared, signing_w: &SigningWindow, after: std::time::Duration) {
+pub fn serve_relock(
+    signer: Shared,
+    signing_w: &SigningWindow,
+    after: std::time::Duration,
+    gate: bool,
+) {
     if after.is_zero() {
         return;
     }
     let mut status = signing_w.status.clone();
+    let busy = Rc::new(std::cell::Cell::new(false));
     app::add_timeout3(RELOCK_POLL, move |handle| {
-        if let Ok(mut s) = signer.lock() {
-            if s.idle().is_some_and(|idle| idle >= after) {
-                s.lock();
-                status.set_label(&s.status());
+        // The same re-entrancy guard `serve_consent` carries, for the same
+        // reason: the gate below runs a nested event loop, and FLTK dispatches
+        // timeouts inside one. Without this, a player who walks away from the
+        // lock screen gets a second one stacked on it every thirty seconds.
+        if !busy.get() {
+            busy.set(true);
+            let relocked = match signer.lock() {
+                Ok(mut s) if s.idle().is_some_and(|idle| idle >= after) => {
+                    s.lock();
+                    status.set_label(&s.status());
+                    app::redraw();
+                    true
+                }
+                _ => false,
+            };
+            // **The relock puts the gate back up**, which is the whole of
+            // *"when i return to the app it should prompt for my passphrase"*
+            // (operator, 2026-08-12): the case that ask is really about is
+            // walking away and coming back, and that is exactly when this
+            // fires. Locking silently — what it did before — meant the player
+            // came back to a client that looked unlocked and a game that would
+            // be told "locked" the next time it asked.
+            if relocked && gate {
+                lock_screen(
+                    &signer,
+                    "it locked itself while you were away — every signature resets that clock",
+                );
+                let mut st = status.clone();
+                if let Ok(s) = signer.lock() {
+                    st.set_label(&s.status());
+                }
                 app::redraw();
             }
+            busy.set(false);
         }
         app::repeat_timeout3(RELOCK_POLL, handle);
     });
 }
 
-fn ask_twice(ask: &Ask, tell: &Tell, prompt: &str) -> Option<String> {
-    let first = ask(prompt)?;
-    let again = ask("Type it again:")?;
+/// Whether the lock screen is armed at all. `SCRY_LOCK_SCREEN=0` is the posted
+/// door out (`CLAUDE.md` invariant 10), for the person who keeps this client
+/// open on their own machine and does not want a gate in front of the store.
+pub fn lock_screen_armed() -> bool {
+    !matches!(
+        std::env::var("SCRY_LOCK_SCREEN").as_deref().map(str::trim),
+        Ok("0") | Ok("off") | Ok("no")
+    )
+}
+
+/// Hold the client behind a passphrase until it opens — or the player quits.
+///
+/// Returns when the account is unlocked. **It does not return any other way**,
+/// which is the ask: *"prompt for my passphrase and not go pass that."* Quit
+/// ends the process rather than returning a `false` some caller might ignore,
+/// because a gate whose refusal path is a boolean is one bad `if` away from
+/// being no gate at all.
+///
+/// Three states walk straight through and none of them is a bypass:
+///
+/// * **no keystore** — there is nothing to unlock. Playing with no account is
+///   a normal state and always has been (`docs/client/LAUNCHER.md` §1).
+/// * **already unlocked** — the gate is for a locked key.
+/// * **`SCRY_LOCK_SCREEN=0`** — the operator's own machine saying so.
+pub fn lock_screen(signer: &Shared, why: &str) {
+    if !lock_screen_armed() {
+        return;
+    }
+    let (exists, unlocked, address) = match signer.lock() {
+        Ok(s) => (s.exists(), s.is_unlocked(), s.address().unwrap_or_default()),
+        // A poisoned lock means another thread panicked holding the signer.
+        // Gating on it would strand the player in front of a window that can
+        // never open, so this walks through — the account stays locked and
+        // every act that needs it still refuses with its own reason.
+        Err(_) => return,
+    };
+    if !exists || unlocked {
+        return;
+    }
+
+    let mut win = crate::windows::lock(&address, why);
+    let done = Rc::new(std::cell::Cell::new(false));
+
+    // Quit is a real quit. It is the only other way out of this window, and
+    // the window manager's close box does the same thing rather than dropping
+    // the player into an unlocked-looking client.
+    let mut quit = win.quit.clone();
+    quit.set_callback(|_| std::process::exit(0));
+    win.window.set_callback(|_| std::process::exit(0));
+
+    let signer_c = Arc::clone(signer);
+    let (flag, field, mut status, mut w) = (
+        Rc::clone(&done),
+        win.field.clone(),
+        win.status.clone(),
+        win.window.clone(),
+    );
+    let mut try_unlock = move || {
+        let typed = field.value();
+        let mut s = match signer_c.lock() {
+            Ok(s) => s,
+            Err(_) => {
+                status.set_label("the account is busy — try again");
+                return;
+            }
+        };
+        match s.unlock(&typed) {
+            Ok(()) => {
+                flag.set(true);
+                w.hide();
+            }
+            // The vault draws the line between a wrong passphrase and a
+            // corrupt file, and it is said in place rather than in a second
+            // window — a modal over a modal is how a player loses the field
+            // they were typing in.
+            Err(e) => {
+                let mut f = field.clone();
+                f.set_value("");
+                let _ = f.take_focus();
+                status.set_label(&e);
+                app::redraw();
+            }
+        }
+    };
+    let mut unlock = win.unlock.clone();
+    let mut on_click = try_unlock.clone();
+    unlock.set_callback(move |_| on_click());
+    let mut field = win.field.clone();
+    field.set_callback(move |_| try_unlock());
+
+    win.window.show();
+    let _ = win.field.take_focus();
+    while win.window.shown() && !done.get() {
+        // `wait` returning false is the app shutting down. Breaking on it is
+        // what stops a quitting launcher from spinning here forever.
+        if !app::wait() {
+            break;
+        }
+    }
+    win.window.hide();
+}
+
+fn ask_twice(ask: &Ask, tell: &Tell, heading: &str, prompt: &str) -> Option<String> {
+    let first = ask(heading, prompt)?;
+    let again = ask(heading, "Type it again — it cannot be reset later:")?;
     if first != again {
         tell(Told::Refused, "Those two did not match — nothing was written.");
         return None;
@@ -577,14 +1003,26 @@ fn adopt(
     }
     let mut st = signing_w.status.clone();
     st.set_label(&status);
+    // ⚠ **The restart that used to be asked for happens here instead.** This
+    // message ended *"Restart the launcher to unlock it in Signing"* until
+    // 2026-08-12, because `signing()` decided whether to build an Unlock
+    // button from a keystore that did not exist when the window was built. It
+    // builds them deactivated now, so a fresh account turns them on in place
+    // and nobody restarts a program to gain a button (operator, 2026-08-12).
+    for b in [signing_w.unlock.clone(), signing_w.lock.clone()].into_iter().flatten() {
+        let mut b = b;
+        b.activate();
+    }
     app::redraw();
 
     tell(
         Told::Done,
         &format!(
-            "Account created.\n\n{address}\n\nThe keystore is the only copy of this key:\n{}\n\n\
-             Back it up. The passphrase cannot be reset — nobody else has it, including scry.\n\n\
-             Restart the launcher to unlock it in Signing.",
+            "Account created.\n\n{address}\n\n\
+             The keystore is the only copy of this key:\n{}\n\n\
+             Back it up. The passphrase cannot be reset — nobody else has it,\n\
+             including scry.\n\n\
+             Signing can unlock it now; no restart is needed.",
             keystore.display()
         ),
     );
@@ -618,7 +1056,7 @@ pub fn parse_secret(raw: &str) -> Result<[u8; 32], String> {
 /// `examples/click.rs` uses it too and a second copy would drift.
 pub fn scripted_ask(answers: Vec<Option<String>>) -> Ask {
     let queue = RefCell::new(answers.into_iter());
-    Rc::new(move |_prompt| queue.borrow_mut().next().unwrap_or(None))
+    Rc::new(move |_heading, _prompt| queue.borrow_mut().next().unwrap_or(None))
 }
 
 /// Somewhere for a test to read what the player was told.
@@ -710,7 +1148,7 @@ mod tests {
     fn a_bad_code_is_refused_before_a_dialog_or_the_origin() {
         let asked = Rc::new(RefCell::new(0u32));
         let a2 = Rc::clone(&asked);
-        let ask: Ask = Rc::new(move |_| {
+        let ask: Ask = Rc::new(move |_, _| {
             *a2.borrow_mut() += 1;
             None
         });
@@ -722,7 +1160,7 @@ mod tests {
 
     #[test]
     fn no_account_refuses_before_a_dialog_or_the_origin() {
-        let ask: Ask = Rc::new(|_| panic!("asked for a passphrase with no account"));
+        let ask: Ask = Rc::new(|_, _| panic!("asked for a passphrase with no account"));
         let e = pair_browser(&no_signer(), "https://x.example", "ABCD-2345", &ask, &NoHttp)
             .unwrap_err();
         assert!(e.contains("No account"), "{e}");
@@ -745,7 +1183,7 @@ mod tests {
         .expect("write test keystore");
         let signer: Shared =
             Arc::new(Mutex::new(scry_vault::LocalSigner::at(&path)));
-        let ask: Ask = Rc::new(|_| panic!("asked for a passphrase over a dead code"));
+        let ask: Ask = Rc::new(|_, _| panic!("asked for a passphrase over a dead code"));
         let e = pair_browser(&signer, "https://x.example", "abcd-2345", &ask, &Gone)
             .unwrap_err();
         let _ = std::fs::remove_file(&path);
@@ -757,14 +1195,14 @@ mod tests {
     #[test]
     fn a_cancelled_prompt_is_not_an_empty_answer() {
         let ask = scripted_ask(vec![None]);
-        assert_eq!(ask("anything"), None, "cancel must stay cancel");
+        assert_eq!(ask("a heading", "anything"), None, "cancel must stay cancel");
     }
 
     #[test]
     fn mismatched_passphrases_are_refused_and_say_so() {
         let log = Rc::new(RefCell::new(Vec::new()));
         let ask = scripted_ask(vec![Some("one".into()), Some("two".into())]);
-        let got = ask_twice(&ask, &recording_tell(Rc::clone(&log)), "p");
+        let got = ask_twice(&ask, &recording_tell(Rc::clone(&log)), "h", "p");
         assert!(got.is_none(), "a mismatch must not yield a passphrase");
         assert_eq!(log.borrow()[0].0, Told::Refused);
         assert!(log.borrow()[0].1.contains("nothing was written"));

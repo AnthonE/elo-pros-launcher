@@ -36,10 +36,12 @@
 use fltk::{app, prelude::*};
 use scry_broker::signer::Signer;
 use scry_broker::{protocol::Refusal, transport, Host, What};
+use scry_ui::art;
 use scry_ui::consent;
 use scry_ui::windows::{self, Row};
 use scry_ui::wiring;
 use serde_json::{json, Value};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 /// The launcher's answers to the questions a game may ask.
@@ -390,23 +392,68 @@ fn main() {
     let doorbell = consent::Doorbell::new();
 
     // Then the door, so its path is in the environment before any game starts.
-    if let Some(endpoint) =
-        open_the_door(host.clone(), root.clone(), Arc::clone(&signer), doorbell.clone())
-    {
-        std::env::set_var(transport::SOCKET_ENV, &endpoint);
+    let door = open_the_door(host.clone(), root.clone(), Arc::clone(&signer), doorbell.clone());
+    if let Some(endpoint) = &door {
+        std::env::set_var(transport::SOCKET_ENV, endpoint);
         println!("scry-gui: the game door is open at {endpoint}");
     }
 
-    // What is actually installed. `stale: None` is the honest state here —
-    // nothing has asked the origin yet, and "not checked" must never render as
-    // "up to date".
-    let rows: Vec<Row> = scry_depot::installed(&root).iter().map(Row::from_install).collect();
-    println!("scry-gui: {} install(s) under {}", rows.len(), root.display());
-
     let a = app::App::default();
     let has_account = signer.lock().map(|s| s.exists()).unwrap_or(false);
+
+    // ── the gate ────────────────────────────────────────────────────────────
+    //
+    // Operator, 2026-08-12: *"when i return to the app it should prompt for my
+    // passphrase and not go pass that."* So the client opens locked when there
+    // is an account to unlock, and nothing else is drawn until it opens. With
+    // no account this is a no-op — playing without one stays a normal state —
+    // and `SCRY_LOCK_SCREEN=0` turns it off (`wiring::lock_screen_armed`).
+    //
+    // It runs BEFORE the windows are built rather than over them, so a player
+    // does not watch the client assemble itself behind a modal they cannot
+    // dismiss.
+    wiring::lock_screen(
+        &signer,
+        "unlock the account on this machine to carry on",
+    );
+
     let mut menu = windows::main_menu(has_account, env!("CARGO_PKG_VERSION"));
     menu.window.show();
+
+    // ── the one place a restart is genuinely the fix ────────────────────────
+    //
+    // The game door is a socket bound once at startup. If the bind failed —
+    // another launcher already running, a stale path this process cannot
+    // remove, a full or read-only runtime dir — nothing later in this process
+    // retries it, so every game started from here plays anonymously for the
+    // rest of the session. There is no button that repairs that; a fresh
+    // process is the repair.
+    //
+    // Operator, 2026-08-12: *"if we need the user to reboot say so and try to
+    // self reboot or something."* Both halves, here: it says so, in a window
+    // rather than on a console nobody is reading, and it offers to do it.
+    if door.is_none() {
+        let restart = wiring::show_notice(
+            windows::Note::Refused,
+            "The game door did not open",
+            "Games will still install and start — they will just play anonymously,\n\
+             because nothing can ask this launcher who is playing or for a signature.\n\n\
+             The usual cause is another copy of scry already running.\n\n\
+             Nothing retries this while the program is open, so a restart is the fix.",
+            true,
+        );
+        if restart {
+            // `restart_now` never returns on success — it re-execs and exits —
+            // so the only value it can hand back is the reason it could not.
+            let Err(e) = wiring::restart_now();
+            wiring::show_notice(
+                windows::Note::Refused,
+                "Could not restart",
+                &format!("{e}\n\nClose this program and start it again yourself."),
+                false,
+            );
+        }
+    }
 
     // Every window is built once and shown on demand — the original client's
     // shape, and it means a player can leave Games open while reading Signing.
@@ -422,19 +469,13 @@ fn main() {
     // every one of these callbacks runs on FLTK's own thread. The door's
     // thread deliberately does not share this — see `Launcher::sign`.
 
-    // The catalog, read once at startup. `reachable` is carried through rather
-    // than collapsed into "empty", because an origin that lists nothing and an
-    // origin that did not answer are different sentences and the Store draws
-    // them differently.
-    let (store_titles, store_reachable) = read_catalog(&host);
-    println!(
-        "scry-gui: catalog {}",
-        if store_reachable {
-            format!("{} title(s)", store_titles.len())
-        } else {
-            "unreadable — the Store will say so".into()
-        }
-    );
+    // Everything the two shelves' buttons do. One object, shared by both
+    // windows, so `Install` in the Store and `Update` in Games are the same
+    // code path with the same rules.
+    let front: Rc<dyn wiring::Storefront> = Rc::new(Front {
+        host: host.clone(),
+        root: root.clone(),
+    });
 
     // Gates' shards, read at startup the same way the catalog is. The whole
     // read is one function so the window keeps taking measured facts and doing
@@ -481,11 +522,27 @@ fn main() {
         Arc::clone(&signer),
         &signing_w,
         std::time::Duration::from_secs(relock_min * 60),
+        wiring::lock_screen_armed(),
     );
 
+    // The two shelves. The Store is read first because the library borrows its
+    // names and its art — one read, and the two windows cannot then disagree
+    // about what a title is called (`Ui`).
+    //
+    // Until 2026-08-12 the Games window was built here and its controls thrown
+    // on the floor, so every Play button in the library was a painting.
+    let ui = Rc::new(Ui {
+        host: host.clone(),
+        root: root.clone(),
+        front: Rc::clone(&front),
+        shelf: std::cell::RefCell::new(Vec::new()),
+        store: std::cell::RefCell::new(None),
+        games: std::cell::RefCell::new(None),
+    });
+    refresh_store(&ui, false);
+    refresh_games(&ui, false);
+
     let windows_by_label: Vec<(&str, fltk::window::Window)> = vec![
-        ("Games", windows::games(&rows)),
-        ("Store", windows::store(&store_titles, store_reachable)),
         ("Servers", servers_w.window.clone()),
         ("Account", account_w.window.clone()),
         ("Signing", signing_w.window.clone()),
@@ -496,7 +553,29 @@ fn main() {
             let label = child.label();
             if let Some((_, w)) = windows_by_label.iter().find(|(n, _)| *n == label) {
                 let mut w = w.clone();
-                child.set_callback(move |_| { w.show(); });
+                child.set_callback(move |_| {
+                    w.show();
+                });
+                continue;
+            }
+            // Store and Games are the two whose window is REPLACED on a
+            // refresh, so the menu asks the cell for the current one rather
+            // than holding a handle a rebuild would strand.
+            let ui_c = Rc::clone(&ui);
+            match label.as_str() {
+                "Store" => child.set_callback(move |_| {
+                    if let Some(s) = ui_c.store.borrow().as_ref() {
+                        let mut w = s.window.clone();
+                        w.show();
+                    }
+                }),
+                "Games" => child.set_callback(move |_| {
+                    if let Some(g) = ui_c.games.borrow().as_ref() {
+                        let mut w = g.window.clone();
+                        w.show();
+                    }
+                }),
+                _ => {}
             }
         }
     }
@@ -664,30 +743,508 @@ fn wire_servers(w: &windows::ServersWindow, slug: &str, games_root: &std::path::
     }
 }
 
-fn read_catalog(host: &str) -> (Vec<(String, String)>, bool) {
-    let got = scry_net::Net::new().get_json(&format!("{host}/api/launcher/manifests"));
+/// The two windows that are REBUILT rather than built once, and what they need.
+///
+/// Every other window in this client is constructed at startup and shown on
+/// demand. These two cannot be: their height, their rows and their controls
+/// are all functions of a read, so re-rendering means rebuilding the widgets.
+///
+/// The state exists because of the operator's *"if we need the user to reboot"*
+/// (2026-08-12). Both windows had a restart baked into them: a catalog fetched
+/// once at startup meant a player whose wifi was down when the client opened
+/// saw *"the catalog could not be read"* until they restarted the program, and
+/// a game installed from the Store did not appear in Games until the next
+/// launch. Both are now a read away.
+struct Ui {
+    host: String,
+    root: std::path::PathBuf,
+    front: Rc<dyn wiring::Storefront>,
+    /// The last shelf that was read. The library borrows it for names and
+    /// icons, so the two windows cannot disagree about what a title is called.
+    shelf: std::cell::RefCell<Vec<windows::Shelf>>,
+    store: std::cell::RefCell<Option<windows::StoreWindow>>,
+    games: std::cell::RefCell<Option<windows::GamesWindow>>,
+}
+
+/// Rebuild a window on the next event-loop tick.
+///
+/// ⚠ **A rebuild may never run inside the old window's own callback.**
+/// Replacing the cell DROPS the previous window, which frees the very button
+/// whose callback is on the stack — a use-after-free with the player's finger
+/// still on it. A timeout runs outside every widget callback, which is what
+/// makes the swap safe. The delay is small and non-zero so the press paints
+/// first.
+fn defer(ui: &Rc<Ui>, what: fn(&Rc<Ui>, bool)) {
+    let ui = Rc::clone(ui);
+    app::add_timeout3(0.05, move |_| what(&ui, true));
+}
+
+/// Read the shelf and put up a Store window over whatever was there.
+fn refresh_store(ui: &Rc<Ui>, show: bool) {
+    let (rows, reachable, why) = read_shelf(&ui.host, &ui.root);
+    println!(
+        "scry-gui: shelf {}",
+        if reachable {
+            format!("{} title(s)", rows.len())
+        } else {
+            format!("unreadable ({why}) — the Store will say so")
+        }
+    );
+    let store_w = windows::store(&rows, reachable, &why);
+    *ui.shelf.borrow_mut() = rows;
+
+    // Installing from the Store puts a game in the library, so the library is
+    // re-read when it does. Without this the Store says *"it is in Games now"*
+    // over a Games window that will not show it until the next launch.
+    let after = {
+        let ui = Rc::clone(ui);
+        Rc::new(move || {
+            defer(&ui, |ui, _| {
+                refresh_store(ui, false);
+                refresh_games(ui, false);
+            })
+        }) as Rc<dyn Fn()>
+    };
+    wiring::wire_store(&store_w, Rc::clone(&ui.front), wiring::real_tell(), after);
+
+    let mut refresh = store_w.refresh.clone();
+    let ui_c = Rc::clone(ui);
+    refresh.set_callback(move |b| {
+        b.set_label("Reading…");
+        b.deactivate();
+        defer(&ui_c, refresh_store);
+    });
+
+    let mut window = store_w.window.clone();
+    let previous = ui.store.replace(Some(store_w));
+    if let Some(old) = previous {
+        let mut w = old.window.clone();
+        let was_up = w.shown();
+        w.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
+}
+
+/// Re-read what is installed and put up a Games window over whatever was there.
+fn refresh_games(ui: &Rc<Ui>, show: bool) {
+    let rows = read_library(&ui.host, &ui.root, &ui.shelf.borrow());
+    println!("scry-gui: {} install(s) under {}", rows.len(), ui.root.display());
+    let games_w = windows::games(&rows);
+    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
+
+    let mut refresh = games_w.refresh.clone();
+    let ui_c = Rc::clone(ui);
+    refresh.set_callback(move |b| {
+        b.set_label("Reading…");
+        b.deactivate();
+        defer(&ui_c, refresh_games);
+    });
+
+    let mut window = games_w.window.clone();
+    let previous = ui.games.replace(Some(games_w));
+    if let Some(old) = previous {
+        let mut w = old.window.clone();
+        let was_up = w.shown();
+        w.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
+}
+
+/// The real storefront — what the Store's and Games' buttons actually do.
+///
+/// **Every verb here is the CLI's verb**, reached through the same
+/// `scry-depot` calls `scry install`, `scry verify` and `scry play` make. A
+/// second install path in the window layer would be a second place for the
+/// hash rules, the staging directory and the argv substitution to be got
+/// wrong, and only one of the two would have tests.
+struct Front {
+    host: String,
+    root: std::path::PathBuf,
+}
+
+impl wiring::Storefront for Front {
+    /// Fetch, hash-verify and place a build.
+    ///
+    /// ⚠ **This blocks the UI thread for as long as the download takes**, and
+    /// that is a real cost stated rather than hidden: the window freezes.
+    /// It is still better than the alternative shipped today, which is no
+    /// button at all — and the honest fix is a progress row, which is work
+    /// this change does not do. The button says `Installing…` before it
+    /// starts, so the freeze reads as the install and not as a crash.
+    fn install(&self, slug: &str) -> Result<String, String> {
+        let net = scry_net::Net::new();
+        let url = format!("{}/api/launcher/manifest/{slug}", self.host);
+        let got = net.get_json(&url);
+        let Some(v) = got.value else {
+            return Err(format!(
+                "could not read {slug}'s manifest — {}\n\n{url}",
+                got.why
+            ));
+        };
+        // ⚠ **`rebase` or the depot url is unusable.** The origin serves a
+        // manifest whose `depot` is a PATH — `/api/launcher/depot/gates/…` —
+        // and the client completes it against the host it asked. Without this
+        // the check fails with *"bad uri"* and the row says the origin could
+        // not be reached, which is a sentence about the network for a bug in
+        // this file. `load_manifest` in the CLI does the same thing and this
+        // is the same call.
+        let mut m = scry_depot::parse_manifest(&v).map_err(|e| e.to_string())?;
+        m.rebase(&self.host);
+        let checked = scry_depot::check(&m, &scry_depot::platform_tag(), &self.root, &net, false);
+        match &checked.state {
+            scry_depot::UpdateState::Unpublished => {
+                return Err(format!(
+                    "{} publishes no build for {} yet.\n\n\
+                     This is a normal state, not a fault — the row says so and the \
+                     button stays off until a depot is published.",
+                    m.name,
+                    scry_depot::platform_tag()
+                ))
+            }
+            // A 401 IS the ticket door and not a fault: the title is sold, and
+            // the download wants the grant a copy buys. The CLI says the same
+            // sentence for the same case (`main.rs`, the install arm).
+            scry_depot::UpdateState::Unknown { why } if why.contains("401") => {
+                return Err(format!(
+                    "This game is sold — the download needs the grant your copy buys.\n\n\
+                     In a terminal:  scry entitle {slug}\n\
+                     then press Install again.\n\n\
+                     No copy yet? The price and the contract:\n{}/api/ticket/{slug}",
+                    self.host
+                ))
+            }
+            scry_depot::UpdateState::Unknown { why } => {
+                return Err(format!("refusing to install — {why}"))
+            }
+            _ => {}
+        }
+        let Some(depot) = checked.depot else {
+            return Ok(format!("{} is already up to date.", m.name));
+        };
+        let plan = scry_depot::plan(&depot, &self.root);
+        let at = scry_depot::install(&depot, &self.root, &net, Some(&plan), None)
+            .map_err(|e| e.to_string())?;
+        // The digest goes in the message. It is the one number a player can
+        // take to a block explorer, and an install that computes it and keeps
+        // it quiet has wasted the only property no other storefront has.
+        let digest = depot.digest().map_err(|e| e.to_string())?;
+        Ok(format!(
+            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}\n\n\
+             It is in Games now, with a Play button.",
+            m.name,
+            depot.build,
+            at.display()
+        ))
+    }
+
+    fn verify(&self, slug: &str, build: &str) -> Result<String, String> {
+        let Some(i) = scry_depot::installed(&self.root)
+            .into_iter()
+            .find(|i| i.slug == slug && i.build == build)
+        else {
+            return Err(format!("{slug} {build} is not installed any more."));
+        };
+        let v = scry_depot::verify(&i.path);
+        if v.ok {
+            Ok(format!(
+                "{slug} {build} verified.\n\n{}\n\n\
+                 depot digest\n{}\n\n\
+                 That digest is the number to look up on chain — it is what the \n\
+                 notary event names.",
+                v.line(),
+                i.depot_digest
+            ))
+        } else {
+            // A failed hash is the one thing in this client that means the
+            // bytes on disk are not the bytes that were published.
+            let named: Vec<String> = v
+                .missing
+                .iter()
+                .chain(v.changed.iter())
+                .take(8)
+                .cloned()
+                .collect();
+            Err(format!(
+                "{slug} {build} does NOT match its depot.\n\n{}\n\n{}\n\n\
+                 Re-installing replaces every file the depot names.",
+                v.line(),
+                named.join("\n")
+            ))
+        }
+    }
+
+    fn play(&self, slug: &str) -> Result<String, String> {
+        // `rfind`, not `find` — builds sort by name and a title can have
+        // several installed, so the FIRST match is the OLDEST. `scry play`
+        // makes the same choice for the same reason.
+        let Some(i) = scry_depot::installed(&self.root)
+            .into_iter()
+            .rfind(|i| i.slug == slug)
+        else {
+            return Err(format!("{slug} is not installed — install it from the Store."));
+        };
+        let launch = scry_depot::launch::resolve(
+            &i,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+        )
+        .map_err(|e| e.to_string())?;
+        let pid = scry_depot::launch::spawn(&launch).map_err(|e| e.to_string())?;
+        Ok(format!("{slug} started (pid {pid})."))
+    }
+
+    fn open(&self, url: &str) -> Result<(), String> {
+        let r = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", url])
+                .spawn()
+        } else {
+            std::process::Command::new("xdg-open").arg(url).spawn()
+        };
+        r.map(|_| ()).map_err(|e| format!("could not open a browser: {e}"))
+    }
+
+    fn page_url(&self, slug: &str) -> String {
+        format!("{}/game.html?slug={slug}", self.host)
+    }
+}
+
+/// The store shelf, as `(rows, reachable, why)`.
+///
+/// Reads the same route the CLI's `scry games` reads, so the two halves of the
+/// client cannot disagree about what is listed — and then asks two more
+/// questions per title that the manifest cannot answer on its own: **what does
+/// a copy cost** (`/api/ticket/{slug}`) and **what does this title's art look
+/// like** (`art.icon`, which the origin derives from the shelf row).
+///
+/// ⚠ **Every "we could not look" survives to the window.** A title whose price
+/// route failed becomes `Price::Unknown` and not `Price::Free`: reading a
+/// dropped packet as "free" is how a store gives a game away, and it is the
+/// repo's own trap wearing a price tag.
+fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool, String) {
+    let net = scry_net::Net::new();
+    let got = net.get_json(&format!("{host}/api/launcher/manifests"));
     let Some(v) = got.value else {
         // Not an empty shelf. `reachable` false is the whole point of this
         // return type — see the Store window's two branches.
-        return (Vec::new(), false);
+        return (Vec::new(), false, got.why);
     };
-    let rows = v
+    let manifests = v
         .get("manifests")
         .and_then(|m| m.as_array())
         .cloned()
         .unwrap_or_default();
-    let titles = rows
+    let here = scry_depot::platform_tag();
+    let on_disk = scry_depot::installed(root);
+
+    let mut rows = Vec::new();
+    for m in manifests.iter() {
+        let Some(slug) = m.get("slug").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = m.get("name").and_then(Value::as_str).unwrap_or(slug);
+        let blurb = m
+            .get("blurb")
+            .and_then(Value::as_str)
+            .unwrap_or("no description");
+        // Installable means a build for THIS machine whose depot is actually
+        // published — not merely a row in the manifest. A title can be listed,
+        // live, and have nothing this platform can run, and the shelf says so
+        // rather than offering an Install that would 404.
+        let installable = m
+            .get("builds")
+            .and_then(Value::as_array)
+            .map(|bs| {
+                bs.iter().any(|b| {
+                    b.get("platform").and_then(Value::as_str) == Some(here.as_str())
+                        && b.get("depot_state").and_then(Value::as_str) == Some("published")
+                })
+            })
+            .unwrap_or(false);
+        rows.push(windows::Shelf {
+            slug: slug.to_string(),
+            name: name.to_string(),
+            blurb: blurb.to_string(),
+            state: m
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            installable,
+            installed: on_disk.iter().any(|i| i.slug == slug),
+            price: read_price(&net, host, slug),
+            icon: read_icon(&net, host, m),
+        });
+    }
+    (rows, true, String::new())
+}
+
+/// The library — what is installed, measured against what is published.
+///
+/// Two things this adds that `Row::from_install` cannot, because an install
+/// receipt knows neither:
+///
+/// * **the title's name and its icon**, taken from the shelf that was just
+///   read. A library that says `gates` and draws a lettered box next to a
+///   store that says **Gates** over the real capsule is one client disagreeing
+///   with itself about the same game.
+/// * **whether the build is current.** Nothing asked the origin at startup, so
+///   every row said *"not checked — the origin was not reached"* — a reason
+///   that was never measured and was usually false — and the **Update** button
+///   `Row::action` exists for could not appear at all.
+///
+/// One `check` per SLUG, not per row: what is published is a property of the
+/// title, and each row then holds its own build against it.
+///
+/// ⚠ **The comparison is on the DIGEST and never on the build name**, and that
+/// is `scry-depot`'s rule rather than a preference here: *"a title is current
+/// if ANY installed build carries the published digest"* (`update.rs`). Two
+/// builds with the same digest are the same bytes whatever they are called, so
+/// comparing names would offer **Update** over a build already identical to
+/// the published one — and, the other way, call a genuinely stale build
+/// current on a name collision.
+fn read_library(host: &str, root: &std::path::Path, shelf: &[windows::Shelf]) -> Vec<Row> {
+    let net = scry_net::Net::new();
+    let installs = scry_depot::installed(root);
+    // slug → the published depot digest, or why we could not name one.
+    let mut published: std::collections::BTreeMap<String, Result<String, String>> =
+        std::collections::BTreeMap::new();
+
+    for i in &installs {
+        if published.contains_key(&i.slug) {
+            continue;
+        }
+        let url = format!("{host}/api/launcher/manifest/{}", i.slug);
+        let got = net.get_json(&url);
+        let answer = match got.value.as_ref().map(scry_depot::parse_manifest) {
+            Some(Ok(mut m)) => {
+                // The depot url is a path on the origin; complete it against
+                // the host we asked. See `Front::install`.
+                m.rebase(host);
+                let checked =
+                    scry_depot::check(&m, &scry_depot::platform_tag(), root, &net, false);
+                match checked.state {
+                    scry_depot::UpdateState::Current { digest, .. } => Ok(digest),
+                    scry_depot::UpdateState::Stale { to_digest, .. } => Ok(to_digest),
+                    scry_depot::UpdateState::NotInstalled { .. } => {
+                        Err("the origin publishes no build for this platform".into())
+                    }
+                    scry_depot::UpdateState::Unpublished => {
+                        Err("no desktop build is published yet".into())
+                    }
+                    scry_depot::UpdateState::Unknown { why } => Err(why),
+                }
+            }
+            Some(Err(e)) => Err(e.to_string()),
+            None if got.reachable => Err(got.why.clone()),
+            None => Err(format!("could not reach the origin — {}", got.why)),
+        };
+        published.insert(i.slug.clone(), answer);
+    }
+
+    installs
         .iter()
-        .filter_map(|m| {
-            let name = m.get("name").and_then(|s| s.as_str())?;
-            let blurb = m
-                .get("blurb")
-                .and_then(|s| s.as_str())
-                .unwrap_or("no description");
-            Some((name.to_string(), blurb.to_string()))
+        .map(|i| {
+            let mut row = Row::from_install(i);
+            if let Some(t) = shelf.iter().find(|t| t.slug == i.slug) {
+                row.name = Some(t.name.clone());
+                row.icon = t.icon.clone();
+            }
+            match published.get(&i.slug) {
+                Some(Ok(digest)) => row.stale = Some(*digest != i.depot_digest),
+                Some(Err(why)) => row.why = Some(why.clone()),
+                None => {}
+            }
+            row
+        })
+        .collect()
+}
+
+/// What a copy of one title costs, off `/api/ticket/{slug}`.
+///
+/// **This client does no arithmetic on money and that is why the line says
+/// dollars.** The origin publishes `price_usd` as a number it computed; the
+/// per-rail amounts are wei strings, and turning one into "0.0025 ETH" here
+/// would be a second implementation of a figure a buyer acts on, in the one
+/// place nothing checks it. The exact amount is on the page where the wallet
+/// signs — the launcher names the rail and the dollar price, and stops.
+fn read_price(net: &scry_net::Net, host: &str, slug: &str) -> windows::Price {
+    let got = net.get_json(&format!("{host}/api/ticket/{slug}"));
+    let Some(v) = got.value else {
+        return windows::Price::Unknown {
+            why: if got.reachable {
+                got.why
+            } else {
+                format!("could not reach the origin — {}", got.why)
+            },
+        };
+    };
+    // A title with no ticket contract is FREE, and that is a real answer the
+    // origin states in words rather than an absence we inferred.
+    if v.get("ticketed").and_then(Value::as_bool) != Some(true) {
+        return windows::Price::Free;
+    }
+    // Ticketed but the chain read failed: the contract exists and we do not
+    // know what it is charging. Never "free", never a number.
+    if v.get("reachable").and_then(Value::as_bool) == Some(false) {
+        return windows::Price::Unknown {
+            why: "the contract did not answer".into(),
+        };
+    }
+    let open: Vec<&str> = ["eth", "scry", "usdg"]
+        .into_iter()
+        .filter(|r| {
+            v.get("rails")
+                .and_then(|rs| rs.get(r))
+                .and_then(|x| x.get("open"))
+                .and_then(Value::as_bool)
+                == Some(true)
         })
         .collect();
-    (titles, true)
+    if open.is_empty() {
+        // A contract with every rail posted at 0. The sale is shut, and that
+        // closes buying without closing resale — so it is not "free" either.
+        return windows::Price::Posted {
+            line: "nothing — the sale is not open yet".into(),
+        };
+    }
+    let rails = open.join(" or ").to_uppercase();
+    match v.get("price_usd").and_then(Value::as_f64) {
+        Some(usd) => windows::Price::Posted {
+            line: format!("${usd:.2}, paid in {rails}"),
+        },
+        // A dollar figure the origin left null is one nothing may invent.
+        None => windows::Price::Posted {
+            line: format!("an amount posted in {rails} — the page has the figure"),
+        },
+    }
+}
+
+/// A title's icon, if the origin published one and it decoded.
+///
+/// Every failure here is a placeholder and none of them is reported to the
+/// player: art is decoration on a row whose words are already right
+/// (`scry_ui::art`).
+fn read_icon(net: &scry_net::Net, host: &str, manifest: &Value) -> Option<art::Icon> {
+    let url = manifest.get("art")?.get("icon")?.as_str()?;
+    // The origin serves these as site-relative paths. Anything absolute is
+    // taken as written, so a title hosting its own art still works.
+    let url = if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("{host}/{}", url.trim_start_matches('/'))
+    };
+    art::Icon::decode(net.art(&url).value?)
 }
 
 /// The door's own answers, tested where they are written.

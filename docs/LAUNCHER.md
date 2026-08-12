@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-10
-about: "the desktop client — the 2003 Steam client ripped and pointed at scry: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships"
+updated: 2026-08-12
+about: "the desktop client — the 2003 Steam client ripped and pointed at scry: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -1927,6 +1927,116 @@ not:
 ⚠ **None of 2–4 is decided here.** A signing key, a paid account, and a
 distribution channel are operator acts with recurring costs; this section is
 the audit that makes the cost known, in the shape §12 used.
+
+### 10o · The shelves had no buttons, and the passphrase screen was the toolkit's
+
+> Operator, 2026-08-12: *"the launcher on linux is kinda meh. the passphrase
+> screen doesnt match anything else. the store has overrunning text. it talks
+> about 'the pass'… and i litarelly cant click anything to buy the game or
+> anything. also when i return to the app it should prompt for my passphrase
+> and not go pass that. and also if we need the user to reboot say so and try
+> to self reboot… also make sure we show of the games with a tiny icon."*
+
+**Seven findings, and one of them is §10k happening again on the two windows
+§10k did not cover.** Measured before anything was changed:
+
+| | |
+|---|---|
+| the Games window's **Play** button | painted, pressable, **and dropped on the floor** — `games()` built the widget as a local and returned only the window, so nothing could wire it |
+| the Store's rows | 2 labels each and **no control at all** — no install, no buy, no way to read about a title |
+| the Store's `name` and `blurb` | drawn through `chrome::label`, **not `label_untrusted`** — so origin text ran past its box, over the row beside it, and off the window |
+| the Store's headline block | **THE PASS** — a designed, undeployed, platform-wide product, over a shelf that sells per-title copies |
+| the passphrase prompt | `dialog::password_default` — FLTK's stock grey box with a blue `?`, in a client that is olive everywhere else |
+| a title's icon | none, anywhere, for any title — nothing on `/api/launcher/*` named art |
+| making an account | ended *"Restart the launcher to unlock it in Signing"* |
+
+#### What changed, and the rule each one follows
+
+**The two shelves hand their controls back** (`windows::GamesWindow`,
+`windows::StoreWindow`), which is the whole of the dead-button fix: a window
+that keeps its widgets is a window nothing can wire. `wiring::wire_games` and
+`wiring::wire_store` give them behaviour through one `Storefront` trait, and
+every verb behind it is the CLI's — `scry_depot::install`, `verify`, `launch`
+— because a second install path in the widget layer is a second place for the
+hash rules to be got wrong.
+
+**The buy opens a browser and that is not a limitation to route around.** A
+purchase is a wallet signing a transaction; this client holds no wallet by
+design, and the buy box already exists as a page driven end to end
+(`TICKET.md` §8a). What the launcher owns is the half after the money.
+
+**Nothing on either shelf wears the reserved green fill**, deliberately. A
+solid green fill means an act that moves money (`SITE-PLATFORM.md` §14b);
+pressing **Buy a copy…** opens a page. `tests/rows.rs` counts it.
+
+**Every origin-supplied string on both shelves is clipped.** A character cap is
+a different bound and not a substitute — a hundred `W`s is three times the
+width of a hundred `i`s — so the only bound that holds for any text is the box
+(`chrome::label_untrusted`). Gates' real blurb is 140 characters and was what
+ran off the window; the capture that missed it used a hand-shortened one, which
+is why `examples/shot.rs` now carries the live string.
+
+**The pass block is gone and the money sentence is per row**, read from
+`GET /api/ticket/{slug}`. Three states and the third is the one that costs:
+`ticketed: false` is **free**, an open rail is **priced**, and a read that
+FAILED is **unknown** — never free, because rendering a dropped packet as free
+is how a store gives a game away. ⚠ **The launcher renders the dollar figure
+the origin published and never converts a wei amount**; the exact amount is on
+the page where the wallet signs.
+
+**Three windows replaced three stock dialogs** — `windows::passphrase`,
+`windows::notice`, `windows::lock`. A stock dialog cannot be reskinned (its
+colours and its icon are inside the toolkit's C++ side), and what the swap buys
+beyond matching is that a prompt can now say *whose* account it is asking
+about: `Ask` carries a heading as well as a prompt, because one of the four
+secrets asked for through it is a **private key** and a window headed
+*"Passphrase"* over a field wanting 64 hex characters asks for the wrong thing.
+
+**The client opens locked** when there is an account to unlock, and the idle
+relock puts the gate back rather than relocking silently. Two buttons, and the
+missing third is the design: there is no *"browse locked"* door, because the
+ask was for a gate and a gate with a bypass is a notification.
+`SCRY_LOCK_SCREEN=0` is the posted way out (`CLAUDE.md` invariant 10).
+⚠ **It is not a security boundary and does not claim to be.** The keystore is
+encrypted at rest either way; what this narrows is the walk-by window on an
+unlocked key, which is the same thing the relock buys.
+
+**Restarts: the best one is the one that is not needed.** `signing()` draws its
+Unlock/Lock controls always and deactivates them, so `adopt` turns them on in
+place and making an account no longer ends in a reboot. Both shelves grew a
+**Refresh**, so a shelf read on dead wifi and a game installed from the Store
+are a button rather than a relaunch. Where a restart genuinely IS the fix — the
+game door failed to bind, and nothing retries it while the process lives — the
+notice says so **and offers to do it**: `wiring::restart_now` re-execs this
+binary with the same arguments. ⚠ **A restart is not an update.** The client
+still refuses to replace its own bytes (§8), and `std::process::exit` rather
+than a tidy shutdown is what hands the door's socket over safely — a `Drop`
+here would unlink the path the child just bound.
+
+**Icons come from the backend, derived and not typed.** `meter/launcher.py`
+puts an `art` block on every manifest from the listing row's own `capsule` /
+`hero`, so a capsule replaced at the store desk reaches the client with no
+commit — the same reason `state` derives (§14b of `test_launcher_api.py`).
+`scry_ui::art` sniffs the format from the bytes rather than the url, caps the
+fetch at 512 KB on the short-timeout agent, and treats every failure as the
+lettered placeholder: **art is decoration on a row whose words are already
+correct**, and taking every icon away leaves the Store saying exactly the same
+things.
+
+#### Two bugs the pictures found that no test would have
+
+- **A manifest's `depot` is a PATH and needs `rebase`.** Without it the update
+  check failed with *"bad uri"* and the row read *"not checked — the origin was
+  not reached"*: a sentence about the player's network for a bug in this file.
+- **Currency is decided by DIGEST, never by build name.** `update.rs` says it
+  — *"a title is current if ANY installed build carries the published digest"*
+  — and the first version of the library read compared names, which would have
+  offered **Update** over bytes already identical to the published ones.
+
+⚠ **What is still open:** an install blocks the UI thread for the length of the
+download. The button says `Installing…` before it starts, so the freeze reads
+as the install rather than as a crash, but a progress row is the honest fix and
+is not built.
 
 ## Reading order
 

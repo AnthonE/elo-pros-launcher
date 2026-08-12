@@ -25,6 +25,9 @@
 //! `tests/credit.rs` instead. A licence obligation that only a human
 //! remembers is one release away from being unmet.
 
+/// A title's icon, and the placeholder for a title that publishes none. The
+/// bytes come from the origin; the refusals are here.
+pub mod art;
 pub mod chrome;
 /// How a game's ask for a signature reaches the player, across the one thread
 /// boundary in this client. No FLTK, so the rules are testable with no display.
