@@ -51,6 +51,15 @@ fn main() {
             row("unreached", "0.1.0", 4_100_000, None, None),
         ]).window,
         "empty" => windows::games(&[]).window,
+        // A library longer than any window it could be shown in — the state
+        // the shelf was drawing off the bottom edge until 2026-08-13, and the
+        // reason `chrome::shelf` scrolls. Worth a capture rather than only a
+        // test: what a picture shows and an assertion cannot is that the
+        // scrollbar is REACHABLE and the footer is still on screen under it.
+        "games2" => windows::games(&(0..15)
+            .map(|i| row("gates", "0.1.0-g607af0314", 75_829_730, Some(false),
+                         Some(&format!("Title {i}"))))
+            .collect::<Vec<_>>()).window,
         "about" => windows::about(),
         "store" => windows::store(&[], false, "dns error: no such host").window,
         "store2" => windows::store(&[
