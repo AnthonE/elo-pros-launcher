@@ -224,7 +224,7 @@ tested:
 | `launch.exec` must be one of the depot's own files | it is re-checked at launch, not trusted from the install: a receipt is a file on disk and can be edited afterwards |
 | `LD_PRELOAD`, `LD_AUDIT`, `PATH`, `PYTHONPATH`, `DYLD_*` are refused | a depot does not get to redirect the loader |
 | `LD_LIBRARY_PATH` is allowed, and must resolve **inside the build** | game builds legitimately need it; letting it point out is letting the depot choose which libc you run |
-| an unknown `{placeholder}` in argv is refused, never passed through | a literal `{token}` reaching a game's argv shows up once, in production, on someone else's machine |
+| an unknown `{placeholder}` in argv is refused, never passed through — **at install and again at launch** | a literal `{token}` reaching a game's argv shows up once, in production, on someone else's machine. And a depot that writes `{servers}` for `{server}` must fail while it is still a download — unchecked it installs, verifies clean, reads "up to date", and every Play of it dies in a dialog. The refusal names what the launcher fills and the near-miss it suspects, because the player it lands on cannot diagnose it |
 | the depot root must be https | and `open_url` refuses any scheme but http(s), so a catalog cannot hand the client a `file://` or a custom handler |
 
 ## 4 · Signing — reach a signer, never become one

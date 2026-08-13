@@ -148,6 +148,27 @@ fn launch_exec_must_be_one_of_the_depots_own_files() {
 }
 
 #[test]
+fn launch_args_with_an_unknown_placeholder_are_refused_at_parse() {
+    // The observed failure: a depot shipped `{servers}` for `{server}`. It
+    // installed, verified clean, sat in the library as "up to date" — and
+    // every Play of it died in a dialog. The refusal belongs here, while the
+    // build is still a download.
+    let d = depot_with(json!({
+        "launch": {"exec": "run", "args": ["--servers", "{servers}"]}
+    }));
+    let err = parse_depot(&d, false).unwrap_err();
+    assert!(err.0.contains("unknown placeholder"), "{}", err.0);
+    // The message does the diagnosis, because the player it lands on cannot:
+    // it names what the launcher fills, and the near-miss it suspects.
+    assert!(err.0.contains("{server}"), "{}", err.0);
+
+    let d = depot_with(json!({
+        "launch": {"exec": "run", "args": ["--server", "{server}", "--id", "{wallet}"]}
+    }));
+    assert!(parse_depot(&d, false).is_ok());
+}
+
+#[test]
 fn a_depot_with_no_files_or_no_launch_is_refused() {
     assert!(parse_depot(&depot_with(json!({"files": []})), false).is_err());
     assert!(parse_depot(&depot_with(json!({"launch": null})), false).is_err());
