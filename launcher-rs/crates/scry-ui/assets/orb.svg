@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="scry">
+  <!-- The store's mark: a green glass orb. The CSS twin is `.wordmark::before`
+       in css/store.css and the raster twin is art/social-card.png; all three
+       carry the same four lights (glint, body, terminator, bounce), and
+       build_meta.py in check mode fails when this file and the CSS drift.
+       No double hyphen may appear in this comment: it is an XML parse error,
+       which renders as a pink error page instead of an icon. -->
+  <defs>
+    <radialGradient id="o-body" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#7cff88"/>
+      <stop offset="10%" stop-color="#7cff88"/>
+      <stop offset="44%" stop-color="#00c805"/>
+      <stop offset="79%" stop-color="#107c10"/>
+      <stop offset="100%" stop-color="#04300a"/>
+    </radialGradient>
+    <radialGradient id="o-glint" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".95"/>
+      <stop offset="45%" stop-color="#d6ffdb" stop-opacity=".36"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="o-bounce" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7cff88" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#7cff88" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="o-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="74%" stop-color="#00c805" stop-opacity="0"/>
+      <stop offset="87%" stop-color="#00c805" stop-opacity=".26"/>
+      <stop offset="100%" stop-color="#00c805" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="32" fill="url(#o-glow)"/>
+  <circle cx="32" cy="32" r="27" fill="url(#o-body)"/>
+  <!-- the bounce hugs the bottom rim: wide and thin, not a second highlight -->
+  <ellipse cx="32" cy="55" rx="14" ry="3.6" fill="url(#o-bounce)"/>
+  <ellipse cx="24" cy="21" rx="8" ry="6.5" fill="url(#o-glint)"/>
+</svg>

@@ -1120,9 +1120,21 @@ Python packager already meant:
 
 | artifact | what it answers |
 |---|---|
-| `scry_<v>_amd64.deb` | the Ubuntu/Debian answer — `scry` and `scry-gui` on PATH, the menu entry, and a **derived** `Depends:` |
+| `scry_<v>_amd64.deb` | the Ubuntu/Debian answer — `scry` and `scry-gui` on PATH, the menu entry with the mark, the software-center page, and a **derived** `Depends:` |
 | `scry-<v>-linux-x86_64.tar.gz` | the same two binaries, no root, any distro |
 | `scry-<v>-windows-x86_64.zip` | `scry.exe` + `scry-gui.exe`. No installer, no redistributable, nothing in the registry |
+
+**The `.deb` also furnishes the desktop it lands on.** The menu icon is the
+site's green orb — one file, compiled into every window the client opens
+(`crates/scry-ui/assets/orb.svg`, `windows::mark`), so the dock, the switcher,
+the menu and the browser tab show the same mark; `build_release.py` refuses to
+package where a site checkout is present and its `favicon.svg` disagrees. An
+AppStream metainfo file (`xyz.moreright.scry.metainfo.xml`) is what GNOME
+Software and KDE Discover render an installed program's page from — without it
+that page is a placeholder icon over "No Screenshots"; with it the page
+carries the summary, the same prose `apt show` prints, the links, and
+screenshots. The screenshots are renders of the client's own windows (the
+`shot` example's `SCRY_SHOT_OUT` capture mode), named by URL on the origin.
 
 **The `Depends:` is read off the ELF, not typed.** `_needed()` walks the
 binary's own `DT_NEEDED` table and the build **fails** on any soname the

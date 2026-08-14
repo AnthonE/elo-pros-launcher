@@ -14,8 +14,30 @@
 use crate::art::{self, Icon};
 use crate::chrome;
 use crate::theme::{self, Tone};
-use fltk::{button, enums, frame, input, prelude::*, window};
+use fltk::{button, enums, frame, image, input, prelude::*, window};
 use scry_depot::{shardlist::Shard, Install};
+
+/// The mark — the same green orb the site serves at `/favicon.svg`. Compiled
+/// in rather than read from `watchtower/`, because the public repo carries
+/// `launcher-rs/` without the site; `build_release.py` refuses to package when
+/// this copy and the site's drift, which is the same weld the masthead CSS is
+/// under (`test_site.py`, "the mark").
+const ORB: &str = include_str!("../assets/orb.svg");
+
+/// Dress a top-level so the desktop knows whose window it is: the orb as the
+/// icon (dock, switcher, title bar), and `scry` as the WM class so a desktop
+/// can match the live window back to `scry.desktop` (`StartupWMClass=scry` —
+/// without it GNOME shows a running window with a blank gear where the menu
+/// icon is). One call per window, because FLTK's default-icon static has no
+/// Rust binding. A window whose icon failed to parse is still a working
+/// window, so the parse is allowed to fail quietly — it cannot, for a
+/// compiled-in file, but the window must not hinge on that.
+fn mark(w: &mut window::Window) {
+    w.set_xclass("scry");
+    if let Ok(orb) = image::SvgImage::from_data(ORB) {
+        w.set_icon(Some(orb));
+    }
+}
 
 /// One row on the shelf, already measured. The window renders this and
 /// computes nothing from it.
@@ -186,6 +208,7 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
     // that failed to draw something rather than as a window that is finished.
     let height = 64 + (MENU.len() as i32 * 38) + 46 + if has_account { 0 } else { 20 };
     let mut w = window::Window::new(100, 100, 560, height, None);
+    mark(&mut w);
     w.set_label("scry");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -291,6 +314,7 @@ pub fn games(rows: &[Row]) -> GamesWindow {
     // decides how much is on screen and never how much exists.
     let well_h = (rows.len() as i32 * ROW_H + 16).clamp(96, 520);
     let mut w = window::Window::new(120, 120, 660, well_h + 100, None);
+    mark(&mut w);
     w.set_label("scry — games");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -380,6 +404,7 @@ fn grows_downward(w: &mut window::Window, shelf: &fltk::group::Scroll, min_h: i3
 /// The About window — and the one place the FLTK credit is shown to a human.
 pub fn about() -> window::Window {
     let mut w = window::Window::new(140, 140, 520, 300, None);
+    mark(&mut w);
     w.set_label("scry — about");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -590,6 +615,7 @@ pub struct StoreWindow {
 pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
     let well_h = (rows.len() as i32 * SHELF_H + 24).clamp(140, 520);
     let mut w = window::Window::new(140, 140, 700, well_h + 132, None);
+    mark(&mut w);
     w.set_label("scry — store");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -757,6 +783,7 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     };
     let well_h = (count * 46 + 24).clamp(120, 520);
     let mut w = window::Window::new(160, 160, 640, well_h + 108, None);
+    mark(&mut w);
     w.set_label("scry — servers");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -896,6 +923,7 @@ pub struct AccountWindow {
 /// verifies it. This window says that rather than assuming a reader knows it.
 pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     let mut w = window::Window::new(180, 180, 580, 400, None);
+    mark(&mut w);
     w.set_label("scry — account");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -1003,6 +1031,7 @@ pub struct SigningWindow {
 /// saying why, rather than hidden or omitted.
 pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool) -> SigningWindow {
     let mut w = window::Window::new(200, 200, 620, 320, None);
+    mark(&mut w);
     w.set_label("scry — signing");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -1118,6 +1147,7 @@ pub fn consent(
     let win_h = note_y + 48;
 
     let mut w = window::Window::new(240, 160, 620, win_h, None);
+    mark(&mut w);
     w.set_label("scry — a game wants to sign");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -1276,6 +1306,7 @@ pub fn passphrase(title: &str, prompt: &str) -> AskWindow {
     let win_h = field_y + 104;
 
     let mut w = window::Window::new(260, 200, 520, win_h, None);
+    mark(&mut w);
     w.set_label(&format!("scry — {title}"));
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -1382,6 +1413,7 @@ pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindo
     let win_h = 58 + text_h + 56;
 
     let mut w = window::Window::new(280, 220, 520, win_h, None);
+    mark(&mut w);
     w.set_label(&format!("scry — {title}"));
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
@@ -1453,6 +1485,7 @@ pub struct LockWindow {
 /// generic one would be wrong for both.
 pub fn lock(address: &str, why: &str) -> LockWindow {
     let mut w = window::Window::new(300, 240, 520, 296, None);
+    mark(&mut w);
     w.set_label("scry — locked");
     w.set_color(theme::BG);
     chrome::wear_icon(&mut w);
