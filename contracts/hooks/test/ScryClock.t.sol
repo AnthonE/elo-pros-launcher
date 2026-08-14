@@ -18,7 +18,7 @@ import {ScryClock} from "../src/ScryClock.sol";
 /// @title ScryClock tests — the spec, written before anything compiled
 ///
 /// @dev ⚠ **These have never run.** Written in a container with no `forge`
-///      (docs/onchain/HOOKS.md / ../BRINGUP.md). They are the specification of intended
+///      (see `../BRINGUP.md`). They are the specification of intended
 ///      behaviour, and the first job of whoever gets a compiler is to make them
 ///      run and then to disbelieve the ones that pass on the first try.
 ///

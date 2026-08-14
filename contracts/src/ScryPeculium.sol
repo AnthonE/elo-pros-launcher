@@ -4,13 +4,16 @@ pragma solidity ^0.8.24;
 import "./IERC20.sol";
 
 /// @title ScryPeculium — sealed policy vault with attestation-quorum signer admission
-/// @notice v2 core for KEYLESS-WALLET.md (threat model + admission control).
+/// @notice v2 core of the keyless vault — sealed policy, attestation-quorum
+/// signer admission. It holds no key for anyone, which is why `HELD-KEYS.md`
+/// records it as the one contract that never enters that ledger.
 /// No owner, recovery key, configurator, or upgrade path exists. The factory
 /// deploys then initializes+seals atomically; later signer rotation requires a
 /// fresh EIP-712 certificate signed by the immutable verifier quorum.
 ///
-/// WHAT ACTUALLY BOUNDS A WITHDRAWAL (audit 2026-07-25). KEYLESS-WALLET.md and
-/// CLAUDE.md describe this as "withdrawals only to the registered wallet". The
+/// WHAT ACTUALLY BOUNDS A WITHDRAWAL (audit 2026-07-25). `CLAUDE.md` and the
+/// prose around it describe this as "withdrawals only to the registered
+/// wallet". The
 /// enforced rule is narrower and stricter than one wallet but is NOT keyed on
 /// `beneficiary`: `spend()` checks the immutable `allowedDestinations`
 /// allowlist. `beneficiary` is recorded, sealed into `policyHash`, and never

@@ -815,7 +815,18 @@ def test_season_pot_and_tvl_tripwires():
     # testing a boundary when the pools were deepened on 2026-07-28 and the
     # float became 7,650,000. A cap test pinned to a stale cap passes for the
     # wrong reason — exactly the drift the gate itself exists to catch.
-    _ld = (Path(__file__).resolve().parents[1] / "docs" / "LAUNCH-DECISIONS.md").read_text()
+    # WALK docs/ rather than joining a folder name. This was the FIFTH
+    # hardcoded doc resolver in the tree, and the one CLAUDE.md's "all four now
+    # walk" note did not know about: it joined `docs/LAUNCH-DECISIONS.md` and
+    # has raised FileNotFoundError since the 2026-08-09 reorg filed the doc
+    # under `docs/launch/`. It failed LOUDLY, which is the only reason it was
+    # not a silent pass — but it took the whole preflight suite down for a
+    # re-file rather than a fault, which is the red this walk exists to end.
+    _docs = Path(__file__).resolve().parents[1] / "docs"
+    _ldp = next((p for p in _docs.rglob("LAUNCH-DECISIONS.md") if p.is_file()), None)
+    if _ldp is None:
+        raise FileNotFoundError("LAUNCH-DECISIONS.md is nowhere under docs/")
+    _ld = _ldp.read_text()
     _m = re.search(r"OBOL/SCRY \|\s*\*\*[\d,]+\*\*\s*\|\s*\*\*([\d,]+) OBOL\*\*", _ld)
     OBOL_FLOAT = int(_m.group(1).replace(",", ""))
     CAP = OBOL_FLOAT // 10
@@ -1141,6 +1152,66 @@ def test_merkle_totals_must_be_derived():
         r.write("snapshots/d.obol.merkle.json", art)
         check("a proof that does not verify is refused",
               results(P.gate_merkle_totals_are_derived).get(key) is False)
+
+    # ── THE ACCESS DIALECT. Same tree, same walk, a different second word:
+    # `seat_roots.py` imports the leaf and the levels straight out of
+    # `claim_plan`, and what changes is that the total arms a door's seat cap
+    # instead of a sweep floor. The gate knew only the airdrop shape and went
+    # red the day the first seat tree landed, so these cases exist to keep the
+    # fix honest — including the one that matters most, which is that a shape
+    # the gate cannot read stays RED rather than being skipped.
+    def access_artifact(**over):
+        entries = sorted((w, 1) for w in wallets)
+        leaves = [cp._leaf(w, a) for w, a in entries]
+        levels = cp._levels(leaves)
+        art = {
+            "door": 1,
+            "root": "0x" + levels[-1][0].hex(),
+            "seats_promised": sum(a for _, a in entries),
+            "per_wallet": 1,
+            "n": len(entries),
+            "claims": {w: {"allowance": str(a),
+                           "proof": ["0x" + n.hex() for n in cp._proof(levels, i)]}
+                       for i, (w, a) in enumerate(entries)},
+        }
+        art.update(over)
+        return art
+
+    with Repo() as r:
+        r.write("snapshots/seat-door1.merkle.json", access_artifact())
+        check("an honest ACCESS artifact passes in its own dialect",
+              results(P.gate_merkle_totals_are_derived).get(key) is True)
+
+    with Repo() as r:
+        r.write("snapshots/seat-door1.merkle.json", access_artifact(seats_promised=999))
+        check("a seat cap that disagrees with the tree is refused",
+              results(P.gate_merkle_totals_are_derived).get(key) is False)
+
+    with Repo() as r:
+        art = access_artifact()
+        art["claims"][wallets[0]]["allowance"] = "5"
+        r.write("snapshots/seat-door1.merkle.json", art)
+        check("an allowance edited under a real proof is refused",
+              results(P.gate_merkle_totals_are_derived).get(key) is False)
+
+    # ⚠ THE ONE THAT GUARDS THE FIX ITSELF. The tempting repair for "the gate
+    # cannot parse this file" is to skip the file, which turns an ungraded
+    # total into a green light — the manufactured green this repo has shipped
+    # before. A third dialect must land as work, not as silence.
+    with Repo() as r:
+        art = access_artifact()
+        for c in art["claims"].values():
+            c["qty"] = c.pop("allowance")
+        r.write("snapshots/seat-door1.merkle.json", art)
+        check("a claim shape the gate does not know is REFUSED, never skipped",
+              results(P.gate_merkle_totals_are_derived).get(key) is False)
+
+    # both dialects on the shelf at once — the actual state of snapshots/
+    with Repo() as r:
+        r.write("snapshots/d.obol.merkle.json", artifact())
+        r.write("snapshots/seat-door1.merkle.json", access_artifact())
+        check("the two dialects grade side by side",
+              results(P.gate_merkle_totals_are_derived).get(key) is True)
 
 
 def test_deploy_script_scanner_discriminates():

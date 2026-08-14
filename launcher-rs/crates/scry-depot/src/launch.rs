@@ -31,7 +31,45 @@ pub const ENV_DENY: [&str; 9] = [
 ];
 
 /// Placeholders a depot's argv may use. Anything else is a refusal.
-pub const ARG_VARS: [&str; 4] = ["server", "wallet", "build_dir", "host"];
+///
+/// `servers` is the **manifest's** `servers.url`, not a shard address: a game
+/// with its own in-client shard browser needs the list the Servers window
+/// reads, and until this existed there was no way for a depot document to ask
+/// for it. Gates shipped with exactly that hole — the list was published, the
+/// url was set, and every launch drew an empty browser because nothing could
+/// pass it. An unset one arrives as the empty string, the same shape `{wallet}`
+/// already has, which a game reads as absence rather than as a bad url.
+pub const ARG_VARS: [&str; 5] = ["server", "wallet", "build_dir", "host", "servers"];
+
+/// The values a launch gets from the TITLE, before the player adds any.
+///
+/// One function because there are **three** launch sites — `scry play`, the
+/// Servers window's Join, and the GUI's Play button — and the rule they have to
+/// agree on is the one that is easy to miss: **`servers` is the title's, not
+/// the player's.** The manifest already names the shard list it serves, so a
+/// launcher that is holding that url and passes nothing is drawing an empty
+/// browser over a live shard.
+///
+/// ⚠ That has now happened twice, and the second time is why this exists. The
+/// first was the depot side — no argv could ask for `{servers}` at all, which
+/// `ARG_VARS` above records. The second was the GUI's **Play** button passing
+/// an empty map while the Servers window beside it passed a full one, so the
+/// same title launched with a shard list through one door and without it
+/// through the other. Two call sites, two rules, and only one of them was ever
+/// tested.
+///
+/// The player's own values — `server`, `wallet`, `host` — are inserted by the
+/// caller on top of this, because only the caller knows whether a player typed
+/// or chose one. An absent value is simply not inserted; [`fill`] writes the
+/// empty string for it, which every game on this launcher reads as absence
+/// rather than as a bad value.
+pub fn title_values(servers_url: Option<&str>) -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    if let Some(u) = servers_url {
+        values.insert("servers".to_string(), u.to_string());
+    }
+    values
+}
 
 /// The depot platform string for this machine.
 pub fn platform_tag() -> String {
@@ -134,36 +172,6 @@ fn check_env(env: &BTreeMap<String, String>, build: &Path) -> Result<BTreeMap<St
     Ok(out)
 }
 
-/// The refusal an unknown placeholder earns, worded for the two people who
-/// will read it: the player it lands on, who can do nothing about it, and the
-/// publisher whose depot it names the fix for.
-fn unknown_placeholder(name: &str) -> DepotError {
-    let known = ARG_VARS.map(|v| format!("{{{v}}}")).join(", ");
-    // `{servers}` for `{server}` is the observed failure — a build shipped
-    // with the plural and every Play of it died here, as "a weird issue".
-    // Naming the likely intent turns that dialog into a one-word depot fix.
-    let hint = ARG_VARS
-        .iter()
-        .copied()
-        .find(|v| name.strip_suffix('s') == Some(v) || v.strip_suffix('s') == Some(name))
-        .map(|v| format!(" — probably {{{v}}}, and the fix belongs in the depot"))
-        .unwrap_or_default();
-    DepotError::new(format!(
-        "launch arg uses unknown placeholder {{{name}}}; this launcher fills {known}{hint}"
-    ))
-}
-
-/// Refuse argv placeholders this launcher will never fill.
-///
-/// The installer calls this so a bad launch command is refused while it is
-/// still a download — the alternative is what `{servers}` actually did: a
-/// build that installs, verifies clean, and then dies on Play, one player at
-/// a time. Launching still re-checks through [`fill`], because a receipt is a
-/// file on disk and can be edited after it is written.
-pub fn check_args(args: &[String]) -> Result<()> {
-    fill(args, &BTreeMap::new()).map(|_| ())
-}
-
 /// Substitute `{server}`-style placeholders.
 ///
 /// An unknown placeholder is a refusal, not a passthrough — a literal
@@ -185,7 +193,9 @@ fn fill(args: &[String], values: &BTreeMap<String, String>) -> Result<Vec<String
             let name = &after[..close];
             if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
                 if !ARG_VARS.contains(&name) {
-                    return Err(unknown_placeholder(name));
+                    return Err(DepotError::new(format!(
+                        "launch arg uses unknown placeholder {{{name}}}"
+                    )));
                 }
                 s.push_str(values.get(name).map(String::as_str).unwrap_or(""));
             } else {

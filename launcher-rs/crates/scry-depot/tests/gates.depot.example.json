@@ -38,7 +38,9 @@
       "--server",
       "{server}",
       "--identity",
-      "{wallet}"
+      "{wallet}",
+      "--servers",
+      "{servers}"
     ],
     "cwd": ".",
     "env": {

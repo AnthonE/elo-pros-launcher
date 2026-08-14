@@ -220,10 +220,20 @@ impl Host for Launcher {
         match what {
             // The origin serves manifests by slug; the client rebases.
             What::Manifest => Some(format!("{}/api/launcher/manifest/{slug}", self.host)),
-            // The shard list is the GAME's to serve and this launcher does not
-            // invent one. Until a title publishes `servers.url`, refusing is
-            // the honest answer — an empty list would read as "no shards".
-            What::Servers => None,
+            // The shard list is the GAME's to serve and this launcher still
+            // does not invent one — it reads the url the title published and
+            // answers `None` when there is none, which is the honest answer
+            // for a title that has not published a list.
+            //
+            // ⚠ This returned a bare `None` until 2026-08-14, which is not the
+            // same sentence. Gates published `servers.url` on 2026-08-11, and
+            // this is the ONLY `Host` in the client that ships — every other
+            // implementation of this trait is a test stub. So the SDK's
+            // `Overlay::servers_url` backstop, which a game asks when no
+            // `--servers` reached its argv, could never answer for any title
+            // however many lists were live. A refusal written as a placeholder
+            // reads exactly like a refusal that was decided.
+            What::Servers => published_servers_url(&self.net, &self.host, slug),
         }
     }
 
@@ -269,10 +279,16 @@ fn games_root() -> std::path::PathBuf {
 
 /// Serve the game door for as long as the launcher is open.
 ///
-/// One thread, one connection at a time — which is enough, because a player
-/// runs one game. It is spawned detached: if the door cannot be opened the
-/// launcher still runs, because being unable to serve games is not a reason to
-/// refuse to show a player their library.
+/// Spawned detached: if the door cannot be opened the launcher still runs,
+/// because being unable to serve games is not a reason to refuse to show a
+/// player their library.
+///
+/// ⚠ **This read "one thread, one connection at a time — which is enough,
+/// because a player runs one game" and that reasoning was wrong.** The count
+/// that matters is connections per *game*, not games: a game holds its boot
+/// connection for the life of the process and opens a second one every time it
+/// wants a signature. `transport::serve_forever` is one thread per connection
+/// and `scry-broker/tests/door.rs` is the failing case it was written against.
 fn open_the_door(host: String, games_root: std::path::PathBuf,
                  signer: wiring::Shared, consent: consent::Doorbell) -> Option<String> {
     let endpoint = transport::default_endpoint();
@@ -285,27 +301,14 @@ fn open_the_door(host: String, games_root: std::path::PathBuf,
         }
     };
     let shown = listener.endpoint();
-    std::thread::spawn(move || loop {
-        match listener.accept() {
-            Ok(conn) => {
-                let mut launcher = Launcher {
-                    host: host.clone(),
-                    games_root: games_root.clone(),
-                    signer: Arc::clone(&signer),
-                    net: scry_net::Net::new(),
-                    consent: consent.clone(),
-                };
-                // One game at a time. A panic in a connection must not take
-                // the launcher with it.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let _ = scry_broker::serve_conn(conn, &mut launcher);
-                }));
-            }
-            Err(e) => {
-                eprintln!("scry-gui: the door stopped accepting ({e})");
-                return;
-            }
-        }
+    std::thread::spawn(move || {
+        transport::serve_forever(listener, move || Launcher {
+            host: host.clone(),
+            games_root: games_root.clone(),
+            signer: Arc::clone(&signer),
+            net: scry_net::Net::new(),
+            consent: consent.clone(),
+        })
     });
     Some(shown)
 }
@@ -418,32 +421,6 @@ fn main() {
     );
 
     let mut menu = windows::main_menu(has_account, env!("CARGO_PKG_VERSION"));
-
-    // Where the client opens. Every window is constructed at a hard-coded
-    // coordinate — the menu at `(100, 100)`, then a 20px cascade — so the
-    // whole family is put back where the player is looking by centring the
-    // menu and carrying everything else by the same amount. That keeps the
-    // cascade the windows were built with instead of stacking six windows on
-    // one spot (`wiring::centre`).
-    let drift = wiring::centre(&mut menu.window);
-
-    // ⚠ **Escape must not quit the launcher.** FLTK ends a window on Escape by
-    // calling its callback (`Fl.cxx`: *"make Escape key close windows"*), and
-    // for the main menu that is the whole program: the game door closes, every
-    // other window goes with it, and the player pressed one key. It is exactly
-    // the key they press to dismiss the passphrase prompt, so it is exactly
-    // the key that lands on this window a moment later. `Event::Close` is the
-    // window manager's own close box and nothing else, which is the one that
-    // means it.
-    //
-    // Closing the menu DOES quit, deliberately: it is the way back to every
-    // other window, so a client with the menu shut and Games still open is a
-    // program the player cannot navigate but also cannot see they still have.
-    menu.window.set_callback(|_| {
-        if app::event() == fltk::enums::Event::Close {
-            app::quit();
-        }
-    });
     menu.window.show();
 
     // ── the one place a restart is genuinely the fix ────────────────────────
@@ -507,8 +484,15 @@ fn main() {
     // read is one function so the window keeps taking measured facts and doing
     // no I/O of its own.
     let shards = read_shards(&host, SERVERS_SLUG);
+    // Only a list we actually READ names a url worth passing on. `Unreadable`
+    // carries one too, and handing the game a url this launcher just failed to
+    // read would ask it to make the same failed request again.
+    let list_url = match &shards {
+        windows::Shards::Listed { url, .. } => Some(url.clone()),
+        _ => None,
+    };
     let servers_w = windows::servers(SERVERS_SLUG, &shards);
-    wire_servers(&servers_w, SERVERS_SLUG, &root);
+    wire_servers(&servers_w, SERVERS_SLUG, &root, list_url.as_deref());
 
     let account_w = {
         let s = signer.lock().expect("signer lock");
@@ -561,7 +545,6 @@ fn main() {
         host: host.clone(),
         root: root.clone(),
         front: Rc::clone(&front),
-        drift,
         shelf: std::cell::RefCell::new(Vec::new()),
         store: std::cell::RefCell::new(None),
         games: std::cell::RefCell::new(None),
@@ -575,13 +558,6 @@ fn main() {
         ("Signing", signing_w.window.clone()),
         ("About", windows::about()),
     ];
-    // Carried by the same amount the menu was, so the cascade they were built
-    // with survives the move. Done before any of them is shown — see
-    // `wiring::centre`.
-    for (_, w) in windows_by_label.iter() {
-        let mut w = w.clone();
-        w.set_pos(w.x() + drift.0, w.y() + drift.1);
-    }
     for i in 0..menu.window.children() {
         if let Some(mut child) = menu.window.child(i) {
             let label = child.label();
@@ -642,27 +618,14 @@ fn main() {
         println!("scry-gui: client {mine} — {newer} is published at {host}/download.html");
         // One dialog, once per launch, dismissible — a nudge with the reason
         // in it, never a nag loop and never a download this program performs.
-        //
-        // ⚠ **This was the last `dialog::message_default` in the client**, and
-        // it outlived the pass that removed the other three (`windows.rs`, the
-        // three-stock-dialogs note). It drew FLTK's own grey box with a blue
-        // `?` over an olive client — the operator's *"the passphrase screen
-        // doesnt match anything else"*, surviving in the one window a player
-        // sees before they have touched anything. `Note::Done` and not
-        // `Refused`: a published update is news, not a fault.
-        wiring::show_notice(
-            windows::Note::Done,
-            "A newer scry is published",
-            &format!(
-                "{newer} is out — this is {mine}.\n\n\
-                 Get it at {host}/download.html, or from your package manager\n\
-                 if you installed it there.\n\n\
-                 This program does not replace itself: a binary that rewrites\n\
-                 itself would need absolute trust, so the swap happens in the\n\
-                 open, where you can see it."
-            ),
-            false,
-        );
+        fltk::dialog::message_default(&format!(
+            "A newer scry is published: {newer} (this is {mine}).\n\n\
+             Get it at {host}/download.html — or from your package manager,\n\
+             if you installed it there.\n\n\
+             This program does not replace itself: a binary that rewrites\n\
+             itself would need absolute trust, so the swap happens in the\n\
+             open, where you can see it."
+        ));
     }
 
     a.run().unwrap();
@@ -686,6 +649,36 @@ const SERVERS_SLUG: &str = "gates";
 /// invent, cache or rank a list (`docs/client/LAUNCHER.md` §6), and it must not
 /// collapse "we could not look" into "nothing is up" — a player on a train
 /// would be told the game is dead.
+/// The shard-list url a title publishes, or `None` when it publishes none.
+///
+/// Two things needed this and neither had it, which is why one title could be
+/// launched with a shard list through one door and without it through the
+/// other: **Play** passed an empty values map, so `{servers}` filled as the
+/// empty string, and the **game door** answered `None` to
+/// `Overlay::servers_url` no matter what the manifest said. A game that came in
+/// either way found nothing and fell back to its loopback default.
+///
+/// It fetches per call rather than caching. A manifest read is one request
+/// against the origin the client is already talking to, and a cache here would
+/// be a launcher holding a stale answer about a document that is the title's to
+/// change — `read_shards` below makes the same read for the same reason.
+///
+/// ⚠ **On the SHORT deadline, and that is not a detail.** Both callers are
+/// holding up something a player is waiting for — the Play button on the UI
+/// thread, and a game's own `servers_url` call on the door thread. At
+/// `scry_net::TIMEOUT` an unreachable origin would freeze the launcher for a
+/// minute before starting a game that is installed and ready, which is a worse
+/// bug than the empty shard list this function exists to prevent. A miss
+/// returns `None` and the launch carries on without the list.
+///
+/// `read_shards` below deliberately keeps the long deadline: a player who
+/// opened the Servers window IS waiting for that list, and there is nothing
+/// else for that window to draw.
+fn published_servers_url(net: &scry_net::Net, host: &str, slug: &str) -> Option<String> {
+    let v = net.get_json_quick(&format!("{host}/api/launcher/manifest/{slug}")).value?;
+    scry_depot::parse_manifest(&v).ok()?.servers_url
+}
+
 fn read_shards(host: &str, slug: &str) -> windows::Shards {
     let net = scry_net::Net::new();
     let url = {
@@ -738,14 +731,25 @@ fn read_shards(host: &str, slug: &str) -> windows::Shards {
 /// `launch::resolve`, because a second launch path is a second place for the
 /// argv rules to be got wrong.
 ///
+/// `{servers}` rides along with it, and for the same reason: a player who came
+/// in through this window and then backs out to the game's own browser must
+/// not find it empty. `list_url` is whatever `read_shards` actually read, so
+/// the two surfaces are drawing one document.
+///
 /// It deliberately does NOT install. A player who has not got the game should
 /// be told so, not have a download begin because they clicked Join on a row
 /// they were browsing; installing is the Store's verb and it asks first.
-fn wire_servers(w: &windows::ServersWindow, slug: &str, games_root: &std::path::Path) {
+fn wire_servers(
+    w: &windows::ServersWindow,
+    slug: &str,
+    games_root: &std::path::Path,
+    list_url: Option<&str>,
+) {
     for row in &w.rows {
         let addr = row.addr.clone();
         let slug = slug.to_string();
         let root = games_root.to_path_buf();
+        let list_url = list_url.map(str::to_string);
         let mut join = row.join.clone();
         join.set_callback(move |b| {
             // `rfind`, not `find` — builds sort by name and a title can have
@@ -757,7 +761,11 @@ fn wire_servers(w: &windows::ServersWindow, slug: &str, games_root: &std::path::
                 b.deactivate();
                 return;
             };
-            let values = std::collections::BTreeMap::from([("server".to_string(), addr.clone())]);
+            let mut values =
+                std::collections::BTreeMap::from([("server".to_string(), addr.clone())]);
+            if let Some(u) = list_url.clone() {
+                values.insert("servers".to_string(), u);
+            }
             match scry_depot::launch::resolve(&i, &values, &std::collections::BTreeMap::new())
                 .and_then(|l| scry_depot::launch::spawn(&l))
             {
@@ -806,10 +814,6 @@ struct Ui {
     host: String,
     root: std::path::PathBuf,
     front: Rc<dyn wiring::Storefront>,
-    /// How far the menu moved when it was centred, for the FIRST build of
-    /// these two. Every later one inherits the position of the window it
-    /// replaces instead — see [`place`].
-    drift: (i32, i32),
     /// The last shelf that was read. The library borrows it for names and
     /// icons, so the two windows cannot disagree about what a title is called.
     shelf: std::cell::RefCell<Vec<windows::Shelf>>,
@@ -830,25 +834,6 @@ fn defer(ui: &Rc<Ui>, what: fn(&Rc<Ui>, bool)) {
     app::add_timeout3(0.05, move |_| what(&ui, true));
 }
 
-/// Put a rebuilt window where the one it replaces was standing.
-///
-/// **A refresh is not a new window to the player**, whatever it is to this
-/// program. Pressing Refresh rebuilt the widgets and put the result back at
-/// the constructor's hard-coded coordinate, so a Store the player had dragged
-/// onto their second monitor jumped home — and a game installed from the Store
-/// refreshes Games too, which meant a window moving on its own while nobody
-/// had touched it.
-///
-/// The SIZE is deliberately not carried. A window's height is a function of
-/// how many rows there are, and a library that just lost a game would keep a
-/// well of empty olive where the game used to be.
-fn place(new: &mut fltk::window::Window, previous: Option<(i32, i32)>, drift: (i32, i32)) {
-    match previous {
-        Some((x, y)) => new.set_pos(x, y),
-        None => new.set_pos(new.x() + drift.0, new.y() + drift.1),
-    }
-}
-
 /// Read the shelf and put up a Store window over whatever was there.
 fn refresh_store(ui: &Rc<Ui>, show: bool) {
     let (rows, reachable, why) = read_shelf(&ui.host, &ui.root);
@@ -860,13 +845,7 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
             format!("unreadable ({why}) — the Store will say so")
         }
     );
-    let mut store_w = windows::store(&rows, reachable, &why);
-    // Where the window it replaces was standing, before that one is dropped.
-    place(
-        &mut store_w.window,
-        ui.store.borrow().as_ref().map(|s| (s.window.x(), s.window.y())),
-        ui.drift,
-    );
+    let store_w = windows::store(&rows, reachable, &why);
     *ui.shelf.borrow_mut() = rows;
 
     // Installing from the Store puts a game in the library, so the library is
@@ -910,12 +889,7 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
 fn refresh_games(ui: &Rc<Ui>, show: bool) {
     let rows = read_library(&ui.host, &ui.root, &ui.shelf.borrow());
     println!("scry-gui: {} install(s) under {}", rows.len(), ui.root.display());
-    let mut games_w = windows::games(&rows);
-    place(
-        &mut games_w.window,
-        ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
-        ui.drift,
-    );
+    let games_w = windows::games(&rows);
     wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
 
     let mut refresh = games_w.refresh.clone();
@@ -1074,12 +1048,28 @@ impl wiring::Storefront for Front {
         else {
             return Err(format!("{slug} is not installed — install it from the Store."));
         };
-        let launch = scry_depot::launch::resolve(
-            &i,
-            &std::collections::BTreeMap::new(),
-            &std::collections::BTreeMap::new(),
-        )
-        .map_err(|e| e.to_string())?;
+        // `{servers}` is the TITLE's and comes from its manifest, exactly as
+        // `scry play` fills it — the same document the Servers window reads, so
+        // a game started from either door draws the same shard browser.
+        //
+        // ⚠ Both maps were empty here until 2026-08-14, and an empty map is not
+        // the same as no placeholder: `launch::fill` writes the empty string for
+        // a known name it has no value for, so a depot asking for `{servers}`
+        // got `--servers ""` and its in-game browser fell back to loopback. The
+        // Servers window one screen away was passing the real url the whole
+        // time, which is what made this look like a Gates bug.
+        //
+        // `server` and `wallet` stay absent BY DESIGN and that is not the same
+        // omission. They are the player's, and on Play the player named neither
+        // — Play is "start the game", not "join this shard". The wallet reaches
+        // the game over the broker door, where it is a signature rather than an
+        // address on a command line that `ps` can read.
+        let net = scry_net::Net::new();
+        let values = scry_depot::launch::title_values(
+            published_servers_url(&net, &self.host, slug).as_deref(),
+        );
+        let launch = scry_depot::launch::resolve(&i, &values, &std::collections::BTreeMap::new())
+            .map_err(|e| e.to_string())?;
         let pid = scry_depot::launch::spawn(&launch).map_err(|e| e.to_string())?;
         Ok(format!("{slug} started (pid {pid})."))
     }
@@ -1340,6 +1330,49 @@ fn read_icon(net: &scry_net::Net, host: &str, manifest: &Value) -> Option<art::I
 mod tests {
     use super::*;
     use scry_ui::consent::Doorbell;
+
+    /// **No launch site in this file may pass a bare empty values map.**
+    ///
+    /// This is a source scan and it is deliberate, because the defect it pins
+    /// cannot be reached any other way: both launch sites compile, both run,
+    /// and the broken one produced `--servers ""` — a well-formed argv that a
+    /// game correctly reads as "no shard list". Nothing typed, nothing panicked
+    /// and nothing logged. The Servers window one screen away was passing the
+    /// real url the whole time, which is what made it look like a Gates bug for
+    /// as long as it did.
+    ///
+    /// `launch::title_values` is the only thing that may build the map, so the
+    /// rule about where `{servers}` comes from lives in one place for all three
+    /// doors. If a third launch site appears in this file, it fails here until
+    /// it uses that function.
+    #[test]
+    fn no_launch_site_passes_an_empty_values_map() {
+        // Production code only — this module names `launch::resolve` in its own
+        // prose and would otherwise match itself, which is a scan that fails for
+        // being written rather than for what it found.
+        let whole = include_str!("scry-gui.rs");
+        let src = whole.split("#[cfg(test)]").next().expect("the file has a body");
+        let lines: Vec<&str> = src.lines().collect();
+        let mut sites = 0;
+        for (n, line) in lines.iter().enumerate() {
+            if !line.contains("launch::resolve(") {
+                continue;
+            }
+            sites += 1;
+            // The values argument is the one after `&i`, inline or on the next
+            // lines, so read a small window rather than one line.
+            let window = lines[n..lines.len().min(n + 4)].join(" ");
+            assert!(
+                window.contains("title_values") || window.contains("&values"),
+                "scry-gui.rs:{}: this launch site builds its values inline. \
+                 Use `scry_depot::launch::title_values` so `{{servers}}` carries \
+                 the title's shard list — an empty map renders it as \"\", which \
+                 a game reads as \"no shards\" and nothing reports.",
+                n + 1
+            );
+        }
+        assert!(sites >= 2, "the scan found no launch sites — it has stopped checking anything");
+    }
 
     /// A launcher pointed at a keystore that does not exist — the state a
     /// player is in before they make an account.

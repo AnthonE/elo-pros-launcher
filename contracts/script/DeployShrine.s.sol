@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
 import "../src/ScryShrine.sol";
 
-/// Deploy the Shrine (SPOILS-ECONOMY.md - the on-chain votive mirror):
+/// Deploy the Shrine - the on-chain votive mirror:
 /// shrine -> OBOL altar (1 point/token) -> MYRRH altar (5 points/token,
 /// the Book's posted base rate: 5 obols per myrrh).
 ///

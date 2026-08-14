@@ -6,24 +6,25 @@ about: "the contract deploy phases in order, with the numbers each one carries"
 ---
 # Contract phases — the DFK-shaped SCRY loop
 
-> ## ⚠ A `Phase N` here is NOT a phase of `LAUNCH.md` (settled 2026-07-27)
+> ## ⚠ A `Phase N` here is NOT a step of the deploy run (settled 2026-07-27)
 >
-> These are **epochs of the whole build-out**, over months. `LAUNCH.md`'s phases
-> are **steps of one script run**, in one sitting, and they are identified by
-> `deploy_town.sh` subcommand name — `spoils`, `pools`, `rotate` — not by number.
-> The collision that keeps restarting the same conversation is **4**: here it is
-> *optional sinks and seasons*; there it is `pools`, seeding the v3 pools, which
-> is the keystone. Same digit, opposite ends of the project.
+> These are **epochs of the whole build-out**, over months. The deploy run's
+> phases are **steps of one script run**, in one sitting, and they are identified
+> by `deploy_town.sh` subcommand name — `spoils`, `pools`, `rotate` — not by
+> number (`contracts/RUNBOOK.md` §1 is that table). The collision that keeps
+> restarting the same conversation is **4**: here it is *optional sinks and
+> seasons*; on a run it is `pools`, seeding the v3 pools, which is the keystone.
+> Same digit, opposite ends of the project.
 >
-> **The one real relation:** Phase 1 below is what a completed `LAUNCH.md` run
+> **The one real relation:** Phase 1 below is what a completed launch run
 > delivers. Nothing else on the two lists lines up, and none of it should be
 > made to.
 >
-> Where this page's *sequence* disagrees with `LAUNCH.md` about what ships
-> first, `LAUNCH.md` is the later document and wins; this one carries the
-> parameters and the phase definitions. **Phase 1's pool sizes are `LAUNCH.md`'s
-> to state** — they were revised 40M/40M → **60M/20M** on 2026-07-26
-> (`LAUNCH-DECISIONS.md`), and this page had the old pair until 2026-07-27.
+> Where this page's *sequence* disagrees with the runbook about what ships
+> first, the runbook is the later document and wins; this one carries the
+> parameters and the phase definitions. **Phase 1's pool sizes are
+> `LAUNCH-DECISIONS.md`'s to state** — they were revised 40M/40M → **60M/20M**
+> on 2026-07-26, and this page had the old pair until 2026-07-27.
 > Derive them there, never from here.
 
 > A public sequence, not a promise of yield or a deployment authorization.
@@ -77,16 +78,17 @@ cannot be seeded with a token that has no address, and a farm cannot emit one.
    through `POST /tokens/withdraw`, which *burns* the ledger balance and feeds
    the cumulative root `GET /tokens/claim-root` emits; `ScryHarvest` pays
    `cumulative − claimed` on-chain, roots republishable, nobody forfeits by
-   being slow. `ONCHAIN-LINE.md` §what the ledger IS (status: law) forecloses
-   the cut-over shape — play cannot demand a signed transaction per action —
-   and the snapshot shape has nothing to snapshot: the game ledger has never
-   been written.
+   being slow. The cut-over shape is foreclosed by what the ledger IS — play
+   cannot demand a signed transaction per action — and the snapshot shape has
+   nothing to snapshot: the game ledger has never been written.
 
-   **Two claim machines share this mechanic and must never share a contract**
-   (`LAUNCH.md` §4 carries the failure table): the **holder drops** — classic
-   airdrop claims, per-drop *absolute* amounts, a fresh `DeployClaim` pair per
-   drop — and the **standing play cash-out** — *cumulative*, one harvest,
-   forever. A delve touches the drops in exactly one place: it is one of the
+   **Two claim machines share this mechanic and must never share a contract**,
+   because one `claimed` map cannot mean two things: a cumulative root pays
+   `cumulative − claimed`, a per-drop root pays an absolute amount, and a
+   contract holding both under-pays one of them forever. The two are the
+   **holder drops** — classic airdrop claims, per-drop *absolute* amounts, a
+   fresh `DeployClaim` pair per drop — and the **standing play cash-out** —
+   *cumulative*, one harvest, forever. A delve touches the drops in exactly one place: it is one of the
    ten trials that unlocks **drop two's** claim (activation gate; drop one is
    stealth and bar-gated only). Naming note: where older docs say "the
    bridge," they mean this cash-out path — never anything cross-chain;
@@ -124,7 +126,7 @@ cannot be seeded with a token that has no address, and a farm cannot emit one.
    > emission is OBOL, so all farm sell pressure lands on OBOL/`SCRY`;
    > circulating MYRRH is **0**; and the MYRRH/OBOL row already gives MYRRH a
    > free market. The *ratio* was held, not the token count. No code change: `seed_spoils_uniswap.py` takes
-   > `--myrrh-scry-budget` as an argument. `SEASONS.md` §1d carries the reasoning.
+   > `--myrrh-scry-budget` as an argument.
 
    Scripts: `SeedSpoilsUniswapV3.s.sol` + `seed_spoils_uniswap.py`.
 4. Record the positions, prices, transaction hashes, and minter rotation.
@@ -157,7 +159,7 @@ Two separate, compatible lanes:
   any surface** — its income is event-driven, not a rate.
   Driver: `./deploy_town.sh bank [--arm]` (one phase, both contracts, needs
   nothing from any other phase). **The posted split is burn 5000 / bank 4000 /
-  prizes 0 / ops 1000** (2026-07-27, `SENTENCES.md`, closing `FEES.md` §9 #2)
+  prizes 0 / ops 1000** (2026-07-27, `SENTENCES.md`)
   — prizes take no line at open, because that cut needs an escrow wallet and the
   purse already funds prizes directly. The phase derives the four numbers from
   `DeployScryEconomy.s.sol` rather than keeping a copy; an override is printed
@@ -216,7 +218,7 @@ reach any properly deposited position (`deposits[id].owner` must be zero).
   independent of every phase above: it is native-ETH between depositors and
   buyers, touches no game coin, and its `SCRY` toll rail ships in the
   contract **disarmed** (`tollRate`/`tollBurnBps` = 0). First collection is
-  decided (StonkBrokers — `NOW.md` §2, `GACHA.md` §8a); the deploy is the
+  decided (StonkBrokers — `NOW.md` §2); the deploy is the
   one act left, and it has no `deploy_town.sh` subcommand — `forge script
   script/DeployGacha.s.sol` is the driver.
 - The Burrow is the Nexum's contract (PvP lending, designed and never deployed); the pGOLD/pTEARS playground it was first written for was retired 2026-07-26. Formerly an optional zero-stakes practice

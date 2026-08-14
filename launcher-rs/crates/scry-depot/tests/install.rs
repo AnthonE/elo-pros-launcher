@@ -483,16 +483,6 @@ fn an_unknown_placeholder_is_refused_never_passed_through() {
     i.launch_args = vec!["--token".into(), "{secret}".into()];
     let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
     assert!(err.0.contains("unknown placeholder"), "{}", err.0);
-    // The message names what the launcher DOES fill — the player reading the
-    // dialog cannot diagnose, so the error has to.
-    assert!(err.0.contains("{server}") && err.0.contains("{wallet}"), "{}", err.0);
-
-    // The one that happened: a build published with `{servers}`. The receipt
-    // path skips the parser, so a build installed before the parse-time check
-    // existed still dies at launch — and the dialog now says the fix.
-    i.launch_args = vec!["--servers".into(), "{servers}".into()];
-    let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
-    assert!(err.0.contains("probably {server}"), "{}", err.0);
 
     i.launch_args = vec!["--server".into(), "{server}".into(), "--id".into(), "{wallet}".into()];
     let vals = BTreeMap::from([
@@ -501,6 +491,55 @@ fn an_unknown_placeholder_is_refused_never_passed_through() {
     ]);
     let l = launch::resolve(&i, &vals, &BTreeMap::new()).unwrap();
     assert_eq!(&l.argv[1..], &["--server", "eu-1:7777", "--id", "0xabc"]);
+}
+
+#[test]
+fn a_game_can_ask_where_its_shard_list_is() {
+    // The hole this closes: Gates draws its own shard browser and had no way
+    // to be told the url, so every launch that did not come through the
+    // Servers window drew an empty list over a live shard. `{servers}` is the
+    // manifest's `servers.url` — the same document the launcher lists.
+    let tmp = tempfile::tempdir().unwrap();
+    let (files, served) = fixture();
+    install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    let mut i = installed(tmp.path()).remove(0);
+    i.launch_args = vec!["--servers".into(), "{servers}".into()];
+
+    let vals = BTreeMap::from([(
+        "servers".to_string(),
+        "https://scry.example/api/launcher/servers/gates".to_string(),
+    )]);
+    let l = launch::resolve(&i, &vals, &BTreeMap::new()).unwrap();
+    assert_eq!(
+        &l.argv[1..],
+        &["--servers", "https://scry.example/api/launcher/servers/gates"]
+    );
+
+    // A title that publishes no list fills EMPTY rather than refusing — the
+    // same shape `{wallet}` already had, and what a game reads as absence.
+    // Refusing here would make a title's optional field able to stop a launch.
+    let l = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap();
+    assert_eq!(&l.argv[1..], &["--servers", ""]);
+
+    // ⚠ AND THE TWO ASSERTIONS ABOVE COEXISTED WITH A BROKEN LAUNCHER FOR
+    // THREE DAYS. Both were green while the GUI's Play button passed an empty
+    // map, because they pin what `resolve` does with a map and say nothing
+    // about who builds one. `title_values` is the answer to the second
+    // question, and `scry-gui.rs`'s own source scan is what holds the call
+    // sites to it — a rule with no owner is a rule each new door re-derives.
+    assert_eq!(
+        launch::title_values(Some("https://scry.example/api/launcher/servers/gates")),
+        BTreeMap::from([(
+            "servers".to_string(),
+            "https://scry.example/api/launcher/servers/gates".to_string()
+        )]),
+        "the title's shard list is the one value a launch gets for free"
+    );
+    assert!(
+        launch::title_values(None).is_empty(),
+        "a title that publishes no list contributes nothing — absent, never an empty string, \
+         because `fill` is the only place that decides what absence renders as"
+    );
 }
 
 #[test]

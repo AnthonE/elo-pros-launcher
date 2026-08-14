@@ -5,12 +5,12 @@ import "forge-std/Script.sol";
 import "../src/ScryItem.sol";
 import "../src/ScryKiln.sol";
 
-/// Deploy one title's card layer (`docs/items/CARDS.md`): the cards contract, the
+/// Deploy one title's card layer: the cards contract, the
 /// crest contract, and the kiln between them — three deploys and one wire in a
 /// single broadcast, because the wiring is where a hand ceremony goes wrong.
 ///
-/// **Cards and crests are separate `ScryItem` deploys and that is load-bearing**
-/// (`CARDS.md` §3a): `ScryGacha` keys pools by collection address with no
+/// **Cards and crests are separate `ScryItem` deploys and that is load-bearing**:
+/// `ScryGacha` keys pools by collection address with no
 /// per-catalog filter, so the address is the unit of "what may be in a pool".
 /// One contract for both would put penny cards in the crest pool. `ScryKiln`'s
 /// constructor refuses one address for both, so this script cannot make that
@@ -45,13 +45,13 @@ import "../src/ScryKiln.sol";
 ///   # export SET_ID=1
 ///   # export SET_CARD_CATALOGS=1,2,3,4,5,6,7,8   # rows on the CARDS contract, no dupes
 ///   # export SET_CREST_CATALOG=1                 # row on the CREST contract
-///   # export SET_MAX_LEVEL=5                    # Steam's 5 (CARDS.md §7)
+///   # export SET_MAX_LEVEL=5                    # Steam's 5
 ///
 ///   forge script script/DeployCardLayer.s.sol \
 ///     --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
 ///
 /// **A set defined here is still soft until it first fires.** `defineSet` may
-/// correct composition until the first `fire` freezes it (`CARDS.md` §7), so a
+/// correct composition until the first `fire` freezes it, so a
 /// wrong catalog id at deploy time is recoverable — unlike everything else in
 /// this script.
 ///
@@ -125,6 +125,6 @@ contract DeployCardLayer is Script {
         console2.log("next: record ALL THREE addresses in contracts/deployments.json (broadcast/ is");
         console2.log("gitignored), then SCRY_CARDS / SCRY_CRESTS / SCRY_KILN for meter/cards.py, then");
         console2.log("the set's entry in data/cards/catalogs.json by commit. A gacha pool, if ever,");
-        console2.log("opens over the CREST contract - never the cards (CARDS.md 5).");
+        console2.log("opens over the CREST contract - never the cards: only a crest clears MIN_BACKING_FLOOR.");
     }
 }

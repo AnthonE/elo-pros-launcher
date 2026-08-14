@@ -12,9 +12,9 @@ interface IScryItem {
 }
 
 /// @title ScryKiln — a card set goes in, a crest comes out, the cards are gone
-/// @notice The craft step from `docs/items/CARDS.md` §7, and the only new contract the
-///         card layer needs. Everything else is `ScryItem` (§3): a card is an
-///         instance, `catalogId` says which card, `burn` is the sink.
+/// @notice The craft step of the card layer, and the only new contract that
+///         layer needs. Everything else is `ScryItem`: a card is an instance,
+///         `catalogId` says which card, `burn` is the sink.
 ///
 ///         WHAT IT DOES. `fire` verifies that the submitted tokens are **one of
 ///         each** card in a declared set and all owned by the caller, burns
@@ -34,8 +34,8 @@ interface IScryItem {
 ///         address** — `openPool(address collection, ...)`, with no per-catalog
 ///         filter and no way to add one. So the address is the unit of "what
 ///         may be in a pool." Cards and crests sharing a contract would mean a
-///         crest pool that admits penny cards, and `CARDS.md` §5 is the whole
-///         argument for why only the crest clears `MIN_BACKING_FLOOR`. The
+///         crest pool that admits penny cards; only the crest is worth enough
+///         to clear `MIN_BACKING_FLOOR`, and that is the whole argument. The
 ///         constructor refuses to point both handles at one address rather than
 ///         leaving that as a deploy-time footgun.
 ///
@@ -53,7 +53,7 @@ interface IScryItem {
 ///         of — they bought the last card of a five-card set and woke up
 ///         holding one fifth of a six-card set.
 ///
-///         THE FORGE GATE IS MET (2026-08-07, `CARDS.md` §8) — 48/48 across
+///         THE FORGE GATE IS MET (2026-08-07) — 48/48 across
 ///         this suite and `ScryItem.t.sol`, inside a full 684/684 run, at
 ///         foundry.toml's exact settings (solc 0.8.26, optimizer 200, via_ir).
 ///         Independently reproduced 2026-08-09 to the same 48 and the same

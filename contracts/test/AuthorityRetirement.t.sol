@@ -8,9 +8,9 @@ import "../src/ScryGranary.sol";
 /// WHO CAN STILL MINT WHEN THE LAUNCH IS OVER — the one question the launch
 /// exists to answer, made executable.
 ///
-/// The whole story lived in prose across `LAUNCH.md`, `deploy_town.sh` and two
-/// deploy scripts, and it was re-derived by hand on 2026-07-28 because nothing
-/// could be run to settle it. The derivation was right, and it took a careful
+/// The whole story lived in prose across the launch notes, `deploy_town.sh`
+/// and two deploy scripts, and it was re-derived by hand on 2026-07-28 because
+/// nothing could be run to settle it. The derivation was right, and it took a careful
 /// read of four files to reach a conclusion this suite reaches in 300ms:
 ///
 ///   `rotate` retires `SpoilsToken.minter`. But `gardener` and `granary` have
@@ -24,7 +24,7 @@ import "../src/ScryGranary.sol";
 ///
 /// That is the good ordering, not a bug: `minter()` ends up reading as a
 /// rate-limited contract rather than another hot key, which is what the
-/// rug-screen audience checks (DEGEN.md §1b). It just means the closing act is
+/// rug-screen audience checks. It just means the closing act is
 /// `./deploy_town.sh steward` (transferSteward) rather than `rotate`.
 ///
 /// Every test here is written as the *sequence a launch actually runs*, not as

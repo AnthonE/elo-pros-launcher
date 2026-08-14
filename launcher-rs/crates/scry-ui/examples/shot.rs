@@ -51,15 +51,6 @@ fn main() {
             row("unreached", "0.1.0", 4_100_000, None, None),
         ]).window,
         "empty" => windows::games(&[]).window,
-        // A library longer than any window it could be shown in — the state
-        // the shelf was drawing off the bottom edge until 2026-08-13, and the
-        // reason `chrome::shelf` scrolls. Worth a capture rather than only a
-        // test: what a picture shows and an assertion cannot is that the
-        // scrollbar is REACHABLE and the footer is still on screen under it.
-        "games2" => windows::games(&(0..15)
-            .map(|i| row("gates", "0.1.0-g607af0314", 75_829_730, Some(false),
-                         Some(&format!("Title {i}"))))
-            .collect::<Vec<_>>()).window,
         "about" => windows::about(),
         "store" => windows::store(&[], false, "dns error: no such host").window,
         "store2" => windows::store(&[
@@ -99,9 +90,9 @@ fn main() {
         // `no shards up`.
         "servers" => windows::servers("gates", &windows::Shards::Unpublished).window,
         "servers2" => windows::servers("gates", &windows::Shards::Listed {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             rows: vec![
-                shard("eu-1", "Gates EU 1", "game.moreright.xyz:61234",
+                shard("us-east-1", "Gates US East 1", "game.moreright.xyz:61234",
                       Some(47), Some(100), Some("island 20260731")),
                 // No count at all: this shard publishes no status endpoint,
                 // and `?` is the honest render.
@@ -117,12 +108,12 @@ fn main() {
             ],
         }).window,
         "servers3" => windows::servers("gates", &windows::Shards::Unreadable {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             why: "could not reach it — dns error".into(),
             reachable: false,
         }).window,
         "servers4" => windows::servers("gates", &windows::Shards::Listed {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             rows: vec![],
         }).window,
         // Both states are capturable, because they are different windows: with

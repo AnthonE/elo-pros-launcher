@@ -26,7 +26,8 @@ via_ir = true
 #
 # That chain 4663 supports it is settled by measurement rather than by
 # argument: a 24,009-byte PoolManager is deployed and swapping there
-# (docs/HOOKS.md §0a). Do not re-litigate it; do set the flag.
+# (POOLS.md §1 records the address and its code size). Do not re-litigate it;
+# do set the flag.
 evm_version = "cancun"
 
 # v4 hooks are large and the permission bits live in the address, so a hook

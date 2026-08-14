@@ -268,13 +268,13 @@ fn open_is_https_only() {
         json!({"op": "open", "url": "file:///etc/passwd"}),
         json!({"op": "open", "url": "javascript:alert(1)"}),
         json!({"op": "open", "url": "http://scry.moreright.xyz"}),
-        json!({"op": "open", "url": "https://scry.moreright.xyz/claim.html"}),
+        json!({"op": "open", "url": "https://scry.moreright.xyz/wallet.html"}),
     ]);
     for (i, r) in out[1..4].iter().enumerate() {
         assert_eq!(r["ok"], json!(false), "reply {i} should be refused");
     }
     assert_eq!(out[4]["ok"], json!(true));
-    assert_eq!(h.opened, vec!["https://scry.moreright.xyz/claim.html"],
+    assert_eq!(h.opened, vec!["https://scry.moreright.xyz/wallet.html"],
                "only the https one was ever opened");
 }
 

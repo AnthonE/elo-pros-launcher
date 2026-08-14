@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/ScryFeeConverter.sol";
-import "../src/ScryLaunch.sol";
+import "../src/ScryLaunchpad.sol";
 import "./MockToken.sol";
 import "./MockUniswapV3.sol";
 

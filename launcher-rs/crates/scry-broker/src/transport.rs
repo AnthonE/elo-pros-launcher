@@ -85,6 +85,84 @@ impl<T: io::Read + io::Write + Send> Conn for T {}
 
 // ── unix ─────────────────────────────────────────────────────────────────────
 
+/// How many games may hold the door open at once.
+///
+/// Not a security boundary — the socket is `0600` inside a `0700` directory,
+/// so everything that can reach it already runs as the player. It bounds a
+/// **leak**: a game that opens a connection per signature and never closes one
+/// would otherwise spawn threads until the process died, and dying is a worse
+/// answer than refusing the thirty-third.
+pub const MAX_OPEN: usize = 32;
+
+/// Serve the door until the listener stops accepting, **one thread per
+/// connection**.
+///
+/// ⚠ **The one-at-a-time version of this loop was a real bug and the reason
+/// this function exists.** It read as sufficient — *"a player runs one game"* —
+/// but the count that matters is connections per game, not games. A game holds
+/// the connection it made at boot for the life of the process (that is what the
+/// SDK's `Overlay` is for) and opens a SECOND one whenever it needs a
+/// signature. A door parked inside the first connection never accepts the
+/// second, so on unix the game sits on the SDK's 300-second read timeout and
+/// then concludes no launcher is running.
+///
+/// What that looked like from the player's side is why it survived: the boot
+/// connection is answered, so the game prints a correct identity line with a
+/// real address — and then every signature after it fails as though the
+/// launcher were closed. `sdk/rust/scry_overlay.rs` had already written down
+/// the diagnosis without knowing it applied here: *"a launcher that accepts a
+/// connection and then never answers will hang the calling game … That is a
+/// launcher bug in both cases."*
+///
+/// A panic in one connection cannot take the door or another game with it.
+pub fn serve_forever<H, F>(listener: Listener, make_host: F)
+where
+    H: crate::Host + Send + 'static,
+    F: Fn() -> H + Send + 'static,
+{
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let open = Arc::new(AtomicUsize::new(0));
+    loop {
+        match listener.accept() {
+            Ok(conn) => {
+                if open.load(Ordering::Relaxed) >= MAX_OPEN {
+                    // Closed rather than queued. A game reads a closed door as
+                    // "no launcher", which is a state it already handles, and
+                    // queueing would reintroduce exactly the wait this loop
+                    // exists to end.
+                    eprintln!("scry: {MAX_OPEN} games already hold the door — refusing one more");
+                    drop(conn);
+                    continue;
+                }
+                open.fetch_add(1, Ordering::Relaxed);
+                let mut host = make_host();
+                let counter = Arc::clone(&open);
+                if let Err(e) = std::thread::Builder::new()
+                    .name("scry-door".into())
+                    .spawn(move || {
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let _ = crate::serve_conn(conn, &mut host);
+                        }));
+                        counter.fetch_sub(1, Ordering::Relaxed);
+                    })
+                {
+                    // Out of threads. Say so and keep the door open — the next
+                    // connection may well succeed, and a launcher that stopped
+                    // accepting would be the larger failure.
+                    eprintln!("scry: could not serve a game ({e})");
+                    open.fetch_sub(1, Ordering::Relaxed);
+                }
+            }
+            Err(e) => {
+                eprintln!("scry: the door stopped accepting ({e})");
+                return;
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 pub use imp_unix::Listener;
 

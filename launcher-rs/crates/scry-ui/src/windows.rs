@@ -116,21 +116,10 @@ impl Row {
     }
 }
 
-/// How tall one library row is, in px. Set by the icon and not by the text:
-/// the square is [`art::ROW_ICON`] and a row has to hold it with a hairline of
-/// padding either side, or the art clips into the row above.
-const ROW_H: i32 = art::ROW_ICON + 12;
-
-/// How wide a shelf's scrollbar is allowed to be, in px — the figure every
-/// row's right-hand column is laid out short of.
-///
-/// ⚠ **Reserved whether or not a bar is showing.** `chrome::shelf` only draws
-/// one when the list overflows, and FLTK puts it INSIDE the well rather than
-/// beside it — so a Verify button laid out to the well's edge is a button the
-/// bar sits on top of the moment a tenth game is installed. Laying out short
-/// of it costs a few pixels of margin on a short list and costs nothing on a
-/// long one.
-const BAR: i32 = 17;
+/// How tall one shelf row is, in px. Set by the icon and not by the text: the
+/// square is [`art::ICON`] and a row has to hold it with a hairline of padding
+/// either side, or the art clips into the row above.
+const ROW_H: i32 = art::ICON + 12;
 
 /// `72.3 MB`, the way the CLI already prints it. One implementation would be
 /// better than two; this is the smaller of the two and the CLI's is not public.
@@ -188,7 +177,6 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
     let mut w = window::Window::new(100, 100, 560, height, None);
     w.set_label("scry");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 22, "scry", theme::HEAD, 19);
     chrome::label(16, 34, 480, 18, "the town's games, on your machine", theme::MUTED, 12);
@@ -280,28 +268,19 @@ pub struct GamesWindow {
 /// built in a test with no display, no disk and no origin.
 pub fn games(rows: &[Row]) -> GamesWindow {
     // The well fits the rows, with a floor so an empty shelf is still a window
-    // and not a slot, and a ceiling so a big library does not open a window
-    // taller than the desktop. Same reason the menu is sized to its entries:
-    // acres of empty olive read as a failed draw, not as a finished screen.
-    //
-    // ⚠ **The ceiling is a viewport now and not a cut.** It used to be both —
-    // the well stopped at 520px and the rows kept being drawn down the window
-    // past it — so the eleventh game was painted onto the footer and the
-    // fifteenth onto nothing at all. `chrome::shelf` scrolls, so the clamp
-    // decides how much is on screen and never how much exists.
-    let well_h = (rows.len() as i32 * ROW_H + 16).clamp(96, 520);
+    // and not a slot. Same reason the menu is sized to its entries: acres of
+    // empty olive read as a failed draw, not as a finished screen.
+    let well_h = (rows.len() as i32 * ROW_H + 24).clamp(96, 520);
     let mut w = window::Window::new(120, 120, 660, well_h + 100, None);
     w.set_label("scry — games");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 20, "my games", theme::HEAD, 16);
     let mut refresh = chrome::button(516, 14, 128, 24, "Refresh", Tone::Plain);
     refresh.set_align(enums::Align::Center | enums::Align::Inside);
-    refresh.set_tooltip("re-read what is installed, and ask the origin what is published");
 
     let mut controls = Vec::new();
-    let shelf = chrome::shelf(16, 40, 628, well_h);
+    let well = chrome::well(16, 40, 628, well_h);
     if rows.is_empty() {
         // The baseline restating itself, said once and plainly. Not an error
         // state and not styled as one.
@@ -313,29 +292,20 @@ pub fn games(rows: &[Row]) -> GamesWindow {
         let mut y = 48;
         for (i, row) in rows.iter().enumerate() {
             if i % 2 == 1 {
-                let mut band = fltk::frame::Frame::new(18, y - 4, 624, ROW_H - 2, None);
+                let mut band = fltk::frame::Frame::new(18, y - 4, 624, ROW_H - 4, None);
                 band.set_frame(enums::FrameType::FlatBox);
                 band.set_color(theme::WELL_ALT);
             }
-            // Centred on the two lines of text rather than hung off the top:
-            // at 28px the square is shorter than the words beside it, which
-            // is the opposite of what it was at 44.
-            art::icon_box(26, y + 2, art::ROW_ICON, &row.slug, row.icon.as_ref());
+            art::icon_box(26, y - 1, art::ICON, &row.slug, row.icon.as_ref());
             // A title's name and its build id both come from a depot somebody
             // else wrote, so both are clipped — see `chrome::label_untrusted`.
-            chrome::label_untrusted(66, y, 290, 18, row.title(), theme::INK, 14);
-            chrome::label_untrusted(66, y + 18, 340, 15, &row.status_line(),
+            chrome::label_untrusted(80, y, 300, 18, row.title(), theme::INK, 14);
+            chrome::label_untrusted(80, y + 18, 340, 16, &row.status_line(),
                                     theme::MUTED, 11);
-            // Laid out from the well's inner right edge (644) backwards, so
-            // the bar's reservation is in the arithmetic and not in a pair of
-            // hand-tuned numbers that would drift from it.
-            let verify_x = 644 - BAR - 7 - 96;
-            let act_x = verify_x - 104;
-            let mut act = chrome::button(act_x, y + 4, 96, 26, row.action(), row.tone());
+            let mut act = chrome::button(432, y + 6, 96, 28, row.action(), row.tone());
             act.set_align(enums::Align::Center | enums::Align::Inside);
-            let mut verify = chrome::button(verify_x, y + 4, 96, 26, "Verify", Tone::Plain);
+            let mut verify = chrome::button(538, y + 6, 96, 28, "Verify", Tone::Plain);
             verify.set_align(enums::Align::Center | enums::Align::Inside);
-            verify.set_tooltip("re-hash every file the depot names and check the digest");
             controls.push(GameControls {
                 slug: row.slug.clone(),
                 build: row.build.clone(),
@@ -345,36 +315,13 @@ pub fn games(rows: &[Row]) -> GamesWindow {
             y += ROW_H;
         }
     }
-    shelf.end();
+    well.end();
 
     chrome::label(16, well_h + 52, 600, 16,
                   "verify re-hashes every file the depot names, then checks the digest",
                   theme::DIM, 11);
     w.end();
-    grows_downward(&mut w, &shelf, 100 + ROW_H * 2);
     GamesWindow { window: w, rows: controls, refresh }
-}
-
-/// Let the player make a shelf window taller, and nothing else about it.
-///
-/// **The height is theirs and the width is ours.** A taller window is worth
-/// having for the obvious reason — it is more rows, on a desktop big enough to
-/// hold them — and it costs nothing, because `chrome::shelf` already handles
-/// the difference between what exists and what fits. A *wider* one would cost
-/// a layout: every row here is laid out in fixed pixels, so widening the
-/// window would stretch the well and leave the buttons stranded mid-row with
-/// olive behind them. Pinning the width is one line; reflowing a row on resize
-/// is a different change, and this is not it.
-///
-/// `min_h` is the window's floor — enough for the chrome plus a row or two, so
-/// a window dragged shut still shows what it is.
-fn grows_downward(w: &mut window::Window, shelf: &fltk::group::Scroll, min_h: i32) {
-    // The shelf absorbs the change. Everything under it — the footer lines —
-    // moves down with the bottom edge rather than staying put and being
-    // covered, which is FLTK's own rule for children below the resizable one.
-    w.resizable(shelf);
-    let width = w.width();
-    w.size_range(width, min_h, width, 0);
 }
 
 /// The About window — and the one place the FLTK credit is shown to a human.
@@ -382,7 +329,6 @@ pub fn about() -> window::Window {
     let mut w = window::Window::new(140, 140, 520, 300, None);
     w.set_label("scry — about");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 14, 400, 22, "scry", theme::HEAD, 18);
     chrome::label(16, 40, 480, 18, "the desktop client for the town's games", theme::MUTED, 12);
@@ -507,24 +453,6 @@ impl Act {
         }
     }
 
-    /// The whole sentence, for the tooltip — where the label has room to say
-    /// what it will actually do.
-    ///
-    /// Two of these are the reason the method exists rather than the three
-    /// obvious ones: **Buy** opens a browser and moves no money in here, and
-    /// **No build yet** is a title that is listed and has nothing this machine
-    /// can run. A player who reads either verb as the other learns the client
-    /// lied to them, and a five-word button has no room to prevent it.
-    pub fn what_it_does(self) -> &'static str {
-        match self {
-            Act::Install => "fetch the build, hash-verify every file, and place it",
-            Act::Buy => "open the buy box in your browser — the wallet is yours, not this client's",
-            Act::Installed => "already on this disk — start it from Games",
-            Act::Unpublished => "listed, but no build for this platform is published yet",
-            Act::Page => "not enough could be read to offer a price — read the page yourself",
-        }
-    }
-
     /// **Nothing on this shelf wears the reserved green fill**, and that is
     /// deliberate rather than an omission. A solid green fill is reserved for
     /// an act that moves money (`theme::Tone`); pressing Buy here opens a
@@ -592,20 +520,15 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
     let mut w = window::Window::new(140, 140, 700, well_h + 132, None);
     w.set_label("scry — store");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 20, "the store", theme::HEAD, 16);
     chrome::label(16, 34, 480, 16, "one payment, one copy, and the copy is yours to resell",
                   theme::MUTED, 11);
     let mut refresh = chrome::button(556, 14, 128, 26, "Refresh", Tone::Plain);
     refresh.set_align(enums::Align::Center | enums::Align::Inside);
-    refresh.set_tooltip("ask the origin for its catalog again — nothing here needs a restart");
 
     let mut controls = Vec::new();
-    // Scrolls, for the same reason the library does: the number of titles on
-    // the shelf is the origin's to decide and the window has to hold any of
-    // them (`chrome::shelf`).
-    let shelf = chrome::shelf(16, 58, 668, well_h);
+    let shelf = chrome::well(16, 58, 668, well_h);
     if !reachable {
         // The repo's own trap, at the one place it would cost a player a game.
         chrome::label(28, 74, 640, 18, "the catalog could not be read", theme::GOLD, 13);
@@ -628,7 +551,7 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
                 band.set_frame(enums::FrameType::FlatBox);
                 band.set_color(theme::WELL_ALT);
             }
-            art::icon_box(26, y, art::SHELF_ICON, &row.slug, row.icon.as_ref());
+            art::icon_box(26, y, art::ICON, &row.slug, row.icon.as_ref());
             // ⚠ **Every one of these four is `label_untrusted` and that is the
             // overrun fix.** A name, a blurb, a state word and a price line all
             // come from the origin, and FLTK draws a label at the TEXT's
@@ -637,38 +560,32 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
             // 140 characters and did exactly that. A character cap is not a
             // substitute (see `chrome::label_untrusted`); clipping to the box
             // is the only bound that holds for any text.
-            chrome::label_untrusted(80, y, 268, 18, &row.name, theme::INK, 14);
+            chrome::label_untrusted(80, y, 292, 18, &row.name, theme::INK, 14);
             // The listing's own word, beside the name rather than floating
             // under it: `live` and `in-build` are a property OF the title, and
             // a tag adrift in the middle of a row reads as a stray label.
             let state_ink = if row.state == "live" { theme::MUTED } else { theme::GOLD };
-            let mut state = chrome::label_untrusted(352, y + 2, 88, 15, &row.state,
+            let mut state = chrome::label_untrusted(376, y + 2, 84, 15, &row.state,
                                                     state_ink, 10);
             state.set_align(enums::Align::Right | enums::Align::Inside | enums::Align::Clip);
-            chrome::label_untrusted(80, y + 19, 360, 15, &row.blurb, theme::MUTED, 11);
+            chrome::label_untrusted(80, y + 19, 380, 15, &row.blurb, theme::MUTED, 11);
             let price_ink = match row.price {
                 Price::Unknown { .. } => theme::GOLD,
                 _ => theme::DIM,
             };
-            chrome::label_untrusted(80, y + 35, 360, 15, &row.price_line(), price_ink, 10);
+            chrome::label_untrusted(80, y + 35, 380, 15, &row.price_line(), price_ink, 10);
 
             let act = row.act();
-            // From the well's inner right edge (684) back, less the bar — see
-            // the same arithmetic in `games`.
-            let page_x = 684 - BAR - 12 - 84;
-            let act_x = page_x - 8 - 110;
             // `button_off` for the one that cannot be pressed — see
             // `Act::tone`. Everything else is an ordinary pale button.
             let mut button = if act.pressable() {
-                chrome::button(act_x, y + 8, 110, 28, act.label(), act.tone())
+                chrome::button(470, y + 8, 110, 28, act.label(), act.tone())
             } else {
-                chrome::button_off(act_x, y + 8, 110, 28, act.label())
+                chrome::button_off(470, y + 8, 110, 28, act.label())
             };
             button.set_align(enums::Align::Center | enums::Align::Inside);
-            button.set_tooltip(act.what_it_does());
-            let mut page = chrome::button(page_x, y + 8, 84, 28, "Page…", Tone::Plain);
+            let mut page = chrome::button(588, y + 8, 84, 28, "Page…", Tone::Plain);
             page.set_align(enums::Align::Center | enums::Align::Inside);
-            page.set_tooltip("open this title's page on the origin, in your browser");
             controls.push(ShelfControls { slug: row.slug.clone(), act, button, page });
             y += SHELF_H;
         }
@@ -682,14 +599,12 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
                   "buying opens your browser: the wallet is yours and this client never holds one",
                   theme::DIM, 11);
     w.end();
-    grows_downward(&mut w, &shelf, 132 + SHELF_H * 2);
     StoreWindow { window: w, rows: controls, refresh }
 }
 
-/// How tall one store row is. Taller than a library row twice over: it carries
-/// a money sentence the library does not, and its icon is the bigger of the
-/// two ([`art::SHELF_ICON`] — a shelf is browsed, a library is scanned).
-const SHELF_H: i32 = art::SHELF_ICON + 20;
+/// How tall one store row is. Taller than a Games row because it carries a
+/// money sentence the library does not.
+const SHELF_H: i32 = art::ICON + 20;
 
 /// What the caller measured about a title's shard list.
 ///
@@ -759,14 +674,11 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     let mut w = window::Window::new(160, 160, 640, well_h + 108, None);
     w.set_label("scry — servers");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 20, "servers", theme::HEAD, 16);
 
     let mut controls = Vec::new();
-    // Scrolls. A popular title's list is the longest thing this client draws
-    // and it is served by the game, so the count is nobody's to cap here.
-    let well = chrome::shelf(16, 40, 608, well_h);
+    let well = chrome::well(16, 40, 608, well_h);
     match shards {
         Shards::Unpublished => {
             chrome::label(28, 56, 580, 18,
@@ -812,24 +724,19 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
                               if s.full() { theme::GOLD } else { theme::MUTED }, 12);
                 chrome::label_untrusted(28, y + 18, 250, 14, &s.addr, theme::DIM, 10);
                 if let Some(m) = &s.map {
-                    chrome::label_untrusted(286, y + 18, 140, 14, m, theme::DIM, 10);
+                    chrome::label_untrusted(286, y + 18, 160, 14, m, theme::DIM, 10);
                 }
 
                 // A full shard is drawn and not pressable. Hiding it would
                 // make a busy server look like one that does not exist.
-                // From the well's inner right edge (624) back, less the bar.
-                let invite_x = 624 - BAR - 13 - 74;
-                let join_x = invite_x - 8 - 74;
-                let mut join = if s.full() {
-                    chrome::button_off(join_x, y + 2, 74, 26, "Full")
+                let join = if s.full() {
+                    chrome::button_off(452, y + 2, 74, 26, "Full")
                 } else {
-                    chrome::button(join_x, y + 2, 74, 26, "Join", Tone::Plain)
+                    chrome::button(452, y + 2, 74, 26, "Join", Tone::Plain)
                 };
-                join.set_tooltip("start the installed build against this address");
                 // Always offered, even on a full shard: sending a friend a
                 // link to a server you cannot get into right now is normal.
-                let mut copy = chrome::button(invite_x, y + 2, 74, 26, "Invite", Tone::Plain);
-                copy.set_tooltip("copy this shard's scry:// link to the clipboard");
+                let copy = chrome::button(534, y + 2, 74, 26, "Invite", Tone::Plain);
 
                 controls.push(ShardControls {
                     addr: s.addr.clone(),
@@ -855,7 +762,6 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
                   "counts are polled from each shard — the launcher does not proxy, cache or rank",
                   theme::DIM, 11);
     w.end();
-    grows_downward(&mut w, &well, 108 + 46 * 2);
     ServersWindow { window: w, rows: controls }
 }
 
@@ -898,7 +804,6 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     let mut w = window::Window::new(180, 180, 580, 400, None);
     w.set_label("scry — account");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 20, "account", theme::HEAD, 16);
     let well = chrome::well(16, 40, 548, 130);
@@ -1005,7 +910,6 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
     let mut w = window::Window::new(200, 200, 620, 320, None);
     w.set_label("scry — signing");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 400, 20, "signing", theme::HEAD, 16);
 
@@ -1120,7 +1024,6 @@ pub fn consent(
     let mut w = window::Window::new(240, 160, 620, win_h, None);
     w.set_label("scry — a game wants to sign");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(pad, 12, 500, 20, "a game wants a signature", theme::HEAD, 16);
     // The launcher's own sentence — but it quotes the game's name and family
@@ -1278,7 +1181,6 @@ pub fn passphrase(title: &str, prompt: &str) -> AskWindow {
     let mut w = window::Window::new(260, 200, 520, win_h, None);
     w.set_label(&format!("scry — {title}"));
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 12, 480, 22, title, theme::HEAD, 16);
 
@@ -1384,7 +1286,6 @@ pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindo
     let mut w = window::Window::new(280, 220, 520, win_h, None);
     w.set_label(&format!("scry — {title}"));
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     let (head_ink, head) = match kind {
         Note::Done => (theme::HEAD, title),
@@ -1455,7 +1356,6 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
     let mut w = window::Window::new(300, 240, 520, 296, None);
     w.set_label("scry — locked");
     w.set_color(theme::BG);
-    chrome::wear_icon(&mut w);
 
     chrome::label(16, 14, 488, 22, "scry is locked", theme::HEAD, 17);
     chrome::label(16, 40, 488, 16, why, theme::MUTED, 11);

@@ -61,7 +61,7 @@ contract ScryGameTicketTest is Test {
         splitter = new ScryFeeSplitter(IERC20(address(scry)), to, bps);
 
         t = new ScryGameTicket(
-            "Gates", "GATES-COPY", "gates", IERC20(address(scry)), IERC20(address(usdg)),
+            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
             address(splitter), proceeds, 0, "https://scry.moreright.xyz", address(0)
         );
         t.setPrices(1000, PRICE_WEI, PRICE_SCRY, PRICE_USDG);
@@ -199,13 +199,13 @@ contract ScryGameTicketTest is Test {
         uint256 id = t.claimFree(1, proofA);
         assertEq(t.railOf(id), 5);
         vm.prank(buyer);
-        vm.expectRevert(bytes("free copies spent"));
+        vm.expectRevert(bytes("already claimed yours"));
         t.claimFree(1, proofA);
 
         // republishing the SAME wallet at the same allowance re-opens nothing
         t.setFreeRoot(_pair(la, lb));
         vm.prank(buyer);
-        vm.expectRevert(bytes("free copies spent"));
+        vm.expectRevert(bytes("already claimed yours"));
         t.claimFree(1, proofA);
     }
 
@@ -273,7 +273,7 @@ contract ScryGameTicketTest is Test {
         vm.prank(c3);
         t.claimFree(2, p3);
         vm.prank(c3);
-        vm.expectRevert(bytes("free copies spent"));
+        vm.expectRevert(bytes("already claimed yours"));
         t.claimFree(2, p3);
 
         // and the allowance in the leaf is load-bearing: c3's own proof at the
@@ -313,14 +313,22 @@ contract ScryGameTicketTest is Test {
 
     function test_supply_cap_binds_every_door_when_set() public {
         ScryGameTicket capped = new ScryGameTicket(
-            "Gates", "GATES-COPY", "gates", IERC20(address(scry)), IERC20(address(usdg)),
+            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
             address(splitter), proceeds, 2, "https://scry.moreright.xyz", address(0)
         );
         capped.setPrices(1000, PRICE_WEI, 0, 0);
+        MockNFT hive = new MockNFT();
+        hive.mint(buyer, 7);
+        capped.setFreeCollection(address(hive), 1);
         capped.compMint(stranger, 2);
         vm.prank(buyer);
         vm.expectRevert(bytes("supply cap reached"));
         capped.buyWithETH{value: PRICE_WEI}();
+        // "every door" includes the collection door — an eligibility check that
+        // passes does not make a mint the cap forbids
+        vm.prank(buyer);
+        vm.expectRevert(bytes("supply cap reached"));
+        capped.claimFreeFor(address(hive), _ids(7));
     }
 
     function test_renounce_freezes_every_knob_at_its_posted_value() public {
@@ -329,6 +337,8 @@ contract ScryGameTicketTest is Test {
         t.setPrices(1000, 1, 1, 1);
         vm.expectRevert(bytes("not owner"));
         t.setFreeRoot(bytes32(uint256(1)));
+        vm.expectRevert(bytes("not owner"));
+        t.setFreeCollection(address(0xBEEF), 1);
         // the posted rails keep selling at their frozen prices
         vm.prank(buyer);
         t.buyWithETH{value: PRICE_WEI}();
@@ -371,7 +381,7 @@ contract ScryGameTicketTest is Test {
             "a copy must render with the meter offline - no http, no gateway"
         );
         string memory json = _json(uri);
-        assertTrue(_contains(json, '"name":"Gates - copy #1"'), json);
+        assertTrue(_contains(json, '"name":"Gates #1"'), json);
         assertTrue(_contains(json, '"trait_type":"game","value":"gates"'), json);
         assertTrue(_contains(json, '"trait_type":"acquired","value":"bought"'), json);
         // the image falls back to the built-in mark, so nothing renders blank
@@ -382,7 +392,41 @@ contract ScryGameTicketTest is Test {
 
     function test_contractURI_is_self_contained_too() public view {
         string memory json = _json(t.contractURI());
-        assertTrue(_contains(json, '"name":"Gates - copies"'), json);
+        assertTrue(_contains(json, '"name":"Gates on Scryward"'), json);
+        assertTrue(_contains(json, '"image":"data:image/svg+xml;base64,'), json);
+    }
+
+    /// ⚠ THE TWO DOCUMENTS SPELL THE LINK DIFFERENTLY AND THIS IS THE ONLY
+    /// CHECK THAT SAYS SO. A collection is ERC-7572 (`external_link`) and a
+    /// token is ERC-721 metadata (`external_url`); one shared helper emitted
+    /// `external_url` for both, so the collection page's link home was a key
+    /// no marketplace reads. Nothing caught it: the document still parsed, the
+    /// page just rendered one field short, and the test above asserted only
+    /// the name — the "assert the field the user sees" trap, in a suite that
+    /// was otherwise green. Assert the key, not merely that a link is present.
+    function test_the_collection_and_the_token_each_use_their_own_link_key() public {
+        vm.prank(buyer);
+        uint256 id = t.buyWithETH{value: PRICE_WEI}();
+        string memory collection = _json(t.contractURI());
+        string memory token = _json(t.tokenURI(id));
+        string memory url = "https://scry.moreright.xyz/game.html?slug=gates";
+
+        assertTrue(_contains(collection, string.concat('"external_link":"', url, '"')), collection);
+        assertFalse(_contains(collection, '"external_url"'), "ERC-7572 has no external_url");
+
+        assertTrue(_contains(token, string.concat('"external_url":"', url, '"')), token);
+        assertFalse(_contains(token, '"external_link"'), "ERC-721 metadata has no external_link");
+    }
+
+    /// The link is the one field that leans on `baseURI`, so an unset base has
+    /// to drop it rather than emit an empty or malformed one — in both
+    /// documents, which is the half a shared helper makes easy to forget.
+    function test_no_base_drops_the_link_from_both_documents() public {
+        t.setBaseURI("");
+        vm.prank(buyer);
+        uint256 id = t.buyWithETH{value: PRICE_WEI}();
+        assertFalse(_contains(_json(t.contractURI()), "external"), "no base, no link");
+        assertFalse(_contains(_json(t.tokenURI(id)), "external"), "no base, no link");
     }
 
     function test_owner_posts_the_name_and_art_a_marketplace_shows() public {
@@ -422,7 +466,7 @@ contract ScryGameTicketTest is Test {
 
     function test_a_comp_and_a_free_claim_say_so_on_the_token_itself() public {
         t.compMint(stranger, 1);
-        assertTrue(_contains(_json(t.tokenURI(1)), '"value":"comp"'), "a favour is visible or it corrodes the ticket");
+        assertTrue(_contains(_json(t.tokenURI(1)), '"value":"gift"'), "a favour is visible or it corrodes the ticket");
     }
 
     function test_a_renderer_takes_over_and_zero_gives_the_built_in_back() public {
@@ -434,6 +478,31 @@ contract ScryGameTicketTest is Test {
         assertEq(t.contractURI(), "renderer://collection");
         t.setRenderer(address(0));
         assertTrue(_startsWith(t.tokenURI(id), "data:application/json;base64,"), "zero restores the built-in");
+    }
+
+    /// The hosted path's poke: under a renderer an art swap is a file save, so
+    /// no storage moves and no event fires and a marketplace never re-reads.
+    /// This emits both events and touches nothing — including the renderer,
+    /// which is what separates it from the `setRenderer(address(this))` trick
+    /// it replaces.
+    function test_refreshMetadata_pokes_a_marketplace_and_changes_nothing() public {
+        FakeRenderer r = new FakeRenderer();
+        t.setRenderer(address(r));
+        t.setMetadata("a blurb", "https://example.test/a.svg");
+
+        vm.expectEmit(false, false, false, true);
+        emit ScryGameTicket.BatchMetadataUpdate(1, type(uint256).max);
+        t.refreshMetadata();
+
+        assertEq(t.renderer(), address(r), "the renderer is untouched");
+        assertEq(t.blurb(), "a blurb", "and so is every posted field");
+        assertEq(t.image(), "https://example.test/a.svg");
+    }
+
+    function test_only_the_owner_pokes_a_marketplace() public {
+        vm.prank(stranger);
+        vm.expectRevert(bytes("not owner"));
+        t.refreshMetadata();
     }
 
     function test_tokenURI_still_refuses_a_token_that_does_not_exist() public {
@@ -485,6 +554,214 @@ contract ScryGameTicketTest is Test {
         assertEq(t.ownerOf(id), stranger);
         assertEq(t.getApproved(id), address(0)); // approval cleared on transfer
     }
+
+    // ── the collection door — hold a token, take a game ──────────────────────
+    //
+    // The door that needs no snapshot, no proofs file and no re-post. What
+    // these pin is the ONE property that made it worth new bytecode: the count
+    // rides the TOKEN ID, so it survives a sale and cannot be farmed by
+    // scattering a collection across wallets.
+
+    function _hive() internal returns (MockNFT hive) {
+        hive = new MockNFT();
+        hive.mint(buyer, 7);
+        hive.mint(stranger, 9);
+        t.setFreeCollection(address(hive), 1);
+    }
+
+    function _ids(uint256 a) internal pure returns (uint256[] memory ids) {
+        ids = new uint256[](1);
+        ids[0] = a;
+    }
+
+    function test_a_holder_claims_with_no_proof_and_no_list() public {
+        MockNFT hive = _hive();
+        vm.prank(buyer);
+        assertEq(t.claimFreeFor(address(hive), _ids(7)), 1);
+        assertEq(t.balanceOf(buyer), 1);
+        assertEq(t.railOf(1), 5); // the same free mark the merkle door leaves
+        assertEq(t.freeClaimedByToken(address(hive), 7), 1);
+    }
+
+    /// THE WHOLE REASON THIS DOOR EXISTS. Seat #7 takes its game, then sells.
+    /// The buyer of the seat gets nothing more — the seat's copy was spent, and
+    /// it stays spent through any number of hands.
+    function test_the_count_rides_the_token_not_the_wallet() public {
+        MockNFT hive = _hive();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+
+        vm.prank(buyer);
+        hive.transferFrom(buyer, stranger, 7);
+        vm.prank(stranger);
+        vm.expectRevert(bytes("already claimed for this one"));
+        t.claimFreeFor(address(hive), _ids(7));
+
+        // and the new holder's OWN seat is untouched by any of it
+        vm.prank(stranger);
+        assertEq(t.claimFreeFor(address(hive), _ids(9)), 1);
+    }
+
+    function test_a_token_you_do_not_hold_claims_nothing() public {
+        MockNFT hive = _hive();
+        vm.prank(stranger);
+        vm.expectRevert(bytes("not yours"));
+        t.claimFreeFor(address(hive), _ids(7));
+    }
+
+    function test_shutting_the_door_forgets_no_spent_token() public {
+        MockNFT hive = _hive();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+
+        t.setFreeCollection(address(hive), 0);
+        vm.prank(stranger);
+        vm.expectRevert(bytes("collection door closed"));
+        t.claimFreeFor(address(hive), _ids(9));
+
+        // reopening at the same allowance re-opens nobody who already took one
+        t.setFreeCollection(address(hive), 1);
+        vm.prank(buyer);
+        vm.expectRevert(bytes("already claimed for this one"));
+        t.claimFreeFor(address(hive), _ids(7));
+    }
+
+    function test_raising_perToken_hands_a_spent_seat_exactly_the_difference() public {
+        MockNFT hive = _hive();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+        t.setFreeCollection(address(hive), 3);
+        uint256[] memory twice = new uint256[](2);
+        twice[0] = 7;
+        twice[1] = 7; // a duplicate is just the same claim made twice
+        vm.prank(buyer);
+        assertEq(t.claimFreeFor(address(hive), twice), 2);
+        assertEq(t.freeClaimedByToken(address(hive), 7), 3);
+        vm.prank(buyer);
+        vm.expectRevert(bytes("already claimed for this one"));
+        t.claimFreeFor(address(hive), _ids(7));
+    }
+
+    function test_a_batch_claim_is_bounded_and_nonempty() public {
+        MockNFT hive = _hive();
+        uint256[] memory none = new uint256[](0);
+        vm.prank(buyer);
+        vm.expectRevert(bytes("bad id count"));
+        t.claimFreeFor(address(hive), none);
+
+        uint256[] memory tooMany = new uint256[](33);
+        vm.prank(buyer);
+        vm.expectRevert(bytes("bad id count"));
+        t.claimFreeFor(address(hive), tooMany);
+    }
+
+    function test_a_collection_claim_grants_no_coin() public {
+        MockToken coin = new MockToken("Gates Coin", "OBOL");
+        coin.mint(address(t), 1_000e18);
+        t.setGrant(IERC20(address(coin)), 100e18);
+        MockNFT hive = _hive();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+        // a gift of a licence is not a gift of somebody's raise — same rule the
+        // comp and merkle doors keep
+        assertEq(coin.balanceOf(buyer), 0);
+        assertEq(t.grantDelivered(), 0);
+    }
+
+    function test_the_doors_enumerate_for_a_surface() public {
+        MockNFT hive = _hive();
+        MockNFT other = new MockNFT();
+        t.setFreeCollection(address(other), 2);
+        t.setFreeCollection(address(hive), 5); // re-posting does not duplicate the row
+        assertEq(t.freeCollectionCount(), 2);
+        (address c0, uint256 p0) = t.freeCollectionAt(0);
+        assertEq(c0, address(hive));
+        assertEq(p0, 5);
+
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+        uint256[] memory both = new uint256[](2);
+        both[0] = 7;
+        both[1] = 9;
+        uint256[] memory left = t.freeRemainingFor(address(hive), both);
+        assertEq(left[0], 4);
+        assertEq(left[1], 5);
+    }
+
+    function test_only_the_owner_opens_a_collection_door() public {
+        MockNFT hive = new MockNFT();
+        vm.prank(stranger);
+        vm.expectRevert(bytes("not owner"));
+        t.setFreeCollection(address(hive), 1);
+    }
+
+    /// ⚠ MEASURED, NOT ESTIMATED — AND THE TWO LIVE IN SEPARATE TESTS ON
+    /// PURPOSE. Measuring both inside one test made the collection door look
+    /// 34k cheaper than it is: whichever claim runs second finds `nextTokenId`
+    /// and the claimer's balance already WARM, and pays ~100 gas for slots the
+    /// first one paid 5,000–22,100 for. Each door therefore gets its own
+    /// transaction, as the first mint on a fresh contract, which is the only
+    /// way the two columns mean the same thing.
+    ///
+    /// Two costs a message call still cannot see — one owed to each column:
+    ///   + 6,656  merkle — a real tx pays 16 gas per nonzero calldata byte, and
+    ///                     a 13-node proof (an 8,192-leaf tree) is 416 bytes
+    ///   + 2,600  collection — the collection address is COLD in a real tx;
+    ///                     here it was deployed in the same test, so it is warm
+    function test_GAS_the_merkle_door() public {
+        // a genuine 13-deep proof: pick the siblings, fold them into the root
+        bytes32[] memory proof = new bytes32[](13);
+        bytes32 node = _leaf(buyer, 1);
+        for (uint256 i = 0; i < 13; i++) {
+            proof[i] = keccak256(abi.encodePacked("sibling", i));
+            node = node < proof[i]
+                ? keccak256(abi.encodePacked(node, proof[i]))
+                : keccak256(abi.encodePacked(proof[i], node));
+        }
+        t.setFreeRoot(node);
+
+        uint256 g = gasleft();
+        vm.prank(buyer);
+        t.claimFree(1, proof);
+        uint256 used = g - gasleft();
+
+        console2.log("merkle claim, 13-node proof, execution:", used);
+        console2.log("  + proof calldata a real tx also pays: ", uint256(13 * 32 * 16));
+        assertLt(used, 130_000);
+    }
+
+    function test_GAS_the_collection_door() public {
+        MockNFT hive = _hive();
+        uint256 g = gasleft();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), _ids(7));
+        uint256 used = g - gasleft();
+
+        console2.log("collection claim, one id, execution:  ", used);
+        console2.log("  + cold collection address in a real tx:", uint256(2600));
+        assertLt(used, 130_000);
+    }
+
+    /// The batch is where the door earns its keep: a holder with six seats pays
+    /// the fixed cost once. This is the number that decides whether a claim
+    /// button offers "claim all" or one row per seat.
+    function test_GAS_the_collection_door_batched() public {
+        MockNFT hive = new MockNFT();
+        for (uint256 i = 1; i <= 6; i++) {
+            hive.mint(buyer, i);
+        }
+        t.setFreeCollection(address(hive), 1);
+        uint256[] memory six = new uint256[](6);
+        for (uint256 i = 0; i < 6; i++) {
+            six[i] = i + 1;
+        }
+        uint256 g = gasleft();
+        vm.prank(buyer);
+        t.claimFreeFor(address(hive), six);
+        uint256 used = g - gasleft();
+        console2.log("collection claim, SIX ids in one call:", used);
+        console2.log("  per game claimed:                   ", used / 6);
+    }
 }
 
 
@@ -530,8 +807,8 @@ contract Mock1155 {
 }
 
 /// The rail registry — what the owner may change, what they may not, and the
-/// two NFT shapes. `CARDS.md`-style: the point of a rail is that accepting a
-/// new asset is a CALL rather than a redeploy.
+/// two NFT shapes. The point of a rail is that accepting a new asset is a CALL
+/// rather than a redeploy.
 contract ScryGameTicketRailsTest is Test {
     ScryGameTicket t;
     MockToken scry;
@@ -552,7 +829,7 @@ contract ScryGameTicketRailsTest is Test {
         nft = new MockNFT();
         multi = new Mock1155();
         t = new ScryGameTicket(
-            "Gates", "GATES-COPY", "gates", IERC20(address(scry)), IERC20(address(usdg)),
+            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
             address(0xF33), proceeds, 0, "https://scry.moreright.xyz", address(0)
         );
     }
@@ -726,7 +1003,7 @@ contract ScryGameTicketRailsTest is Test {
         // ⚠ `ethRail` is hoisted deliberately. `t.RAIL_ETH()` inside the call's
         // argument list is a staticcall, and it CONSUMES the one-shot
         // expectRevert before the call under test runs — the same shape the
-        // card-layer suite hit with a pranked `KIND_*()` getter (`CARDS.md` §8).
+        // card-layer suite hit with a pranked `KIND_*()` getter.
         // Written inline, this test passes for the wrong reason.
         uint256 ethRail = t.RAIL_ETH();
         t.transferOwnership(address(0));
@@ -762,7 +1039,7 @@ contract ScryGameTicketRaiseTest is Test {
         usdg = new MockToken("USD Glo", "USDG");
         coin = new MockToken("Gates Coin", "GCOIN");
         t = new ScryGameTicket(
-            "Gates", "GATES-COPY", "gates", IERC20(address(scry)), IERC20(address(usdg)),
+            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
             address(0xF33), proceeds, 0, "https://scry.moreright.xyz", address(0)
         );
         t.setPrices(1000, PRICE_WEI, 0, 0);

@@ -43,8 +43,7 @@ interface IArbSys {
 ///         the median NFT sale measured 2026-07-26 was $3.24 and the p80 was
 ///         $19, the same mechanic is a floor-price factory** — the backing *is*
 ///         the price, and a chain with 1,500+ collections of 2,600+ holders each
-///         has no permissionless way to post one. That inversion is the product
-///         (`GACHA.md` §0).
+///         has no permissionless way to post one. That inversion is the product.
 ///
 ///         **Forked from FWA** (`Fake World Assets`, TokenWorks/Rhynotic,
 ///         Ethereum mainnet `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, MIT).
@@ -76,7 +75,7 @@ interface IArbSys {
 ///         Four things are ours, and each is a measurement or an invariant:
 ///
 ///         1. **The draw is a commit-reveal, not a VRF.** Chainlink VRF 2.5 is
-///            not on chain 4663 (`GACHA.md` §4.1). A request fixes a public
+///            not on chain 4663. A request fixes a public
 ///            buyer salt and a reveal block `drawDelay` L2 blocks ahead; the seed
 ///            is `keccak(arbBlockHash(revealBlock), salt, drawId, collection,
 ///            buyer)`. At request time nobody knows that hash — not the buyer,
@@ -111,15 +110,15 @@ interface IArbSys {
 ///            cheap, permissionless, and theirs to call.
 ///         4. **One pool per collection, never one pool for all of them.** FWA
 ///            runs a single global pool and leans on curation to keep dust out.
-///            `GACHA.md` §5b takes `SEASONS.md` §7b's answer instead — funded
-///            one at a time, never a shared pot — so a worthless collection can
+///            We take the seasons answer instead — pools are funded one at a
+///            time, never as a shared pot — so a worthless collection can
 ///            only drag its own price, and every collection gets its own floor.
 ///
-///         **The minimum backing is the design, not a knob** (`GACHA.md` §4.4).
+///         **The minimum backing is the design, not a knob.**
 ///         The harmonic mean is dominated by the cheapest position, so on a dust
 ///         chain one $3 deposit would drag a pool's price to $3 while the gas to
 ///         draw stays fixed — a griefing vector that costs cents. 0.01 ETH sat
-///         at p82 of live sales when the doc chose it and at **p80** when this
+///         at p82 of live sales when it was chosen and at **p80** when this
 ///         contract was written; it is also FWA's own default, arrived at
 ///         independently. A maximum backing ratio was considered and **measured
 ///         off**: the qualifying shelf prices at 0.0292 ETH harmonic and its top
@@ -132,8 +131,8 @@ interface IArbSys {
 ///         odds, a fee or a payout here; the only inputs are backing, count, the
 ///         posted bps and an L2 block hash. Money moves freely across every
 ///         of it and none of it can reach a measurement, so no caveat belongs on
-///         this organ (`PLAIN.md` §the one wall, and `GACHA.md` §7 says it
-///         once).
+///         this organ (the wall is `CLAUDE.md` invariant 1, and the storefront
+///         says it once, on `about.html`).
 ///
 ///         **The residual trust assumption, stated.** A chain's sequencer picks
 ///         the contents of the reveal block, so a sequencing party that also
@@ -155,8 +154,8 @@ interface IArbSys {
 ///
 ///         ═══ THE TOLL RAIL ═══
 ///
-///         **The pull fee may be charged in `SCRY` instead of ETH** (`GACHA.md`
-///         §10d, decided 2026-07-27). Two things about it are worth reading
+///         **The pull fee may be charged in `SCRY` instead of ETH** (decided
+///         2026-07-27, `SENTENCES.md`). Two things about it are worth reading
 ///         before touching any of the `toll*` state:
 ///
 ///         **1. It is a second rail, not a conversion.** Nothing here swaps.
@@ -164,8 +163,8 @@ interface IArbSys {
 ///         house LPs, at their own cost and their own slippage — which is the
 ///         whole point: it manufactures the swap volume the LP fee is paid on
 ///         without the house ever performing a market operation
-///         (`FEES.md` holds the house-side buyback on depth grounds, and this
-///         design never needs one). So the fee rail runs twice over: an ETH
+///         (`TOKENOMICS.md` holds the house-side buyback on depth grounds, and
+///         this design never needs one). So the fee rail runs twice over: an ETH
 ///         accumulator and a toll accumulator, each with its own escrow, carry,
 ///         top pot, house balance and per-position checkpoint. A pool that ran
 ///         in one era and then the other keeps both, and every position can
@@ -349,7 +348,7 @@ contract ScryGacha is ReentrancyGuard {
     /// @notice The floor under every pool's floor. A pool may set its minimum
     ///         higher, never lower — 0.01 ETH is ~p80 of live sales and ~40x the
     ///         gas of a pull, and below it the harmonic mean is a free griefing
-    ///         vector (`GACHA.md` §4.2/§4.4).
+    ///         vector.
     uint256 public constant MIN_BACKING_FLOOR = 0.01 ether;
 
     /// @notice Posted bounds on the standing bid. A bid of 100% would let a
@@ -381,7 +380,7 @@ contract ScryGacha is ReentrancyGuard {
     /// @notice Ceiling on the toll burn. The burn is a real tax on the
     ///         depositors' side of the split, not on the house's, so it is
     ///         posted and capped like the top-slot slice rather than like a
-    ///         house cut. `GACHA.md` §10c's safety inequality — `rebateBps <
+    ///         house cut. The toll safety inequality — `rebateBps <
     ///         burnBps + houseDrawBps` — needs this number readable as a
     ///         constant, which is why the burn lives here and not only
     ///         downstream in `ScryFeeSplitter`.
@@ -444,7 +443,7 @@ contract ScryGacha is ReentrancyGuard {
     address public owner;
 
     /// @notice May open and close pools, but may never touch money. This is the
-    ///         curation seat `GACHA.md` §5b calls the product surface: a
+    ///         curation seat, and curation is the product surface: a
     ///         separate contract can own "which collections get a floor"
     ///         without owning the fees or the escrow.
     address public curator;
@@ -496,7 +495,7 @@ contract ScryGacha is ReentrancyGuard {
 
     /// @notice Slice of every toll set aside for the burn, in bps of the toll.
     ///         Off by default. Carved beside the house cut and before the
-    ///         split, so `GACHA.md` §10c's inequality reads off two constants.
+    ///         split, so the toll safety inequality reads off two constants.
     uint256 public tollBurnBps;
 
     mapping(address => Pool) internal pools;
@@ -1217,14 +1216,14 @@ contract ScryGacha is ReentrancyGuard {
     ///      position is still active, so it shares in the draw that took it.
     ///
     ///      **The two flat carves come off the whole amount**, which is exactly
-    ///      the shape `GACHA.md` §10c's inequality assumes when it proves a
+    ///      the shape the toll safety inequality assumes when it proves a
     ///      depositor who buys from themselves loses `(rebateBps − burnBps −
     ///      houseDrawBps)·T` at any volume.
     ///
     ///      **Nothing here calls the token.** The burn and the house cut accrue;
     ///      `sweepBurn`/`sweepHouseToll` send them. This runs inside `settle`,
     ///      and a `settle` a token can revert is a pool that one abandoned pull
-    ///      shuts down for good (`GACHA.md` §11f).
+    ///      shuts down for good.
     function _spread(address collection, Pool storage p, uint256 amount, bool onToll) internal {
         Rail storage r = onToll ? p.toll : p.eth;
         uint256 distributable = amount;
@@ -1614,8 +1613,8 @@ contract ScryGacha is ReentrancyGuard {
     ///      separate from `claim`: a toll coin that will not move must not be
     ///      able to hold the ETH sweep hostage. When `feeSink` is
     ///      `ScryFeeSplitter` this is the whole handoff — the splitter takes it
-    ///      from here on its own posted split, which is why `GACHA.md` §10d
-    ///      calls the house side "zero new machinery".
+    ///      from here on its own posted split, which is why the house side of
+    ///      the toll rail needed zero new machinery.
     function sweepHouseToll() external nonReentrant returns (uint256 amount) {
         amount = houseTollOwed;
         require(amount > 0, NothingAccrued());
@@ -1976,7 +1975,7 @@ contract ScryGacha is ReentrancyGuard {
         emit KnobSet("finalizeWindow", finalize_);
     }
 
-    /// @notice Arm, retune or disarm the toll rail (`GACHA.md` §10d/§10e).
+    /// @notice Arm, retune or disarm the toll rail.
     /// @param coin The rail's denomination — `SCRY`, or zero for the ETH rail.
     /// @param rate Toll-coin wei per `RATE_ONE` of the ETH-quoted fee. **Zero is
     ///        the disarm**, and it is always legal.
@@ -2014,7 +2013,7 @@ contract ScryGacha is ReentrancyGuard {
     }
 
     /// @notice The burn slice, in bps of every toll. Zero turns it off.
-    /// @dev ⚠ `GACHA.md` §10c's safety inequality lives here when the cold-gap
+    /// @dev ⚠ The toll safety inequality lives here when the cold-gap
     ///      rebate lands: `rebateBps < burnBps + houseDrawBps` is what makes a
     ///      depositor who buys from themselves lose money at any volume, and it
     ///      is meant to be enforced in this setter rather than remembered. There

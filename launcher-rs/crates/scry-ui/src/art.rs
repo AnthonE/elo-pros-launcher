@@ -34,26 +34,9 @@
 use crate::theme;
 use fltk::{enums, frame, image, prelude::*};
 
-/// How big a **store** icon is drawn, in px. The Store is a shelf somebody
-/// browses one row at a time — three lines of text per row, a price among them
-/// — so the art is given room to be looked at.
-pub const SHELF_ICON: i32 = 44;
-
-/// How big a **library** icon is drawn, in px.
-///
-/// Operator, 2026-08-13: *"we should we using smaller icons for games."* Two
-/// numbers where there was one, and the split is a rule rather than a taste:
-/// **the Store is browsed and the library is scanned.** A player opens Games
-/// to find a title they already own and start it, which is a list — and a list
-/// is measured in how many rows reach the eye at once, not in how big the art
-/// is. At 44px a 620px window held nine games; at 28 it holds thirteen, and
-/// the row still carries its name, its size and its state on two lines.
-///
-/// ⚠ The pair is kept HERE rather than one each in the two windows, which is
-/// what the single number was protecting against. `windows::ROW_H` and
-/// `windows::SHELF_H` are both derived from these, so a row can never be
-/// shorter than the square it has to hold.
-pub const ROW_ICON: i32 = 28;
+/// How big a shelf icon is drawn, in px. One number, because the Store and the
+/// Games window draw the same square and two of these would drift.
+pub const ICON: i32 = 44;
 
 /// A title's icon bytes, with the parser they belong to already decided.
 ///

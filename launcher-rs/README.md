@@ -233,9 +233,9 @@ each a refusal:
 - **read-only.** No install, no play, no uninstall, no speaking. An agent that
   can install software or post as you without a human act is a different
   product. Writes stay on the CLI where a person typed them.
-- **one tool, not five.** `COMPANION.md` §4a — a tool costs context in every
-  session whether it is called or not, which is why the hosted endpoint went
-  66 → 25. `launcher` takes a `what=` selector.
+- **one tool, not five.** A tool costs context in every session whether it is
+  called or not, which is why the hosted endpoint went 66 → 25. `launcher`
+  takes a `what=` selector.
 - **local, and it could not be otherwise.** A hosted endpoint cannot see your
   installs or reach your signer, and the hosted `/mcp` is at 29,614 B against a
   32,000 B tripwire besides.
@@ -323,9 +323,6 @@ under you. It does not make the bytes good.
 | `scry-net` | `ureq` behind `Fetched { ok, reachable, why }`, plus the `NO_PROXY` handling `ureq` does not do (below) |
 | `scry-hive` | the hive read, terminal-safe rendering, and a small UTC clock |
 | `scry-launcher` | the `scry` binary |
-| `scry-ui` | every window, and the only crate that links FLTK. It **draws and dispatches; it computes nothing** — a caller hands it what `scry-depot` already measured, which is what keeps `windows.rs` constructible in a test with no display, no disk and no origin. `wiring.rs` is what the controls do, kept out of the `scry-gui` binary because an integration test cannot reach into a `[[bin]]` |
-| `scry-broker` | the game door: the socket a title asks the launcher through, its wire format and its signer trait |
-| `scry-vault` | the keystore — scrypt + AES-CTR at rest, and the one place a private key is held |
 
 ## Two things found by writing this
 
@@ -345,21 +342,11 @@ Both are in the product, not the port:
 
 ## What is not here yet
 
-⚠ **This section said "the windows" until 2026-08-13**, when the Python client
-that owned them had been deleted for six days and this one had drawn all six
-for longer than that. A stale gap list is worse than none: it tells a reader
-the thing in front of them does not exist. What is actually missing:
-
-- **Four of the original client's nine screens.** `windows::MENU` carries six —
-  Games, Store, Servers, Account, Signing, About — and every entry names a
-  window that exists, because the menu renders an unbuilt one as deactivated
-  and says so. `Library`, `Friends`, `Monitor` and `Settings` are not built.
-- **A progress row for an install.** The download blocks the UI thread for its
-  whole length; the button says `Installing…` first so the freeze reads as the
-  install rather than as a crash, but that is a mitigation and not the fix.
-- **A resized shelf forgets its height on Refresh.** The position carries over,
-  the size does not (`docs/client/LAUNCHER.md` §10p).
+The windows. The Python client owns them and is unchanged — `Games`, `Store`,
+`Library`, `Account`, `Signing`, `Friends`, `Servers`, `Monitor`, `Settings`.
+Also not ported: the signer ladder and the broker (`docs/client/SDK.md`), the vault,
+the catalog and hive reads.
 
 Porting `scry-depot` first was the point: 500 lines of pure logic, no UI, the
 highest-risk code in the client, and the piece a game's own updater may want to
-link. The rules survived the move before any pixels did.
+link. The rules survive the move before any pixels do.

@@ -14,7 +14,7 @@ import "../src/ScryDeed.sol";
 ///   forge script script/DeployScryDeed.s.sol \
 ///     --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
 ///
-/// The deed is a sink BY DESIGN (PLAYER-HOMES.md §ownership): set the burns high.
+/// The deed is a sink BY DESIGN: set the burns high.
 /// Land speculation is fine — every flip burns the conveyance toll, and an
 /// elastic OBOL supply wants exactly this (POOLS.md §3.5). The plot space (how
 /// much land exists) is the off-chain scarcity knob (SCRY_TABERNAE_STREETS),

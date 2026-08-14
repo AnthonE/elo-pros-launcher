@@ -456,7 +456,7 @@ contract SeedSpoilsUniswapV3Test is Test {
     /// The tripwire is env-vs-env; this is the LIVE half (TEST-AUDIT.md
     /// §Standing notes: "a rerun against a pre-existing pool still never reads
     /// the live price"). `createAndInitializePoolIfNecessary` is a no-op on an
-    /// existing pool, so a re-run — LAUNCH.md §3b step 4's top-up, or a
+    /// existing pool, so a re-run — the canary-then-top-up path, or a
     /// squatter who opened the pair first — mints at THAT pool's price, not the
     /// one just validated. Refused by name, before any approval is granted.
     function test_existing_pool_divergent_live_price_is_refused_by_name() public {

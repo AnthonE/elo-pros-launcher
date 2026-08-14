@@ -310,8 +310,8 @@ contract SeedSpoilsUniswapV3 is Script {
         // price. On a RE-RUN it is not: `createAndInitializePoolIfNecessary` is
         // a no-op against a pool that already exists, so the mint lands at
         // whatever price that pool trades at, not the one just validated. That
-        // re-run is `LAUNCH.md` §3b step 4 (canary small, read back, top up),
-        // and it is also what a squatter buys by opening the pair first.
+        // re-run is the top-up path — canary small, read back, top up — and it
+        // is also what a squatter buys by opening the pair first.
         //
         // The `amount*Min` guards below already make this fail closed — but
         // they fail as an opaque revert from inside an NPM multicall. Read the

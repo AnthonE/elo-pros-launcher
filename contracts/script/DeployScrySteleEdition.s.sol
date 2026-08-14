@@ -21,8 +21,8 @@ import "../src/ScrySteleEdition.sol";
 /// the register the prints are meant to refer to and check the address twice —
 /// `mintEdition` asks it whether a vow exists, and a wrong register either
 /// refuses every real vow or validates none of them. VERIFY IT AGAINST
-/// ANCHORS.md / the live deployment before broadcasting; it is not guessable
-/// from the code.
+/// `contracts/deployments.json` / the live deployment before broadcasting; it
+/// is not guessable from the code.
 contract DeployScrySteleEdition is Script {
     function run() external {
         address registry = vm.envAddress("SCRY_VOW_REGISTRY");

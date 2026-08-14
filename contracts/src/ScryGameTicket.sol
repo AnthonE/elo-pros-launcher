@@ -12,8 +12,12 @@ interface IGameTicketReceiver {
 /// Minimal payment-side views of the two NFT standards. Only what a rail
 /// needs to MOVE one from the buyer — never `safeTransferFrom` for ERC-721,
 /// so a sink contract cannot brick the sale by not implementing a receiver.
+/// `ownerOf` is the collection free door's whole question (see `claimFreeFor`)
+/// and is `view`, so solc emits a STATICCALL and a hostile collection cannot
+/// write anything back here.
 interface IERC721Payment {
     function transferFrom(address from, address to, uint256 tokenId) external;
+    function ownerOf(uint256 tokenId) external view returns (address);
 }
 
 interface IERC1155Payment {
@@ -88,7 +92,7 @@ interface IScryTicketRenderer {
 ///             never holds a wei of SCRY. Point it at the deployed
 ///             ScryFeeSplitter and the posted split applies — half of every
 ///             SCRY buy burns, and no burn is claimed until `distribute()` has
-///             actually run. Point it at a `ScryLaunch` and the SCRY leg is
+///             actually run. Point it at a `ScryLaunchpad` and the SCRY leg is
 ///             raise instead, paired into the game's pool and never
 ///             withdrawable. Both are legitimate; they are not the same
 ///             promise, and a card that says "half burns" over the second one
@@ -135,9 +139,27 @@ interface IScryTicketRenderer {
 ///         prices, or moves any meter number. It never burns — a licence has
 ///         no door out. Paced by nothing: no block numbers, no windows.
 contract ScryGameTicket is ReentrancyGuard {
+    /// The TITLE, bare — "Gates", not "Gates on Scryward" and not "Gates copy".
+    /// The collection name a marketplace shows adds the platform itself
+    /// (`PLATFORM`, below), and an item is `name #id`.
     string public name;
     string public symbol;
     string public game; // the title's slug, as the depot knows it
+
+    /// ⚠ THE WORD "COPY" IS GONE FROM EVERYTHING A BUYER READS (2026-08-12).
+    /// Operator: *"the whole 'copy' thing is so incredibly beta… we managed to
+    /// call it copy so much it sounds like I'm getting a fake copy."* He is
+    /// right, and the word was load-bearing nowhere: what somebody buys here is
+    /// the game. `copy` survives in field names and in the docs, where it means
+    /// a unit of sale and no buyer ever sees it.
+    ///
+    /// The collection reads **"<title> on Scryward"** rather than *by* — a
+    /// storefront credit is true for every listing, and most listings are not
+    /// ours to take authorship of. That distinction is welded here on purpose:
+    /// a title that leaves still minted on this platform, and its own team can
+    /// point `renderer` anywhere it likes the day it wants a different name.
+    string public constant PLATFORM = "Scryward";
+
     // ⚠ THIS STRING USED TO CLAIM THE BURN, AND IT COULD NOT KEEP THE PROMISE.
     // It read "paid in SCRY (half burns via the posted split)" — but `scrySink`
     // is a constructor argument checked only for being non-zero, so a title
@@ -146,10 +168,11 @@ contract ScryGameTicket is ReentrancyGuard {
     // reward-the-rule-cannot-pay bug living inside the contract rather than on
     // a card. What is true for EVERY deployment is that the destinations are
     // welded and readable, so the notice says that and names where to look.
-    string public constant NOTICE = "a copy of the game, as a token - holding any ticket is the licence the "
-        "official servers check; posted dollar price over any rail the owner has opened (railInfo); where each "
-        "rail's money goes is welded at deploy - read scrySink and proceeds and check what they are; free copies "
-        "only by owner comp or posted merkle list; resale free forever, royalty a constant 0";
+    string public constant NOTICE = "the game itself, as a token - holding any ticket is what the official "
+        "servers check at the door; posted dollar price over any rail the owner has opened (railInfo); where "
+        "each rail's money goes is welded at deploy - read scrySink and proceeds and check what they are; free "
+        "ones only by owner gift, posted merkle list, or holding a token in a collection the owner named "
+        "(freeCollectionAt); resale free forever, royalty a constant 0";
 
     IERC20 public immutable scry;
     IERC20 public immutable usdg;
@@ -251,9 +274,46 @@ contract ScryGameTicket is ReentrancyGuard {
 
     address public pendingOwner; // handover is two steps — see transferOwnership
 
-    // ── the free door ────────────────────────────────────────────────────────
+    // ── the free doors ───────────────────────────────────────────────────────
     bytes32 public freeRoot; // merkle over (wallet, allowance); 0 = closed
     mapping(address => uint256) public freeClaimed; // lifetime, never reset
+
+    // THE COLLECTION DOOR — hold a token, claim against that token.
+    //
+    // WHY IT EXISTS BESIDE THE ROOT. A merkle root is a PHOTOGRAPH of a block
+    // that has already happened; a collection is a LIVE set. So "free ones for
+    // Scry Hive holders" through the root meant a snapshot, a proofs file the
+    // origin serves, and a re-post of the root every time a seat changed hands
+    // — an operator chore that never ends, under a promise a holder reads as
+    // standing. `ownerOf` asks the collection the same question at claim time
+    // and is done. The root stays for cohorts that are NOT a collection (SCRY
+    // holders above dust, drop-one wallets, a hand-written list); nothing that
+    // works today stops working.
+    //
+    // ⚠ THE COUNTER MOVES TO THE RIGHT OBJECT, AND THIS IS THE REAL ARGUMENT.
+    // `freeClaimed` counts per WALLET, which is correct for a cohort of wallets
+    // and wrong for a transferable NFT: sell the seat and the buyer is not in
+    // the snapshot, so a perk sold as "the seat gets one" quietly belonged to
+    // whoever held it on one particular block. Keyed by TOKEN ID, one seat is
+    // one game forever, it survives every transfer, and splitting a collection
+    // across ten wallets buys nothing — the same anti-farm property the merkle
+    // got from pinning a block, without pinning anything.
+    //
+    // WHAT BOUNDS IT: `perToken` × that collection's supply, and `supplyCap` on
+    // top if the title set one. Pointing this at a 10,000-supply collection on
+    // an uncapped title is 10,000 free games, and that is the owner's arithmetic
+    // to do before the call, not a knob this contract second-guesses.
+    mapping(address => uint256) public freePerToken; // collection => copies each id may claim; 0 = shut
+    /// collection => token id => how many it has taken. Lifetime, never reset,
+    /// so re-posting `perToken` cannot re-open a spent id by accident — the
+    /// same rule `freeClaimed` keeps for the root.
+    mapping(address => mapping(uint256 => uint256)) public freeClaimedByToken;
+    address[] private _freeCollections; // every collection ever named, for enumeration
+    mapping(address => bool) private _knownFreeCollection;
+
+    /// One call's worth of ids. The loop is the claimer's own gas, but an
+    /// unbounded array is still a way to write a transaction nobody can mine.
+    uint256 public constant MAX_FREE_CLAIM = 32;
 
     uint256 public nextTokenId = 1;
     mapping(uint256 => uint256) public railOf; // 1 eth · 2 scry · 3 usdg · 4 comp · 5 free · 6+ custom
@@ -268,6 +328,13 @@ contract ScryGameTicket is ReentrancyGuard {
     event CopySold(uint256 indexed tokenId, address indexed to, uint256 indexed rail, uint256 paid);
     event CompMinted(uint256 indexed tokenId, address indexed to);
     event FreeClaimed(uint256 indexed tokenId, address indexed to);
+    /// The collection door. `heldTokenId` is the SEAT (or whatever was held),
+    /// `tokenId` is the game it just claimed — an indexer can walk either way
+    /// and answer "has seat #412 taken its copy" without a snapshot.
+    event FreeClaimedFor(
+        uint256 indexed tokenId, address indexed collection, uint256 indexed heldTokenId, address to
+    );
+    event FreeCollectionPosted(address indexed collection, uint256 perToken);
     event PricesPosted(uint256 usdCents, uint256 ethWei, uint256 scryWei, uint256 usdgUnits);
     event RailPosted(
         uint256 indexed railId, uint8 kind, address indexed token, uint256 id, uint256 amount, address sink, bool open
@@ -303,6 +370,12 @@ contract ScryGameTicket is ReentrancyGuard {
         require(address(_scry) != address(0) && address(_usdg) != address(0), "zero coin");
         require(_scrySink != address(0), "zero sink");
         require(_proceeds != address(0), "zero proceeds");
+        // Both are IMMUTABLE, so `address(this)` here is unfixable rather than
+        // merely wrong: SCRY buys would pile up in a contract whose only ERC-20
+        // door is the repointable grant, and `sweep()` would pay ETH to itself
+        // forever. Cheap to refuse at birth, impossible to undo after.
+        require(_scrySink != address(this), "sink is this contract");
+        require(_proceeds != address(this), "proceeds is this contract");
         name = _name;
         symbol = _symbol;
         game = _game;
@@ -424,6 +497,16 @@ contract ScryGameTicket is ReentrancyGuard {
         require(kind != AssetKind.NATIVE, "native is rail 1");
         require(token != address(0), "zero token");
         require(sink != address(0), "zero sink");
+        // ⚠ A SINK OF `this` IS A ONE-WAY FUND LOSS FOR NFT RAILS, and it is
+        // the only way to lose money on this contract by misconfiguration.
+        // An ERC-20 that lands here can still be walked out — `setGrant` is
+        // repointable and `recoverGrant` moves whatever it names — but there
+        // is no ERC-721 or ERC-1155 transfer anywhere in this contract, so a
+        // token paid into a self-sinking rail can never move again. The buy
+        // uses plain `transferFrom` for 721 precisely so a sink cannot brick
+        // the sale, which also means no receiver hook rejects this for us.
+        // `setFreeCollection` already refuses `address(this)`; so does this.
+        require(sink != address(this), "sink is this contract");
         require(amount > 0, "zero amount - use closeRail");
         if (kind == AssetKind.ERC721) require(amount <= MAX_NFT_PAYMENT, "too many nfts");
 
@@ -560,6 +643,27 @@ contract ScryGameTicket is ReentrancyGuard {
         emit BatchMetadataUpdate(1, type(uint256).max);
     }
 
+    /// Tell marketplaces to re-read what they already point at. Changes no
+    /// state — it emits the two events and nothing else.
+    ///
+    /// WHY THIS EXISTS, AND IT IS THE HOSTED PATH'S ONE ROUGH EDGE. Under a
+    /// `ScryTicketUrlRenderer` the document lives on our origin, so editing the
+    /// art or the blurb is a file save: instant on every surface we run, and
+    /// **silent to the chain**, because no storage moved and no event fired. A
+    /// marketplace holding a cached document has no way to learn. Without this
+    /// the poke is `setRenderer(address(this))` — which works, emits both
+    /// events, and reads on an explorer like the renderer was replaced, on the
+    /// one contract where a reader is trying to decide whether to trust us.
+    /// One call that says what it does is worth 24k gas.
+    ///
+    /// Owner-only, though nothing here is worth stealing: an open version would
+    /// let anyone make every indexer re-fetch the collection on demand, which
+    /// is a free way to point our own traffic at somebody.
+    function refreshMetadata() external onlyOwner {
+        emit ContractURIUpdated();
+        emit BatchMetadataUpdate(1, type(uint256).max);
+    }
+
     // ── the paid doors ───────────────────────────────────────────────────────
     //
     // Three named functions and one general one, all landing in `_buy`. The
@@ -669,10 +773,79 @@ contract ScryGameTicket is ReentrancyGuard {
     function claimFree(uint256 allowance, bytes32[] calldata proof) external nonReentrant returns (uint256 tokenId) {
         require(freeRoot != bytes32(0), "free door closed");
         require(_verify(freeRoot, msg.sender, allowance, proof), "not on the free list");
-        require(freeClaimed[msg.sender] < allowance, "free copies spent");
+        require(freeClaimed[msg.sender] < allowance, "already claimed yours");
         freeClaimed[msg.sender] += 1;
         tokenId = _mint(msg.sender, RAIL_FREE);
         emit FreeClaimed(tokenId, msg.sender);
+    }
+
+    /// Open (or re-price, or shut with 0) the collection door for one ERC-721.
+    /// `perToken` is how many games EACH token id in that collection may take.
+    ///
+    /// ⚠ Shutting it with 0 stops future claims and forgets nothing: every id
+    /// that already claimed stays spent in `freeClaimedByToken`, so reopening
+    /// later hands nobody a second one.
+    function setFreeCollection(address collection, uint256 perToken) external onlyOwner {
+        require(collection != address(0), "zero collection");
+        require(collection != address(this), "not this contract");
+        if (!_knownFreeCollection[collection]) {
+            _knownFreeCollection[collection] = true;
+            _freeCollections.push(collection);
+        }
+        freePerToken[collection] = perToken;
+        emit FreeCollectionPosted(collection, perToken);
+    }
+
+    /// Claim against tokens you hold RIGHT NOW in a posted collection. No
+    /// proof, no snapshot, no list to serve — the collection is the list.
+    ///
+    /// Ids may repeat in one call where `perToken > 1`; the counter catches it
+    /// either way, so a duplicate is just the same claim made twice and needs
+    /// no dedup pass. `ownerOf` is a STATICCALL, and a collection that reverts
+    /// or lies takes down only its own door.
+    function claimFreeFor(address collection, uint256[] calldata heldIds)
+        external
+        nonReentrant
+        returns (uint256 claimed)
+    {
+        uint256 perToken = freePerToken[collection];
+        require(perToken > 0, "collection door closed");
+        require(heldIds.length > 0 && heldIds.length <= MAX_FREE_CLAIM, "bad id count");
+
+        for (uint256 i = 0; i < heldIds.length; i++) {
+            uint256 heldId = heldIds[i];
+            require(IERC721Payment(collection).ownerOf(heldId) == msg.sender, "not yours");
+            require(freeClaimedByToken[collection][heldId] < perToken, "already claimed for this one");
+            freeClaimedByToken[collection][heldId] += 1;
+            uint256 tokenId = _mint(msg.sender, RAIL_FREE);
+            emit FreeClaimedFor(tokenId, collection, heldId, msg.sender);
+            claimed++;
+        }
+    }
+
+    /// What a claim button needs, in one read: how many each id still has
+    /// coming. Zeros everywhere means the door is shut or they are all spent,
+    /// and the caller can tell which by reading `freePerToken` beside it.
+    function freeRemainingFor(address collection, uint256[] calldata heldIds)
+        external
+        view
+        returns (uint256[] memory remaining)
+    {
+        uint256 perToken = freePerToken[collection];
+        remaining = new uint256[](heldIds.length);
+        for (uint256 i = 0; i < heldIds.length; i++) {
+            uint256 taken = freeClaimedByToken[collection][heldIds[i]];
+            remaining[i] = perToken > taken ? perToken - taken : 0;
+        }
+    }
+
+    function freeCollectionCount() external view returns (uint256) {
+        return _freeCollections.length;
+    }
+
+    function freeCollectionAt(uint256 i) external view returns (address collection, uint256 perToken) {
+        collection = _freeCollections[i];
+        return (collection, freePerToken[collection]);
     }
 
     /// Push accumulated ETH to the immutable proceeds address. Anyone may
@@ -813,13 +986,13 @@ contract ScryGameTicket is ReentrancyGuard {
         string memory json = string.concat(
             '{"name":"',
             _esc(name),
-            " - copy #",
+            " #",
             _u(tokenId),
             '","description":"',
             _esc(_blurb()),
             '"',
             _imageField(),
-            _externalField(),
+            _externalField(false),
             ',"attributes":[{"trait_type":"game","value":"',
             _esc(game),
             '"},{"trait_type":"acquired","value":"',
@@ -835,11 +1008,13 @@ contract ScryGameTicket is ReentrancyGuard {
         string memory json = string.concat(
             '{"name":"',
             _esc(name),
-            ' - copies","description":"',
+            " on ",
+            PLATFORM,
+            '","description":"',
             _esc(_blurb()),
             '"',
             _imageField(),
-            _externalField(),
+            _externalField(true),
             "}"
         );
         return string.concat("data:application/json;base64,", _b64(bytes(json)));
@@ -858,17 +1033,44 @@ contract ScryGameTicket is ReentrancyGuard {
         return string.concat(',"image":"', _esc(image), '"');
     }
 
-    function _externalField() internal view returns (string memory) {
+    /// ⚠ THE KEY DIFFERS BY DOCUMENT, AND BOTH SPELLINGS ARE CORRECT. A token's
+    /// document is ERC-721 metadata, where the field is `external_url`; a
+    /// collection's is ERC-7572, where it is `external_link`. This helper is
+    /// shared by both, and it used to emit `external_url` unconditionally — so
+    /// the collection page's link back to the game was a key no marketplace
+    /// reads. It failed the quiet way: an unknown key parses fine and the page
+    /// simply renders one field short, with nothing to see on chain or in a
+    /// suite that only checked the token. `ScryDeed` and `ScrySeatArt` both
+    /// already spell it per document; this is the one that did not.
+    /// ⚠ COSTS 529 BYTES OF DEPLOYED BYTECODE AND THAT IS THE CHEAPEST SHAPE
+    /// MEASURED. Before this the two documents emitted an IDENTICAL field, so
+    /// the optimizer emitted one concat path and shared it; making them differ
+    /// necessarily buys a second one. Passing the key as a `string` costs 541,
+    /// and sharing a `_gameUrl()` helper while each caller wraps its own key
+    /// costs 588. If this contract ever needs the headroom back, the saving is
+    /// not here — it is in `NOTICE`.
+    function _externalField(bool collection) internal view returns (string memory) {
         if (bytes(baseURI).length == 0) return "";
-        return string.concat(',"external_url":"', _esc(baseURI), "/game.html?slug=", _esc(game), '"');
+        return string.concat(
+            collection ? ',"external_link":"' : ',"external_url":"',
+            _esc(baseURI),
+            "/game.html?slug=",
+            _esc(game),
+            '"'
+        );
     }
 
-    /// The provenance mark `railOf` already keeps, said in a word. A comp and
+    /// The provenance mark `railOf` already keeps, said in a word. A gift and
     /// a posted free claim are visible on the token itself — a favour is on the
     /// record or it corrodes the ticket.
+    ///
+    /// The words are the ones a buyer already knows: "comp" is trade jargon for
+    /// a free ticket and reads to everyone else like an abbreviation nobody
+    /// explained. What the field means has not moved a bit — it is still
+    /// `railOf`, still derived, still unforgeable.
     function _acquired(uint256 rail) internal pure returns (string memory) {
-        if (rail == RAIL_COMP) return "comp";
-        if (rail == RAIL_FREE) return "free claim";
+        if (rail == RAIL_COMP) return "gift";
+        if (rail == RAIL_FREE) return "claimed";
         return "bought";
     }
 

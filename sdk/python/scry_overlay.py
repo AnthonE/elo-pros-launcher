@@ -191,16 +191,26 @@ class Profile:
 # here rather than fetched: a client that asks a server what to sign has given
 # the server the ability to change what it is signing.
 
-def play_message(action: str, vow_id: str, detail: str, day: str | None = None) -> str:
+def play_message(action: str, wallet: str, detail: str, day: str | None = None) -> str:
     """The exact text a wallet signs for one game action.
 
     `day` is UTC and defaults to today. It is a parameter because a round that
     straddles midnight should sign the day it started, and a client that
     cannot express that would silently sign the wrong one.
+
+    ⚠ **The subject is the WALLET, and it was the vow_id until 2026-08-12.** A
+    game does not send its players to swear a vow before they can act: the
+    signature recovers the signer, so the wallet is the identity and the vow is
+    a name you may add later. The server still accepts the old vow-keyed text
+    from a caller that has one — build this one.
+
+    ⚠ **The address is LOWERCASE in the text.** A checksummed address is
+    different bytes and verifies differently. This is the one detail that will
+    bite a game that hand-rolls the string, so it is normalized here.
     """
     import time
     day = day or time.strftime("%Y-%m-%d", time.gmtime())
-    return (f"scry play\naction: {action}\nvow: {vow_id}\n"
+    return (f"scry play\naction: {action}\nwallet: {(wallet or '').lower()}\n"
             f"day: {day}\ndetail: {detail}")
 
 

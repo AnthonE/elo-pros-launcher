@@ -32,11 +32,14 @@ about: "bringing up contracts/hooks — how to compile, mine and deploy ScryCloc
 
 | hook | what it is | pool | permission bits |
 |---|---|---|---|
-| **`ScryClock`** | the Longbarrow Clock — buying the prize coin skims a slice into a pot and resets a countdown; last buyer takes it. `docs/onchain/HOOKS.md` §2.1 | **funded** — halve the v3 MYRRH/OBOL pair | `0x2044` — beforeInitialize, afterSwap, afterSwapReturnDelta |
-| **`ScryTide`** | the fee rises and falls on a fixed public cycle, forever. `docs/onchain/HOOKS.md` §2.2 | **none yet** — see below | `0x2080` — beforeInitialize, beforeSwap |
+| **`ScryClock`** | the Longbarrow Clock — buying the prize coin skims a slice into a pot and resets a countdown; last buyer takes it | **funded** — halve the v3 MYRRH/OBOL pair | `0x2044` — beforeInitialize, afterSwap, afterSwapReturnDelta |
+| **`ScryTide`** | the fee rises and falls on a fixed public cycle, forever | **none yet** — see below | `0x2080` — beforeInitialize, beforeSwap |
+
+Neither hook has a design page any more — the source in `src/` and this file are
+the spec.
 
 `ScryClock` is **not novel** and the card must not claim it is — the format
-shipped twice on v4 already (§2.8). Both are dead, neither published source,
+shipped twice on v4 already. Both are dead, neither published source,
 and on 4663 we would be the only one running. `ScryTide` turned up no prior art
 in either registry, which is a weaker claim than "nobody has done it."
 
@@ -44,13 +47,14 @@ in either registry, which is a weaker claim than "nobody has done it."
 
 Measured 2026-07-31: the house's uncommitted float is **94.78 OBOL and 178.13
 MYRRH** — everything else is already pooled. Every hook is a new pool starting
-at zero (`HOOKS.md` R1), and the one raidable source of depth is halving the v3
-MYRRH/OBOL pair, ~$2,002, which the Clock has first claim on.
+at zero — the hook address is part of `PoolKey`, so a hook cannot be attached to
+depth that already exists — and the one raidable source of depth is halving the
+v3 MYRRH/OBOL pair, ~$2,002, which the Clock has first claim on.
 
 So `DeployScryTide.s.sol` has its pair deliberately left as zero addresses and
-refuses to run. Fill it when a pair and its depth exist. `HOOKS.md` §5 §the
-depth ceiling carries the options, including the cheap one: a single hook can
-implement both `beforeSwap` and `afterSwap` and put both mechanisms on one pool.
+refuses to run. Fill it when a pair and its depth exist. The cheap way out if
+depth never appears: a single hook can implement both `beforeSwap` and
+`afterSwap` and put both mechanisms on one pool.
 
 ## Why this is a separate foundry project
 
@@ -96,7 +100,7 @@ Then four compile errors that were not imports, all in our own code:
 |---|---|
 | `NotPoolManager` already declared | OZ's `BaseHook` declares it. Ours is deleted; inheriting it is better anyway — one selector for one condition. |
 | `PoolKey key` already declared (both suites) | `Deployers` already has a `key`; ours shadowed it. |
-| three invalid address checksums | `DeployScryClock`/`DeployScryTide` carried the PoolManager, OBOL and MYRRH addresses in the wrong EIP-55 case. **The hex was right** — checked against `../deployments.json` and `HOOKS.md` §80 — so this was capitalization, not a wrong address. |
+| three invalid address checksums | `DeployScryClock`/`DeployScryTide` carried the PoolManager, OBOL and MYRRH addresses in the wrong EIP-55 case. **The hex was right** — checked against `../deployments.json` and `POOLS.md` §1's canonical address table — so this was capitalization, not a wrong address. |
 | `ScryClock.NotPoolManager.selector` not found | follows from the first; the test now asserts `BaseHook.NotPoolManager`. |
 
 And two test bugs that only a run could find:

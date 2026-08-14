@@ -15,16 +15,16 @@ import "../src/ScryFeeSplitter.sol";
 ///
 /// This deploys the Bank + the SCRY fee splitter. The augury harvest claim
 /// (ScryHarvest) is the GAME coin — deploy it against the OBOL SpoilsToken in
-/// the spoils arming (SPOILS-ECONOMY.md), NEVER funded by this SCRY splitter.
+/// the spoils arming, NEVER funded by this SCRY splitter.
 ///
 /// ⚠ The old note here said "the GAMES pay game tokens, never SCRY"
 /// (2026-07-20). "scry can enter" REVERSED that on 2026-07-25 — SCRY is taken
 /// on the game surfaces as fees, entries and bonds, so a SCRY game rake does
-/// reach this splitter. FEES.md §1.
+/// reach this splitter (`SENTENCES.md`, 2026-07-25).
 ///
 /// THE BURN. The split now carries SCRY_BURN (0xdEaD) as a
 /// recipient, which is the entire SCRY half of the furnace — no new contract,
-/// no new key (FEES.md §3.1). A SCRY-denominated game rake that burns is a
+/// no new key (`TOKENOMICS.md`). A SCRY-denominated game rake that burns is a
 /// closed loop rather than a pure recycle, and `burnBps()` makes the claim
 /// checkable straight off the ABI.
 ///
@@ -34,18 +34,18 @@ import "../src/ScryFeeSplitter.sol";
 ///   SCRY_BPS_OPS=1000               # SCRY_OPS
 ///
 /// ✅ THOSE FOUR NUMBERS ARE THE POSTED OPENING SPLIT — spoken 2026-07-27
-/// (SENTENCES.md), closing FEES.md §9 question #2. They are the DEFAULTS
+/// (SENTENCES.md), and they are the DEFAULTS
 /// here on purpose: this file is the single place the numbers live, and
 /// `deploy_town.sh` reads them back OUT of these lines rather than keeping a
 /// second copy that could drift. Override any of them by exporting it; the
 /// phase will print that you have and name both values.
 ///
 /// Why this shape:
-///   - BURN 50% is unchanged from §6's recommendation. At population zero the
-///     burn is the one outlet an outsider verifies in one click, and this
-///     audience screens for "can the team take my money" (DEGEN.md §1b), not
+///   - BURN 50% is unchanged from the recommendation it came from. At
+///     population zero the burn is the one outlet an outsider verifies in one
+///     click, and this audience screens for "can the team take my money", not
 ///     for a rate.
-///   - BANK 40%, doubled from the old 20% placeholder. §6 warned that a bank
+///   - BANK 40%, doubled from the old 20% placeholder. The warning was that a bank
 ///     line this small makes xSCRY a rounding error "attached to a staking UI"
 ///     — true, and the reason that warning does not bite here is that no
 ///     surface quotes a rate at all: /bank and bank.html publish the pot and

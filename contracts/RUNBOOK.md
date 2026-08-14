@@ -1,16 +1,22 @@
 ---
 status: live
 lane: [ops, launch]
-updated: 2026-07-27
-about: "the contracts deploy runbook — deploy_town.sh, the real gate (upstream forge + live fork mandates), and who holds what power"
+updated: 2026-08-12
+about: "the contracts deploy runbook — deploy_town.sh, the real gate (upstream forge + live fork mandates), who holds what power, the standing hazards on live and unbroadcast contracts, and the licence table for anything vendored"
 ---
 # RUNBOOK.md - the town deploy: zero to the full DFK stack on RH-Chain
 
-> ## ▸ For the LAUNCH itself, `docs/launch/LAUNCH.md` is the plan of record (2026-07-25)
+> ## ▸ For the LAUNCH itself, `./deploy_town.sh launch` is the plan of record
 >
-> `LAUNCH.md` supersedes the ordering on this page for what ships first — it
-> runs preflight → check → test → spoils → pools → harvest and stops at "a
-> DeFi game on RH-Chain." This runbook stays correct for the **depth** phases
+> The launch order is **preflight → check → test → spoils → pools → harvest**,
+> and it stops at "a DeFi game on RH-Chain." That supersedes the ordering on
+> this page for what ships first, and it is no longer prose anywhere: the
+> `launch` case in `./deploy_town.sh` **is** the order, and it demands every
+> input the later phases need (`PRIVATE_KEY`, `NPM`, `V3_FACTORY`, the full
+> `$SCRY` size) before the first send, because a precondition that fires after
+> an irreversible act is not a precondition. The locked launch *numbers* — pool
+> sizes, opening ratios, the two drops, the powder — are
+> `docs/launch/LAUNCH-DECISIONS.md`. This runbook stays correct for the **depth** phases
 > after that (gardener → granary → silo → shrine → orchard) and for the arming
 > decisions, and it still owns `./deploy_town.sh`'s per-phase gates.
 >
@@ -308,7 +314,7 @@ Each row: run the dry-run first, read the simulation, then re-run with
 | 9 | `./deploy_town.sh verify --arm` | every address broadcast above carries **published source** on Blockscout | any broadcast |
 | — | `./deploy_town.sh bank --arm` | `ScryBank` (stake SCRY → **xSCRY**) + `ScryFeeSplitter` (the one posted route for every SCRY fee). **Deliberately unnumbered** | 1 green, **nothing else** |
 | — | `./deploy_town.sh preflight` | the ledger-readiness read the launch runs first (referenced in §2 7b) | - |
-| — | `./deploy_town.sh launch --arm` | **the LAUNCH.md broadcast in one command** — preflight → check → test → spoils → pools → harvest, each gated (`NOW.md` §1). It does **NOT** run `rotate`: the `launch` case stops at `harvest`, and this row said otherwise until 2026-07-28 | everything above it gates |
+| — | `./deploy_town.sh launch --arm` | **the whole launch broadcast in one command** — preflight → check → test → spoils → pools → harvest, each gated (`NOW.md` §1). It does **NOT** run `rotate`: the `launch` case stops at `harvest`, and this row said otherwise until 2026-07-28 | everything above it gates |
 | — | `./deploy_town.sh claims` | **read-only.** Checks every posted root and total against the merkle artifact it came from, and refuses to call a drop safe if they disagree. Takes no `--arm` — it broadcasts nothing | a drop's claim contracts recorded in `deployments.json` |
 
 **On the `bank` row, and why it had none until 2026-07-27.** It needs no
@@ -331,7 +337,7 @@ there forever, outside the posted split, with no setter. Only
 Two properties are not negotiable:
 
 - **The posted split is burn 5000 / bank 4000 / prizes 0 / ops 1000**
-  (2026-07-27, `SENTENCES.md` — the answer to `FEES.md` §9 #2). Prizes take
+  (2026-07-27, `SENTENCES.md`). Prizes take
   no line at open: that cut needs an escrow wallet, and pointing it at ops
   would post four outlets while paying three. **The numbers are DERIVED, not
   retyped** — they live in `DeployScryEconomy.s.sol`'s `vm.envOr` defaults and
@@ -447,8 +453,11 @@ gardener step, and **only the current minter may perform it**.
 
 > ⚠ **Consequence for `rotate`.** If `rotate --arm` moves MYRRH's mint key before
 > the gardener step has run, the farm's setup is handed to whoever holds the new
-> key. **Rotate the coins separately** unless that is the intent. `LAUNCH.md` §4
-> carries the same warning at the phase it fires in.
+> key. **Rotate the coins separately** unless that is the intent. The `rotate`
+> case in `./deploy_town.sh` carries the same warning at the phase it fires in,
+> and its check (0) *refuses* rather than warns once a granary already holds the
+> slot — `setMinter` is `onlyMinter`, so the cast would revert anyway; it just
+> used to find out at the end of the sitting.
 
 The silo and the orchard still pay **OBOL**; only the Gardener's reward moved.
 
@@ -554,6 +563,310 @@ it is an EOA or a contract, and shouts if it has become the zero address. That
 does not make the slot recoverable — nothing can — it just means the town finds
 out the same day.
 
+## 4c. `ScryBurrow` — the oracle finding, and the one rule for whoever fixes it
+
+*Salvaged 2026-08-12 from §2 of the PvP-lending design doc that lived at
+`docs/agent-town/PVP-LENDING` — culled the same day, recoverable from git
+history if you want the rest of the design.
+The contract is written and **not broadcast** (`contracts/src/ScryBurrow.sol`,
+absent from `deployments.json`), so unlike §4b this one is still fixable — which
+is exactly why it has to survive the doc that carried it.*
+
+**`ScryBurrow.liquidate()` reads the Garden's spot price in the same
+transaction that seizes:**
+
+```solidity
+function liquidate(address borrower) external nonReentrant {
+    require(healthFactor(borrower) < 1e18, "healthy");   // ← Garden spot, this tx
+```
+
+(`ScryBurrow.sol:130–132`.) No delay, no TWAP, no cooldown. So the entire
+attack is **one atomic call**:
+
+```
+swap to shove spot  →  liquidate(victim)  →  swap back
+```
+
+Nobody gets a turn. There is no reaction window, no counterplay, no opponent. A
+bot lands it every time and no human ever plays. **This is not PvP — it is a
+solved extraction loop with a leaderboard of one address.** It is also why the
+contract was safe *only* while the tokens were worthless: the manipulability was
+never a game, it was a disclosed defect that did not matter at zero stakes. The
+tokens are no longer worthless, so **do not broadcast this contract as written.**
+
+**The fix is to split liquidation in two**, so the manipulation must be *held*
+rather than flashed:
+
+```
+flag(borrower)        →  legal when healthFactor < 1, costs a burned fee,
+                         emits Flagged(borrower, flagger, block.timestamp)
+liquidate(borrower)   →  legal only at flaggedAt + FLAG_DELAY_SECONDS,
+                         and only if healthFactor < 1 *again*, now
+```
+
+The second health check is the whole design: to collect, an attacker must hold
+the price down across the window — capital committed at a bad price, in public,
+against every arbitrageur on the chain and against a victim who can see the flag
+and act.
+
+> ### ⚠ SECONDS, NOT BLOCKS
+>
+> `FLAG_DELAY_BLOCKS` appears in no contract; it is an unbuilt spec, which is
+> the only reason this is still fixable. **Implementing it against
+> `block.number` would reproduce the `ScryGacha` bug exactly** (§0c): chain 4663
+> is Arbitrum Nitro, so Solidity's `block.number` returns the PARENT chain's
+> height and advances once per ~12s while the L2 runs at ~101ms. A "100 block,
+> ~10 second" window would really be **~20 minutes** — and nothing would fail,
+> no test would go red, the game would just quietly stop being an arcade.
+>
+> `ScryBurrow.sol` already gets this right and paces everything in
+> `block.timestamp` (`:56, :61, :64, :69`). Whatever implements the flag delay
+> must do the same, or use `ArbSys(0x64).arbBlockNumber()` for true L2 height.
+> Foundry implements no ArbOS precompile, so a fork test proving the clock has
+> to etch `contracts/test/MockArbSys.sol` with its fields set explicitly —
+> `vm.etch` runs no constructor.
+
+The posted delay is **`FLAG_DELAY_SECONDS = 10`**. RH-Chain's ~100ms blocks are
+what make a 10-second window playable — fine-grained enough to be a game — but
+the 100ms block time is never what the delay should be *measured* in. State it
+in seconds. This is the second entry in §0c's hazard list ("the burrow's siege
+window reasons in blocks") stated as the finding it came from.
+
+## 4d. `ScryGacha` — the two identities, and why a shared pot dilutes nobody
+
+*Salvaged 2026-08-12 from §§0b/0c/12b of the gacha design doc that lived at
+`docs/items/GACHA` — culled the same day, recoverable from git history. The
+contract is LIVE (`ScryGacha`, `0xb63Ce4F300193413884fBf1568548c9b48ba3b0f`),
+so these are properties of broadcast code, not of a design page.*
+
+Two numbers never move, whatever the pool holds:
+
+| | value | it is |
+|---|---|---|
+| depositor's base margin | **+3.455%** | `surcharge × (1 − houseDraw) × (1 − topShare)` = `1.10 × 0.99 × 0.95` = **1.03455** |
+| floor-only edge | **−22.727%** | `1 − 0.85/1.10`, i.e. `1 − bidBps/surcharge` |
+
+**Neither expression contains a backing.** Expected exposure per draw is
+`pᵢ·bᵢ = ev/n` for *every* position — the same number, because weight is
+**inverse** to backing — while the equal fee share is `ev · 1.1 · 0.99 · 0.95 / n`.
+The `n` and the backings cancel out. So a dust position and a 2 ETH position earn
+the same margin over their own risk, which is why the equal split is the only
+fair split and why nobody is subsidising anybody.
+
+**The consequence that matters operationally: a shared pot cannot dilute a
+depositor.** Run through `gacha.book()` — the same arithmetic the contract uses —
+adding twenty dust positions at the 0.01 ETH floor to a real pool:
+
+| | ticket price | harmonic mean | depositor margin | floor-only edge | at risk / draw |
+|---|---:|---:|---:|---:|---:|
+| per-collection (0.5 ×3, 2.0) | 0.676923 ETH | 0.615385 | **+3.455%** | **−22.727%** | 0.15384615 |
+| shared pot (+20 dust) | **0.013157 ETH** | 0.011961 | **+3.455%** | **−22.727%** | 0.00049838 |
+
+Both invariants are unmoved to the last digit, and that is not luck — **the
+margin is an identity in the posted bps.** What dust actually does is drop the
+ticket price 51× and lengthen the odds, which is the trade a lottery ticket is.
+Reproduce it, no deployment needed:
+`GET /api/gacha/book?backings=0.5,0.5,0.5,2.0` against the same with twenty
+`0.01`s appended.
+
+⚠ **The wall that survives, and it is an arming rule.** A shared pot is safe
+because **nothing accrues to a depositor except the fee split**, which is exactly
+proportional to expected loss. Add any second reward — an emission, a points
+program, a loss-to-earn — and the self-pool attack comes straight back, because a
+second reward is a shared *reward* pot and dust dilutes it. **A shared NFT pot
+and a shared reward pot are different objects. We have the first and must never
+have the second without time-weighting** (`backing × seconds-deposited`, never a
+snapshot). That condition is cheap to honour before the fact and impossible
+after.
+
+The posted knobs the identities are computed from are live in the contract —
+`houseDrawBps = 100` (1%), `topShareBps = 500` (5%), per-pool `surchargeBps` and
+`bidBps` (`bidBps` is fixed at `openPool` and never editable). Derive the two
+numbers from whatever the pool actually posted; do not retype the +3.455% /
+−22.727% pair for a pool opened at other bps.
+
+## 4e. `ScrySeat` — putting real seats in real wallets
+
+*The operator's own mint. `MintSeat.s.sol` is the script; this section is the
+ordering around it, and the first line is the one that surprises people.*
+
+> **For the whole run in order — cohorts → roots → salt → deploy → doors → mint
+> → close → reveal → the drop bar — read `docs/launch/HIVE-LAUNCH.md` first.**
+> This section is one phase of it. That guide exists because the ceremony was
+> spread across six files with no single order, and four of its steps cannot be
+> undone.
+
+**⚠ THE FOUR PUBLIC DOORS DEPLOY SHUT, SO THE TREASURY DOOR IS THE ONLY MINT
+THAT WORKS ON DAY ZERO.** `DeploySeat` posts no root and sets no price on
+purpose — nothing can be minted by anyone, including by whoever is watching the
+mempool during the broadcast. `claim` refuses ("door closed") and `buyWithEth`
+refuses ("eth leg shut") until `setDoorRoot` / `setPaidDoor` are their own later
+transactions. `mintTreasury` is `onlyOwner` and needs neither, which is why it is
+how the first seats reach a wallet — and why a front end is first exercised
+against **door 5**, not against door 1.
+
+```bash
+export PRIVATE_KEY=0x...                     # MUST be the collection's owner()
+export SEAT=0x...                            # the deployed ScrySeat
+export SEAT_MINT_TO=0xaaa...,0xbbb...        # recipients, comma separated
+forge script script/MintSeat.s.sol --rpc-url $RPC              # DRY RUN FIRST
+forge script script/MintSeat.s.sol --rpc-url $RPC --broadcast
+```
+
+The dry run performs every check against real chain state — owner, mint closed,
+cap headroom, supply headroom — and echoes the recipients **parsed rather than
+as typed**. Read them there. Nothing burns a seat: `ScrySeat` has no burn path,
+so a transposed character is a permanent seat in a wallet nobody holds, and it
+has spent an allocation bounded by an immutable cap.
+
+**What a seat minted this way is, and it is not a claimed one:**
+
+| | |
+|---|---|
+| `doorOf` | **5** — the treasury door, deliberately outside the four a visitor may walk |
+| `tierOf` | **0 — BENCHED.** `mintTreasury` does not activate and could not: `activate` is the holder's own call |
+| `weightOf` | **0**, until its holder sits it |
+| counted at | `treasuryMinted`, public, against an immutable `treasuryCap` |
+
+**⚠ THE RECIPIENT NEEDS ITS OWN GAS AND ITS OWN SCRY TO DO ANYTHING WITH IT.**
+`mintTreasury` pushes the seat, so a wallet at nonce 0 with no balance receives
+one fine — it just cannot then transfer, activate, or set an election, because
+all three are calls the holder signs and `activate` is paid in SCRY by the
+holder. A fresh wallet is enough to exercise every **read** surface
+(`/api/seat/gallery`, `/api/seat/of/<wallet>`, the seat page, the marketplace
+metadata) and none of the **write** ones. Fund it, or point at a wallet that is
+already funded, before concluding a button is broken.
+
+**⚠ THE FACES ARE THE SEALED CARD, AND THAT IS NOT A BUG TO CHASE.** Until
+`revealSalt` — which cannot be called before the run mints out or `closeMint` —
+every face is the same picture by construction. A gallery of identical seats
+pre-reveal is the design working. `/api/seat/gallery` says so in `sealed_note`.
+
+### Testing the front end without welding the real collection
+
+The real deploy is welded: supply, the four caps, the ladder and the salt
+commitment are immutable, and tier 1's SCRY price is **derived off that day's
+tape** — it is the one figure `DeploySeat` refuses to supply. Deploying the real
+run to get a front end lit is paying a permanent price for a temporary need.
+
+`meter/seat.py`'s `seat_address()` reads **`SCRY_SEAT` first and
+`deployments.json` only as a fallback**, and that seam is the cheap path: deploy
+a throwaway with test figures, point the env at it, exercise everything, unset
+it. A throwaway that is never written to `deployments.json` leaves the durable
+record untouched, and unsetting the var makes the surface dark again.
+
+```bash
+export SEAT_SUPPLY=64 SEAT_SNAPSHOT_CAP=8 SEAT_PLAY_CAP=8 SEAT_BUILD_CAP=8
+export SEAT_TREASURY_CAP=24 SEAT_BURN_BPS=5000        # float: 64-48 = 16
+export SEAT_TIER_COSTS="1,3,6,12,20"                  # whole SCRY — cheap so
+export SEAT_TIER_WEIGHTS="100,160,220,275,333"        # activation is testable
+```
+
+The multiples are the locked ones (`SENTENCES.md` 2026-08-12 — 1/3/6/12/20,
+scaled down by 20,000 from the real **20k → 400k** so a throwaway is cheap to
+activate) and the constructor
+enforces sublinearity, so a test ladder must keep the shape even when the price
+is play money — which is the point: the test collection then behaves like the
+real one. `SEAT_TREASURY_CAP` has to be typed high enough for the wallets you
+mean to mint to, because it is immutable on the throwaway too.
+
+**What a throwaway does NOT test**, and neither does the real deploy until its
+own later transactions land: doors 1–3 need a posted root, door 4 needs a posted
+price. `MintSeat` reaches none of them.
+
+## 4f. `ScryCistern` — funding the drop bar by hand
+
+*Written 2026-08-12 answering the operator directly: "so i can just manual dump
+fees from SCRY/WETH pool into cistern?" **Yes — the deposit side needs no
+integration at all.** The three things that bite are below, and the second one
+destroys money.*
+
+⚠ **Nothing here is deployed**, but the script now exists —
+`script/DeployCistern.s.sol`, which puts all three unspoken knobs through
+`_mustUint` so a forgotten one aborts naming itself instead of defaulting. The
+cistern cannot be deployed first: the constructor takes the seat address and
+calls `seat.MAX_ELECTION()`, requiring exactly 3, so **`ScrySeat` deploys before
+the cistern, always.** `docs/launch/HIVE-LAUNCH.md` §12 is this step in its
+place in the run.
+
+### 1. The deposit is a plain transfer, and that is the whole answer
+
+`pooled()` is `scry.balanceOf(address(this)) - outstanding`. It reads a
+**balance**, not a ledger, so **SCRY sent to the address by any means is a
+contribution** — a wallet transfer, the fee splitter's route, a script, anything.
+There is no register step, no approval and no call.
+
+`fill(amount)` exists only so a contributor can be *attributed* on chain: it is
+`transferFrom`, so it costs an approval first and emits `Filled`. A bare transfer
+funds the bar identically and emits nothing. Use `fill` when you want the deposit
+credited to a name; use a transfer when you do not care.
+
+### 2. ⚠ THE POT IS SCRY. WETH SENT HERE IS GONE — PERMANENTLY
+
+Collecting a v3 position pays **both legs**. A SCRY/WETH `collect()` hands back
+SCRY *and* WETH, and the two are not interchangeable here:
+
+- the **SCRY leg** → transfer it in. Done, it counts immediately.
+- the **WETH leg** → **must be swapped to SCRY first.** The cistern cannot see
+  it and cannot move it. Every `safeTransfer` in the contract names
+  `address(scry)`; there is no `rescue()`, no pause, no admin withdrawal, and
+  those absences are load-bearing rather than an oversight (they are what the
+  rug screen is reading). **WETH transferred to this contract is stranded for
+  the life of the chain.** Nobody can recover it, including us.
+
+So the hand path is: `collect()` on the position → swap the WETH leg to SCRY on
+our own pool → transfer the whole SCRY amount in. Swapping that leg is a **buy**
+on SCRY/WETH, which is the honest version of what this bar is for.
+
+The position NFTs are held by the dev wallet
+`0xb474a95200bC5de8950E445B1E9d524f4de0f18D` (NPM `0x73991a25`, canonical v3,
+1% tier, full range — `deployments.json`).
+
+### 3. A round needs somebody on the roster
+
+`open()` requires two things, and the second is easy to forget:
+
+```
+pooled() >= threshold        the posted bar
+seat.totalWeight() > 0       "nobody is on the roster"
+```
+
+`totalWeight` only moves when a holder **activates**. Until the mint has run and
+at least one seat has bought a tier, the cistern will take deposits and no round
+can open at any balance. Nothing is lost — value only ever leaves by
+`open` → `claim`, and an unclaimed remainder `recycle`s into the next round —
+but funding it before the mint just parks SCRY in a contract nobody can empty.
+
+**Order, therefore:** deploy `ScrySeat` → **deploy the cistern** → open the doors
+→ mint → somebody activates → fund it → anyone cranks `open()`.
+
+⚠ **DEPLOYING IT LATE WAS A PRODUCT MISTAKE AND THIS LINE USED TO CARRY IT.** It
+read *"mint → somebody activates → deploy the cistern"*, which reads as a
+requirement and is not one: the constructor needs the seat's address and
+`MAX_ELECTION() == 3`, and **not one activated seat**. Waiting only meant the
+mint page asked people to burn 20,000 SCRY toward a contract with no address —
+`/api/seat/utility` correctly reported the drop bar as *"written, not deployed"*
+the whole time, which is honest and is also the weakest possible pitch for the
+thing activation buys. Deploy it empty and inert right after the seat; that is
+the same shape as the seat itself landing with every door shut.
+
+**Size the three knobs on the day, against the tape:**
+
+```bash
+python3 meter/cistern_sizing.py            # --lp-share once you know ours
+```
+
+⚠ It prints a trade-off and refuses to pick. Two things pull against each other
+and **no value satisfies both at a low fee rate**: a tier-1 share has to beat
+what a claim costs that holder (including the router swap, for an elected coin),
+and the bar has to fire often enough that somebody watches it. That is a fact
+about the revenue rather than about the knob, and the response is to say it, not
+to pick a number that hides it.
+
+⚠ **Say no rate on any surface that describes this.** It distributes what the
+fees actually collected: a quiet market pays nothing, and that is the design
+rather than a shortfall.
+
 ## 5. What is NOT in this runbook, on purpose
 
 - **Custody above cap 0** (agency wallets) - different organ, own
@@ -568,3 +881,44 @@ out the same day.
 - **Anything the meter serves** - that is `DEPLOY.md`, a different
   machine and a different checklist. This runbook never touches the
   signing key, the rails, or a measurement.
+
+## 6. Licences — check this BEFORE a line is copied into `contracts/src`
+
+*Salvaged 2026-08-12 from §4 of the fork survey that lived at
+`docs/onchain/FORKS` — culled the same day, recoverable from git history. A
+licence is a fact, not a design note, and a wrong assumption here is not a bug
+you can patch — it is a deployed contract you have to take down.*
+
+**Where the tree stands today** (measured, and re-measure before quoting it):
+external Solidity dependencies are **one — `forge-std`, and it is test-only**.
+No vendored OpenZeppelin, Solmate or Solady. `IERC20`, `SafeERC20` and
+`ReentrancyGuard` are hand-written, local, ~30–60 lines each. **Licence MIT
+throughout.** A repo with zero vendored code has zero licence questions, which
+is most of why the no-fork default is worth keeping.
+
+**Do not take a licence from this table. Verify it at the source before any line
+is copied.** Licences change (Uniswap V3's BUSL converted on schedule) and repos
+relicense; the confidence column is part of the content.
+
+| project | licence, to the best of the 2026-07-26 survey | confidence | consequence |
+|---|---|---|---|
+| OpenZeppelin | MIT | **high** | free to vendor |
+| Solady | MIT | **high** | free to vendor |
+| **Solmate** | **AGPL-3.0** | **high** | ⚠ copying it into an MIT repo is a licensing event, not a convenience. **This is the trap**, because Solmate is the one people copy from muscle memory |
+| Uniswap V2 core | GPL-3.0 | **high** | copyleft; irrelevant, we did not copy it |
+| Uniswap V3 core | BUSL-1.1, converted to GPL-2.0-or-later on its change date | medium | fine to read; we consume the deployed pools rather than fork them |
+| Compound V2 | BSD-3-Clause | medium-high | permissive; the friendliest thing in the lending column |
+| Gnosis CTF | LGPL-3.0 | medium | usable, but weak copyleft has integration implications worth reading before vendoring |
+| Aave v3 · Uniswap v4 · Compound III · Morpho Blue | **BUSL-1.1 family** | medium — **verify each** | ⚠ a Business Source Licence forbids competing production use until its change date. **This alone disqualifies them as forks**, whatever their technical merit |
+
+**The rule to carry: anything BUSL is *reading material*, never source.** That
+covers most of the modern lending and AMM designs — which is one more reason the
+Nexum's answer was going to be "write it" regardless (§4c).
+
+The one place worth breaking the zero-dependency rule is the ERC-20 / 721 / 1155
+/ 6909 / 4626 **interfaces and reference behaviour**, where conformance is the
+entire value: take OpenZeppelin (MIT), in a single deliberate reviewed commit,
+not four contracts each importing something different. Do **not** re-vendor
+`SafeERC20` / `ReentrancyGuard` / `Ownable` — they are written, tested and 40
+lines. Solady's gas golf is not worth the readability here at L2 gas prices, and
+**Solmate is the one to avoid outright** for the licence reason above.

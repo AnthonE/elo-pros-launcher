@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryLaunch.sol";
+import "../src/ScryLaunchpad.sol";
 
 /// Deploy a title's launch vault — the contract the copy sale's money goes to.
 ///
@@ -12,7 +12,7 @@ import "../src/ScryLaunch.sol";
 /// whatever address it was given, forever; there is no setter and adding one
 /// would break the promise `proceeds` is immutable to keep.
 ///
-///   1. this script                                  -> ScryLaunch
+///   1. this script                                  -> ScryLaunchpad
 ///   2. DeployGameTicket.s.sol with
 ///      TICKET_PROCEEDS=<the vault>                  -> ScryGameTicket
 ///      (and TICKET_SINK=<the vault> only if the SCRY leg is meant to be
@@ -27,19 +27,19 @@ import "../src/ScryLaunch.sol";
 /// NOTICE no longer claims either, on purpose.
 ///
 ///   export PRIVATE_KEY=0x...
-///   export LAUNCH_SCRY=0x...          # chains.4663.contracts.SCRY
-///   export LAUNCH_COIN=0x...          # the game's own coin
-///   export LAUNCH_WETH=0x...          # canonical WETH on 4663
-///   export LAUNCH_NPM=0x...           # canonical v3 NonfungiblePositionManager
-///   export LAUNCH_ROUTER=0x...        # canonical v3 SwapRouter
-///   export LAUNCH_SCRY_FEES=0x...     # where the SCRY fee leg goes. IMMUTABLE
-///   export LAUNCH_COIN_FEES=0x...     # where the COIN fee leg goes. IMMUTABLE
-///   export LAUNCH_STEWARD=0x...       # may seed and convert. Never may withdraw
+///   export LAUNCHPAD_SCRY=0x...          # chains.4663.contracts.SCRY
+///   export LAUNCHPAD_COIN=0x...          # the game's own coin
+///   export LAUNCHPAD_WETH=0x...          # canonical WETH on 4663
+///   export LAUNCHPAD_NPM=0x...           # canonical v3 NonfungiblePositionManager
+///   export LAUNCHPAD_ROUTER=0x...        # canonical v3 SwapRouter
+///   export LAUNCHPAD_SCRY_FEES=0x...     # where the SCRY fee leg goes. IMMUTABLE
+///   export LAUNCHPAD_COIN_FEES=0x...     # where the COIN fee leg goes. IMMUTABLE
+///   export LAUNCHPAD_STEWARD=0x...       # may seed and convert. Never may withdraw
 ///   # optional:
-///   # export LAUNCH_POOL_FEE=10000    # the SCRY/coin tier. Default 1%
-///   # export LAUNCH_CONVERT_FEE=10000 # the tier `convert` swaps through
+///   # export LAUNCHPAD_POOL_FEE=10000    # the SCRY/coin tier. Default 1%
+///   # export LAUNCHPAD_CONVERT_FEE=10000 # the tier `convert` swaps through
 ///
-///   forge script script/DeployLaunch.s.sol --rpc-url $RPC --broadcast
+///   forge script script/DeployLaunchpad.s.sol --rpc-url $RPC --broadcast
 ///
 /// TWO FEE LEGS, because a v3 position pays two tokens and a `ScryFeeSplitter`
 /// handles one. The coin leg is where a game's own economy hangs: point it at a
@@ -53,21 +53,21 @@ import "../src/ScryLaunch.sol";
 /// call what and that no exit exists, and it proves nothing about tick math,
 /// the ratio a real mint consumes, or router pathing. Run a fork test against
 /// the canonical addresses before this moves any money.
-contract DeployLaunch is Script {
+contract DeployLaunchpad is Script {
     function run() external {
-        address scry = vm.envAddress("LAUNCH_SCRY");
-        address coin = vm.envAddress("LAUNCH_COIN");
-        address weth = vm.envAddress("LAUNCH_WETH");
-        address npm = vm.envAddress("LAUNCH_NPM");
-        address router = vm.envAddress("LAUNCH_ROUTER");
-        address scryFees = vm.envAddress("LAUNCH_SCRY_FEES");
-        address coinFees = vm.envAddress("LAUNCH_COIN_FEES");
-        address steward = vm.envAddress("LAUNCH_STEWARD");
-        uint256 poolFee = vm.envOr("LAUNCH_POOL_FEE", uint256(10000));
-        uint256 convertFee = vm.envOr("LAUNCH_CONVERT_FEE", uint256(10000));
+        address scry = vm.envAddress("LAUNCHPAD_SCRY");
+        address coin = vm.envAddress("LAUNCHPAD_COIN");
+        address weth = vm.envAddress("LAUNCHPAD_WETH");
+        address npm = vm.envAddress("LAUNCHPAD_NPM");
+        address router = vm.envAddress("LAUNCHPAD_ROUTER");
+        address scryFees = vm.envAddress("LAUNCHPAD_SCRY_FEES");
+        address coinFees = vm.envAddress("LAUNCHPAD_COIN_FEES");
+        address steward = vm.envAddress("LAUNCHPAD_STEWARD");
+        uint256 poolFee = vm.envOr("LAUNCHPAD_POOL_FEE", uint256(10000));
+        uint256 convertFee = vm.envOr("LAUNCHPAD_CONVERT_FEE", uint256(10000));
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        ScryLaunch launch = new ScryLaunch(
+        ScryLaunchpad launch = new ScryLaunchpad(
             IERC20(scry),
             IERC20(coin),
             IWETH9(weth),
@@ -81,7 +81,7 @@ contract DeployLaunch is Script {
         );
         vm.stopBroadcast();
 
-        console2.log("ScryLaunch", address(launch));
+        console2.log("ScryLaunchpad", address(launch));
         console2.log("  pass this as TICKET_PROCEEDS - the ticket's proceeds is IMMUTABLE");
         console2.log("  scry fee leg IMMUTABLE", scryFees);
         console2.log("  coin fee leg IMMUTABLE", coinFees);

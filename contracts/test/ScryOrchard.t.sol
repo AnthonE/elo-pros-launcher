@@ -107,7 +107,7 @@ contract MockNPM {
 /// finite seasons of the bound game coin; shares are liquidity x
 /// seconds-IN-RANGE from the pool's own clock, so concentration is never
 /// overpaid. Emission can never exceed the posted pot. In production the
-/// wage is OBOL (SEASONS.md 4, since 2026-07-25); this suite deliberately
+/// wage is OBOL (FARMING.md 9, since 2026-07-25); this suite deliberately
 /// binds a MYRRH-named instance to pin that the coin is a deploy-time
 /// constructor choice, not a contract assumption. `forge test -vv` before
 /// any broadcast.

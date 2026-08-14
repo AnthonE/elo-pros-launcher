@@ -1,9 +1,9 @@
 """fetch_fwa.py — pull the FWA deployment into a reference folder, with provenance.
 
 `DEPLOYMENT` below is every FWA address we know on Ethereum mainnet: the eight
-`GACHA.md` §1 read off https://www.fwa.fun/docs/deployments, plus Token Packs
+read off https://www.fwa.fun/docs/deployments, plus Token Packs
 and its renderer, which are on no page of theirs and were found from a mint in
-the wild (§1d). This script fetches what is actually published for each one and
+the wild. This script fetches what is actually published for each one and
 writes it under `contracts/reference/fwa/`, so the port is read from CODE rather
 than from a paraphrase of their docs.
 
@@ -12,12 +12,12 @@ than from a paraphrase of their docs.
 here is imported by `src/`. Two reasons, and the second is the one that matters:
 
   1. It is another chain's deployment — different randomness (Chainlink VRF
-     2.5, absent on 4663), different price floor, different token. `GACHA.md` §4
-     lists what breaks on port, and it is most of the pricing.
+     2.5, absent on 4663), different price floor, different token. Most of
+     their pricing is what breaks on the port to 4663.
   2. **Their verified source declares no license** (`license_type: none` on
      every verified file, no license statement on their docs page). Read it,
      measure it, and re-derive our own — do not lift it into `src/`. That is the
-     same standing rule `FORKS.md` applies to every borrowed contract, and it is
+     same standing rule `RUNBOOK.md` §6 applies to every borrowed contract, and it is
      cheap to keep here because the mechanic is arithmetic, not code: the
      harmonic-mean weighting and the settlement branch are a page of algebra
      once you can see them, and seeing them is what this folder is for.
@@ -64,7 +64,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE / "reference" / "fwa"
 
 # From https://www.fwa.fun/docs/deployments, re-read 2026-07-26. Ethereum
-# mainnet (chain 1) — none of these has code on RH-Chain (GACHA.md §1b).
+# mainnet (chain 1) — none of these has code on RH-Chain.
 DEPLOYMENT = {
     "FWA": "0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c",
     "FWARewards": "0x6a1a1C0CfB3D3C538e13D36d608a5bcaa992fc78",
@@ -79,8 +79,8 @@ DEPLOYMENT = {
     # at whitelisted denominations, with a per-position unwrap timelock and a
     # swappable renderer. Its `fwa()` returns the core pool above, which is the
     # measurement that says what it is FOR: the adapter that lets a fungible
-    # token be deposited into their gacha. `GACHA.md` §1d is the read, and the
-    # verdict there is that the mechanic does NOT belong in ours.
+    # token be deposited into their gacha. The verdict on reading it: that
+    # mechanic does NOT belong in ours.
     "FWATokenPacks": "0x727C739F07A89f11E883FE0F34937c55e4c3d74A",
     # `renderer()` read off FWATokenPacks the same day. Separate contract on
     # purpose — that split is the one piece of this worth copying outright.
@@ -369,7 +369,7 @@ def write_surface(name: str, addr: str, code: str, do_sigs: bool) -> dict:
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description="fetch the FWA deployment as reference (GACHA.md §1)")
+    ap = argparse.ArgumentParser(description="fetch the FWA deployment as reference")
     ap.add_argument("--no-sigs", action="store_true", help="skip signature-database lookups")
     ap.add_argument("--no-etherscan", action="store_true",
                     help="ignore ETHERSCAN_API_KEY and use only keyless sources")
@@ -384,7 +384,8 @@ def main(argv: list[str]) -> int:
         "source_of_addresses": "https://www.fwa.fun/docs/deployments",
         "explorer": BLOCKSCOUT,
         "note": ("reference only — not compiled, not imported by src/, no license declared "
-                 "upstream. GACHA.md §4 lists what breaks on port to chain 4663."),
+                 "upstream. Different randomness, price floor and token on chain 4663: "
+                 "most of the pricing does not survive the port."),
         "contracts": {},
     }
     for name, addr in DEPLOYMENT.items():

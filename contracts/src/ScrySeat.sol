@@ -29,11 +29,11 @@ interface IERC721Receiver {
 address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 
 /// @title ScrySeat — the founder mint: a character that is a seat
-/// @notice `SCRY-HIVE.md` as bytecode. A capped run of characters; mechanically each
+/// @notice The Scry Hive as bytecode. A capped run of characters; mechanically each
 ///         one is a SEAT — it activates in tiers, it takes a weighted share of
 ///         what the platform hands out, and it clears its tier when it sells.
 ///
-///         ⚠ THE SPLIT THIS CONTRACT EXISTS TO PRESERVE (`SCRY-HIVE.md` §1). The
+///         ⚠ THE SPLIT THIS CONTRACT EXISTS TO PRESERVE. The
 ///         seat transfers. **The record never does.** Nothing in here stores a
 ///         round, a clear, a badge, a rank, or any measurement — not because it
 ///         would be hard, but because a transferable record is what makes
@@ -44,7 +44,7 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         ABSENCE — read the storage below and note what is not in it.
 ///
 ///         WHAT A SEAT IS ENTITLED TO, and the wall it never crosses
-///         (CLAUDE.md invariant 1, walked in `SCRY-HIVE.md` §9): tier weight changes
+///         (CLAUDE.md invariant 1): tier weight changes
 ///         HOW MANY cases/allotments a seat receives, and never the odds inside
 ///         one, never a meter number, never a rank, never a badge, never
 ///         matchmaking, never curation. The one test — *would the payer's
@@ -52,7 +52,7 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         no by construction, because this contract computes no output. It
 ///         holds a tier and an election. That is all it holds.
 ///
-///         THE FOUR DOORS (`SCRY-HIVE.md` §4), all posted, none discretionary:
+///         THE FOUR DOORS, all posted, none discretionary:
 ///         1. SNAPSHOT — a merkle root over a PAST block (drop-one wallets,
 ///            SCRY holders). Already measured, already on chain, unfarmable
 ///            after announcement.
@@ -80,8 +80,20 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         is a different object from an owner who can mint at will, and only
 ///         the second is what a rug screen is actually looking for.
 ///
+///         AND THE RESERVE HAS AN EXPIRY DATE, WELDED AT DEPLOY. `reservedUntil`
+///         is the instant the three free doors shut and everything they never
+///         drew becomes paid float. There is no call that does it and no owner
+///         who can choose the moment — it is a public immutable timestamp and
+///         `block.timestamp` fires it. This is the answer to *"what if the free
+///         mint does not mint out"*, and the shape matters more than the
+///         feature: a team that can shift supply between doors is the thing a
+///         rug screen hunts for, so the only version worth shipping is one that
+///         was posted before mint #1 and that nobody can time. Set it to 0 and
+///         an unclaimed reserve strands forever, which is what this contract
+///         did before the window existed — see `_paidCeiling`.
+///
 ///         PLAY AND BUILD ARE RESERVED, WHICH IS WHAT LETS THE MINT OPEN EARLY.
-///         `SCRY-HIVE.md` §4 left one scheduling knob: wait for a playable title, or
+///         The design left one scheduling knob: wait for a playable title, or
 ///         open now against a reserved allocation. This contract implements the
 ///         second and makes the first a deploy choice — `playCap` and
 ///         `buildCap` are carved out of supply at construction and the paid
@@ -90,8 +102,8 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         operator's, and either answer is a constructor argument rather than
 ///         an edit.
 ///
-///         THE LADDER IS SUBLINEAR AND THE CONSTRUCTOR ENFORCES IT. `SCRY-HIVE.md`
-///         §2's claim — *25x the capital buys 3.33x the weight* — is a property,
+///         THE LADDER IS SUBLINEAR AND THE CONSTRUCTOR ENFORCES IT. The posted
+///         claim — *25x the capital buys 3.33x the weight* — is a property,
 ///         not a paragraph, so it is checked at deploy: every tier above the
 ///         base must cost strictly more, weigh strictly more, and weigh LESS
 ///         than its cost multiple. A flat or superlinear ladder hands the whole
@@ -105,8 +117,8 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         `ScryFeeSplitter` would have been less code, but the splitter's
 ///         split is operator-editable and carries a `rescue()` — so the burn
 ///         would be an operator promise instead of a property of the
-///         instrument. ⚠ Say it correctly wherever it is advertised, and
-///         `SCRY-HIVE.md` §9 requires this sentence: SCRY's `totalSupply()` does NOT
+///         instrument. ⚠ Say it correctly wherever it is advertised, and this
+///         is the sentence that is required: SCRY's `totalSupply()` does NOT
 ///         fall. The tokens become unspendable, which is the same economics and
 ///         a different sentence.
 ///
@@ -119,8 +131,8 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         your own seat between your own wallets re-tiers it. That is stated
 ///         on the card, and it is the honest version.
 ///
-///         THE ELECTION (`SCRY-HIVE.md` §3i, and the 2026-08-07 re-read of
-///         StonkBrokers' Clock In v2). A seat elects up to `MAX_ELECTION`
+///         THE ELECTION (from the 2026-08-07 re-read of StonkBrokers' Clock In
+///         v2). A seat elects up to `MAX_ELECTION`
 ///         tracks with weights of its choosing; no election on file means the
 ///         default track. This is deliberately the v2 shape and not v1's: they
 ///         shipped an owner-rotatable lineup plus a second engine (Overtime) on
@@ -145,8 +157,8 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         sha256 for both, which is the one error that makes an honest
 ///         recomputation come out wrong — and recomputability is the entire
 ///         point of committing. This is
-///         `ScryEidolon`'s sealed-salt deck, harvested exactly as `SCRY-HIVE.md` §8
-///         directs — the collection it was written for is dropped, the
+///         `ScryEidolon`'s sealed-salt deck, harvested exactly as designed —
+///         the collection it was written for is dropped, the
 ///         machinery is the best thing in the repo. StonkBrokers seed a real
 ///         token into the NFT's wallet at mint, which is the one leg that can
 ///         be drained in the same block as a sale; ours is welded instead —
@@ -154,7 +166,7 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///
 ///         ERC-6551: a seat is a plain ERC-721, so any registry can bind an
 ///         account to it. ⚠ NOT the canonical registry — it does not clone and
-///         initialize atomically on this chain (`SCRY-HIVE.md` §6). That registry is
+///         initialize atomically on this chain. That registry is
 ///         its own deliverable and this contract deliberately does not name
 ///         one; binding is external and nothing here depends on it.
 ///
@@ -165,10 +177,18 @@ address constant SEAT_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         (`transferOwnership(0)`) freezes every knob at its last posted value
 ///         — the posted door out (`HELD-KEYS.md`).
 contract ScrySeat is ReentrancyGuard {
-    string public name; // theme is an OPEN KNOB (`SCRY-HIVE.md` §11.3) — not a constant, on purpose
+    string public name; // theme is an OPEN KNOB — not a constant, on purpose
     string public symbol;
 
+    // ⚠ THIS STRING IS A CONSTANT AND THE WINDOW IS A CONSTRUCTOR ARGUMENT, so
+    // it has to be true of BOTH deploys. It read "the three free doors shut at
+    // reservedUntil" flatly, which is a promise a `reservedUntil = 0` deploy
+    // does not keep — and a welded notice that describes the other build is the
+    // worst kind of stale copy, because there is no edit that fixes it later.
+    // Read the value, not the sentence: it is public and it was set before mint #1.
     string public constant NOTICE = "founder seats - four posted doors (snapshot, play, build, paid) plus a CAPPED treasury mint; "
+        "where reservedUntil is set the three free doors shut on it and whatever they never drew becomes public float "
+        "- a welded date, no release call, nobody's choice, and 0 means they never shut at all; "
         "tier is sublinear, paid in SCRY, part burned, and CLEARS ON TRANSFER; the record is soulbound "
         "elsewhere and never travels with the seat; gear sealed by saltCommitment before mint - "
         "standing and distribution weight, never power, odds, progression or a measurement";
@@ -185,6 +205,10 @@ contract ScrySeat is ReentrancyGuard {
     uint256 public immutable playCap; // door 2 — reserved; waits on a playable title
     uint256 public immutable buildCap; // door 3 — reserved; the board is live today
     uint256 public immutable treasuryCap; // the team allocation, welded at deploy
+    /// When the three free doors shut and their unclaimed remainder becomes the
+    /// paid float's. A unix timestamp, welded at deploy and public before mint
+    /// #1; 0 means never, which is the original strand-forever behaviour.
+    uint64 public immutable reservedUntil;
     IERC20 public immutable scry;
     address public immutable feeSplitter; // activation remainder + royalties
     address public immutable proceeds; // the ONLY place swept ETH can go
@@ -201,7 +225,7 @@ contract ScrySeat is ReentrancyGuard {
     string public revealedSalt; // empty until the run is closed and the deck is opened
     bool public mintClosed; // one-way: every door shuts forever, and the run is what it is
 
-    // ── the ladder (`SCRY-HIVE.md` §2) — parallel arrays, welded at deploy ────────
+    // ── the ladder — parallel arrays, welded at deploy ──────────────────────────
     // tier 1..tierCount; tier 0 is BENCHED and costs nothing. `tierCost[i]` is
     // the CUMULATIVE SCRY price of sitting at tier i+1, so an upgrade pays only
     // the difference and a seat is never charged twice for ground it holds.
@@ -294,17 +318,23 @@ contract ScrySeat is ReentrancyGuard {
         _;
     }
 
-    /// Every undecided figure in `SCRY-HIVE.md` §11 is an argument here, so the
+    /// Every undecided figure in the hive design is an argument here, so the
     /// operator's sentence is a deploy value and never a code edit.
-    /// @param caps [maxSupply, snapshotCap, playCap, buildCap, treasuryCap].
-    ///        The paid door takes whatever the four reserved allocations do not.
+    /// @param caps [maxSupply, snapshotCap, playCap, buildCap, treasuryCap,
+    ///        reservedUntil]. The paid door takes whatever the four reserved
+    ///        allocations do not — and, after `reservedUntil`, whatever the
+    ///        three free doors never drew. The window rides in the caps array
+    ///        rather than as a 13th parameter because this constructor is one
+    ///        stack slot from `stack too deep`.
+    ///        ⚠ `reservedUntil = 0` means the free reserve NEVER releases,
+    ///        which is what this contract did before the window existed.
     /// @param tierCostScry CUMULATIVE SCRY per tier, ascending, 18-dec units.
     /// @param tierWeightX100 distribution weight per tier, x100 (base 100 = 1.00x),
     ///        ascending and SUBLINEAR in cost — enforced below.
     constructor(
         string memory _name,
         string memory _symbol,
-        uint256[5] memory caps,
+        uint256[6] memory caps,
         IERC20 _scry,
         address _feeSplitter,
         address _proceeds,
@@ -318,6 +348,12 @@ contract ScrySeat is ReentrancyGuard {
         require(bytes(_name).length > 0 && bytes(_symbol).length > 0, "unnamed");
         require(caps[0] > 0, "zero supply");
         require(caps[1] + caps[2] + caps[3] + caps[4] <= caps[0], "reserved doors exceed supply");
+        // A window already in the past would deploy a contract whose free doors
+        // never opened at all — every reserved seat public from block one, and
+        // the posted cohorts a fiction. Refuse it here rather than discover it
+        // when the first holder cannot claim.
+        require(caps[5] == 0 || caps[5] > block.timestamp, "reserve window already closed");
+        require(caps[5] <= type(uint64).max, "window out of range");
         require(address(_scry) != address(0), "zero scry");
         require(_feeSplitter != address(0), "zero splitter");
         require(_proceeds != address(0), "zero proceeds");
@@ -329,7 +365,7 @@ contract ScrySeat is ReentrancyGuard {
         require(tierCostScry.length <= 255, "ladder too deep"); // tierOf is uint8
         require(tierCostScry[0] > 0 && tierWeightX100[0] > 0, "zero base tier");
 
-        // ⚠ THE SUBLINEARITY CHECK — `SCRY-HIVE.md` §2 welded. Cost and weight both
+        // ⚠ THE SUBLINEARITY CHECK — the posted ladder, welded. Cost and weight both
         // strictly ascend, and every tier's weight multiple over the base stays
         // strictly BELOW its cost multiple over the base. Cross-multiplied, so
         // no division and no rounding slack:
@@ -352,6 +388,7 @@ contract ScrySeat is ReentrancyGuard {
         playCap = caps[2];
         buildCap = caps[3];
         treasuryCap = caps[4];
+        reservedUntil = uint64(caps[5]);
         scry = _scry;
         feeSplitter = _feeSplitter;
         proceeds = _proceeds;
@@ -443,6 +480,7 @@ contract ScrySeat is ReentrancyGuard {
     {
         (bytes32 root, uint256 minted, uint256 cap) = _gatedDoor(door);
         require(root != bytes32(0), "door closed");
+        require(_gatedOpen(), "the reserve window has closed");
         require(_verify(root, msg.sender, allowance, proof), "not in this cohort");
         require(claimedAtDoor[door][msg.sender] < allowance, "allowance spent");
         require(minted < cap, "door's reserve spent");
@@ -476,17 +514,57 @@ contract ScrySeat is ReentrancyGuard {
         return _mint(msg.sender, 4);
     }
 
-    /// What the paid door may take: supply less the three reserved doors AND the
-    /// treasury carve-out, FIXED at deploy and not a function of what any of
-    /// them have actually drawn.
-    /// ⚠ This is the point of reserving, stated as arithmetic: a reserved seat
-    /// that nobody claims is NOT released to the float. If the play door never
-    /// opens because no title ships, those seats go unminted and the run closes
-    /// short of `maxSupply` — which is the honest outcome, and the alternative
-    /// (an unclaimed reserve quietly becoming inventory) is how a posted cohort
-    /// turns back into a favor.
+    /// What the paid door may take: supply less the three reserved doors and the
+    /// treasury carve-out — plus, once the reserve window has passed, whatever
+    /// those three doors never drew.
+    ///
+    /// ⚠ THIS NARROWS A DELIBERATE EARLIER DECISION, SO READ WHY. The version
+    /// before this one stranded an unclaimed reserve permanently and argued the
+    /// case in this very comment: *the alternative — an unclaimed reserve
+    /// quietly becoming inventory — is how a posted cohort turns back into a
+    /// favor.* That objection is exactly right about the word **quietly**, and
+    /// it is what `reservedUntil` is built around:
+    ///
+    ///   - the date is IMMUTABLE and public before mint #1, so it is posted in
+    ///     the same sense a cohort root is posted;
+    ///   - nobody triggers it. There is no release call, no owner act, no
+    ///     discretion about when — `block.timestamp` decides and that is all;
+    ///   - the gated doors SHUT at the same instant (`_gatedOpen`), so a seat
+    ///     cannot be claimed at a free door and sold at the paid one out of the
+    ///     same allocation.
+    ///
+    /// A team that can move supply between doors is what a rug screen is
+    /// actually looking for. A posted expiry that fires itself
+    /// is the opposite of that, and it fixes the real defect in the old shape:
+    /// a play door that waits on a title nobody shipped used to burn its seats
+    /// forever, which is not honesty, it is just a smaller collection nobody
+    /// chose.
+    ///
+    /// ⚠ `reservedUntil == 0` KEEPS THE OLD BEHAVIOUR EXACTLY — strand forever,
+    /// no window, no release. The earlier call therefore survives as a deploy
+    /// argument rather than being overruled.
+    ///
+    /// The treasury carve-out is NOT released. It is the team's own allocation
+    /// bounded by an immutable cap, and expiring it is a different promise from
+    /// the one this window makes.
     function _paidCeiling() internal view returns (uint256) {
-        return maxSupply - snapshotCap - playCap - buildCap - treasuryCap;
+        uint256 base = maxSupply - snapshotCap - playCap - buildCap - treasuryCap;
+        if (!reserveReleased()) return base;
+        return base + (snapshotCap - snapshotMinted) + (playCap - playMinted) + (buildCap - buildMinted);
+    }
+
+    /// Has the reserve window passed? ⚠ `block.timestamp`, never `block.number`
+    /// — this is Arbitrum Nitro and `block.number` is the PARENT chain's, so a
+    /// block-paced window would run ~120x long (`RUNBOOK.md` §0c).
+    function reserveReleased() public view returns (bool) {
+        return reservedUntil != 0 && block.timestamp >= reservedUntil;
+    }
+
+    /// The three free doors take claims only while the window is open. After it
+    /// closes their remainder is the float's, so a claim here would double-spend
+    /// a seat the paid ceiling has already counted.
+    function _gatedOpen() internal view returns (bool) {
+        return !reserveReleased();
     }
 
     function paidRemaining() external view returns (uint256) {

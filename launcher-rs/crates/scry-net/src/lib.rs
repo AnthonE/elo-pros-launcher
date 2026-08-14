@@ -356,6 +356,29 @@ impl Net {
         Fetched::good(body)
     }
 
+    /// A document read on the **short** deadline, for a caller who is not
+    /// waiting on the answer.
+    ///
+    /// [`STATUS_TIMEOUT`], not [`TIMEOUT`], and the difference is the whole
+    /// point — the same reason a shard poll has its own agent. The Play button
+    /// reads a manifest to fill `{servers}`, on the UI thread, and the player
+    /// pressing it is waiting for **the game**, not for a shard list. At sixty
+    /// seconds an unreachable origin would freeze the launcher for a minute
+    /// before starting a game that was installed and ready the whole time,
+    /// which is worse than the empty list this read exists to prevent. A miss
+    /// launches without the list; the game asks the door for it afterwards.
+    pub fn get_json_quick(&self, url: &str) -> Fetched<Value> {
+        let got = self.get_bytes(url, MAX_DOC_BYTES, true);
+        let Some(bytes) = got.value else {
+            return Fetched { value: None, ok: got.ok, reachable: got.reachable,
+                             status: got.status, why: got.why };
+        };
+        match serde_json::from_slice(&bytes) {
+            Ok(v) => Fetched::good(v),
+            Err(e) => Fetched::bad(format!("the reply is not JSON: {e}")),
+        }
+    }
+
     pub fn get_json(&self, url: &str) -> Fetched<Value> {
         let mut req = self.agent_for(url).get(url);
         if let Some(g) = self.grant_for(url) {

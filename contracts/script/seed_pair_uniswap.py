@@ -7,8 +7,8 @@ WHY THIS EXISTS, separately from `seed_spoils_uniswap.py` (2026-07-27)
 numbers we CHOOSE — 10 SCRY/OBOL, 50 SCRY/MYRRH — so it is correct for it
 to take them as arguments and never look at a market.
 
-The season pools are the opposite case. `SEASONS.md` §7e stands up
-**MEMECOIN/SCRY** pools, and that tick is not ours to pick: it is
+The season pools are the opposite case. A season stands up a
+**MEMECOIN/SCRY** pool (`FARMING.md` §1b), and that tick is not ours to pick: it is
 implied by two markets that already exist, `MEMECOIN/WETH` and
 `SCRY/WETH`, and it moves minute to minute. Typing it by hand is how you
 open a pool at yesterday's price and hand the difference to the first

@@ -27,7 +27,7 @@ import "forge-std/Script.sol";
 ///   export SCRY_AGENT_URI=https://scry.moreright.xyz/.well-known/agent-registration.json
 ///   forge script script/RegisterERC8004.s.sol --rpc-url $ETH_RPC --broadcast
 ///
-/// Then: publish the returned agentId (SHIP.md §4), set SCRY_ERC8004_AGENT_ID
+/// Then: publish the returned agentId, set SCRY_ERC8004_AGENT_ID
 /// on the meter, and record the tx in contracts/deployments.json.
 /// ⚠ one-time; operator-gated like every broadcast; custody stays cap 0.
 interface IIdentityRegistry8004 {

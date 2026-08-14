@@ -28,7 +28,8 @@ import {Math} from "./Math.sol";
 ///         Emission is a pure function of (staked share, elapsed time,
 ///         posted rate). It reads no meter number, no vow, no score, and
 ///         never will: rewarding LP time is participation, and the posted
-///         schedule is the whole formula (SCRY-ECONOMY.md line #1). Posted
+///         schedule is the whole formula (`TOKENOMICS.md`, the one line that
+///         never bends). Posted
 ///         mechanics, not promised APY; the outcome floats with the pool.
 ///
 ///         MYRRH is minted through the ScryGranary, clamped to the farm's

@@ -1069,7 +1069,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             }
             if id.bare {
                 // Not an error and not an empty read: a bare wallet is a real
-                // answer, and PROFILE.md §0 is that it still gets a page.
+                // answer, and the rule is that it still gets a page.
                 println!("\nNothing is sworn to this address yet. It still has a name and a");
                 println!("face — the register derives both — and no account exists to require.");
             }
@@ -1253,12 +1253,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
 
         "play" => {
             let m = load_manifest(need(a.positional.first(), "a manifest")?, &host)?;
-            let mut values: BTreeMap<String, String> = BTreeMap::new();
-            for key in ["server", "wallet", "host"] {
-                if let Some(v) = a.flag(&format!("--{key}")) {
-                    values.insert(key.into(), v.to_string());
-                }
-            }
+            // `{servers}` comes from the MANIFEST, never from a flag: the shard
+            // list is the title's to name and it has already named it in the
+            // document we just loaded, so the game's own browser and the
+            // Servers window cannot disagree about what is up.
+            let values = args::launch_values(a, m.servers_url.as_deref());
             // Prefer an installed native build; fall back to the browser row;
             // refuse rather than guess when neither is published.
             //

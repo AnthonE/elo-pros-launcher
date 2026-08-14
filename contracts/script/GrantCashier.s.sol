@@ -7,8 +7,8 @@ import "../src/SpoilsToken.sol";
 
 /// Grant the cashier a POSTED daily mint cap on one granary, and nothing else.
 ///
-/// WHAT THIS IS FOR. `meter/payout.py` pushes a real coin to a winner's wallet in
-/// one transaction (`CASHIER.md`). It does that by calling
+/// WHAT THIS IS FOR. `meter/payout.py` pushes a real coin to a winner's wallet
+/// in one transaction — the ledgerless payout. It does that by calling
 /// `ScryGranary.mint(player, amount)`, which is gated by a per-address daily cap
 /// the granary's steward sets — so this script is the whole security story of the
 /// ledgerless payout, and it is one call.
@@ -28,7 +28,7 @@ import "../src/SpoilsToken.sol";
 /// TO REVOKE, and it is one call with no notice period: `revokeGrant(cashier)`
 /// from the steward. That is deliberate and it is the other half of why a grant
 /// is an acceptable place to put a hot key — lowering exposure is immediate,
-/// exactly as `ScryTill` argued a cap lower should be (`CASHIER.md`).
+/// exactly as `ScryTill` argues a cap lower should be.
 ///
 /// WHAT THIS SCRIPT CANNOT DO: mint, move a minter slot, or touch a pool. It sets
 /// one number on one address.

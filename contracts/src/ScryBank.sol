@@ -19,7 +19,7 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 ///         "The GAMES run on game tokens (OBOL/MYRRH), so no game fee flows
 ///         here; the Bank is fed by service revenue, never a game buy-in or a
 ///         game rake (those are OBOL now)." The operator sentence "scry can
-///         enter" (2026-07-25, FEES.md §1) REVERSED it: SCRY is taken on the
+///         enter" (2026-07-25, `SENTENCES.md`) REVERSED it: SCRY is taken on the
 ///         game surfaces as fees, entries and bonds, so a SCRY game rake CAN
 ///         reach this Bank through ScryFeeSplitter. Corrected before broadcast
 ///         so the on-chain record does not contradict the live fee policy in a
@@ -32,7 +32,7 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 ///         exclusive: the Bank accrues to those who STAKE, the burn to every
 ///         holder pro rata. Neither is deployed, so the weighting is a knob.
 ///
-///         Economy rules inherited from SCRY-ECONOMY.md: fee inflows are
+///         Economy rules, inherited (`TOKENOMICS.md`): fee inflows are
 ///         score-blind by construction (the splitter neither knows nor cares
 ///         about meter output), and the bank never touches meter revenue —
 ///         measurement USDG/USDC funds research infra, the bank sees service

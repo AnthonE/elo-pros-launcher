@@ -5,9 +5,9 @@ import "forge-std/Script.sol";
 import "../src/ScrySeat.sol";
 import "../src/ScrySeatArt.sol";
 
-/// Deploy the founder mint — `SCRY-HIVE.md` as a broadcast.
+/// Deploy the founder mint — the Scry Hive as a broadcast.
 ///
-/// ⚠ EVERY OPEN KNOB IN `SCRY-HIVE.md` §11 IS AN ENV VAR HERE, and that is the point
+/// ⚠ EVERY OPEN KNOB IN THE DESIGN IS AN ENV VAR HERE, and that is the point
 /// of the file: the operator's sentence becomes a deploy value, never a code
 /// edit. Nothing below has a default that pretends to be a decision — the four
 /// figures that are genuinely welded (supply, the reserved caps, the ladder,
@@ -32,31 +32,57 @@ import "../src/ScrySeatArt.sol";
 ///   export SEAT_SCRY=0x...                # chains.4663.contracts.SCRY
 ///   export SEAT_SPLITTER=0x...            # chains.4663.contracts.ScryFeeSplitter
 ///   # THE WELDED FIGURES — no defaults, and the run aborts naming the one you
-///   # missed. A cap of 0 is a real answer (it collapses §4's scheduling knob to
+///   # missed. A cap of 0 is a real answer (it collapses the scheduling knob to
 ///   # "wait for a playable title"); it just has to be typed, because an
 ///   # unclaimable door is immutable and looks exactly like an open one.
 ///   export SEAT_SUPPLY=8192               # operator, 2026-08-08
-///   export SEAT_SNAPSHOT_CAP=...          # door 1's reserve
-///   export SEAT_PLAY_CAP=...              # door 2 — reserved; waits on a title
-///   export SEAT_BUILD_CAP=...             # door 3 — the board is live today
+///   # ⚠ SPOKEN 2026-08-12: ONE DOOR. "we only have one door this one and i need
+///   # like max amount of people LOL just not dust". Door 1 takes the whole
+///   # float; doors 2, 3 and the PAID door are all 0. The four must sum to
+///   # <= supply (the constructor requires it): 8092 + 0 + 0 + 100 = 8192.
+///   # ⚠ WHAT A 0 CAP MEANS, since it is immutable: setDoorRoot still succeeds,
+///   # /mint.html still renders the door, and every claim reverts for as long as
+///   # the contract exists. For the PAID door it means no seat is ever sold, so
+///   # the mint raises nothing and the free seats are the whole collection.
+///   export SEAT_SNAPSHOT_CAP=8092         # door 1 — the whole free float
+///   export SEAT_PLAY_CAP=0                # door 2 — welded shut
+///   export SEAT_BUILD_CAP=0               # door 3 — welded shut
 ///   export SEAT_TREASURY_CAP=100          # operator, 2026-08-08
+///   export SEAT_RESERVED_UNTIL=...        # unix ts: when the three free doors
+///                                         # shut and their unclaimed remainder
+///                                         # becomes paid float. WELDED, public
+///                                         # before mint #1, and REQUIRED since
+///                                         # 2026-08-12 — `=0` is still the way
+///                                         # to say "never expires", it just has
+///                                         # to be said. It was optional, and an
+///                                         # omission welded that answer in
+///                                         # silence.
 ///   export SEAT_BURN_BPS=5000             # the welded activation burn
 ///   # optional:
 ///   # export SEAT_PROCEEDS=0x...          # where swept ETH lands; default dev wallet
 ///   # export SEAT_ROYALTY_BPS=500         # ERC-2981, to the splitter. Max 1000
 ///   # export SEAT_BASE_URI=https://scry.moreright.xyz/api
 ///   # THE LADDER — comma-separated, ascending, same length, SUBLINEAR.
-///   # ⚠ THE WEIGHTS BELOW ARE THE OPERATOR'S, CLOSED 2026-08-11 (SENTENCES.md,
-///   # SCRY-HIVE.md §2): five tiers, costs x1/3/7/14/25, base efficiency 7.51x
-///   # the top. This line read "100,125,160,200,333" until then — the pre-
-///   # sentence draft — and a copy-paste out of a header is exactly how a
-///   # ladder nobody chose gets welded into a constructor argument.
-///   # ⚠ THE COSTS ARE AN EXAMPLE AND THE MULTIPLES ARE NOT. Tier 1's price is
-///   # derived off that day's tape and is the one number this file must not
-///   # supply; the x1/3/7/14/25 spacing is what is decided, so scale the whole
-///   # row from whatever tier 1 lands on.
-///   # export SEAT_TIER_COSTS="66666,200000,466666,933333,1666666"   # whole SCRY
-///   # export SEAT_TIER_WEIGHTS="100,160,220,275,333"                # x100
+///   # ⚠ THE WEIGHTS BELOW ARE THE OPERATOR'S, CLOSED 2026-08-11 (SENTENCES.md):
+///   # five tiers, "100,125,160,200,333" until then — the pre-sentence draft —
+///   # and a copy-paste out of a header is exactly how a ladder nobody chose
+///   # gets welded into a constructor argument. The WEIGHTS are all that
+///   # survives from 08-11; this line also carried "costs x1/3/7/14/25, base
+///   # efficiency 7.51x the top" and both figures died the next day, three
+///   # lines above the corrected costs that replaced them.
+///   # Over the locked x20 span the base rung buys 6.01x the weight per token
+///   # that the top does — derive it, do not quote it: it moves with the ladder.
+///   # ⚠ THE COSTS ARE NO LONGER AN EXAMPLE — they were LOCKED 2026-08-12
+///   # (SENTENCES.md; docs/money/SEAT-MONEY.md §3 carries the table and the
+///   # arithmetic). 20,000 -> 400,000 whole SCRY, which at the tape that
+///   # day is $0.35 -> $7.04, and $20 -> $400 at a $1M cap. The old row read
+///   # "66666,200000,466666,933333,1666666" — StonkBrokers' rungs, copied
+///   # before anyone priced ours, and worth about a dollar at tier 1.
+///   # ⚠ THE SPACING IS 1/3/6/12/20 AND NOT 1/3/7/14/20, deliberately: the
+///   # second gives upgrade steps of 1/2/4/7/6M, so the jump to the TOP rung
+///   # costs less than the jump below it and tier 4 is strictly dominated.
+///   export SEAT_TIER_COSTS="20000,60000,120000,240000,400000"
+///   export SEAT_TIER_WEIGHTS="100,160,220,275,333"                # x100
 ///   # THE SEAL — sha256 of a salt you generate ONCE and keep offline until the
 ///   # run closes. There is no way to change it later and no way to recover it:
 ///   #   SALT=$(openssl rand -hex 32); echo "$SALT" > seat.salt.KEEP-OFFLINE
@@ -160,18 +186,69 @@ contract DeploySeat is Script {
         address splitter = vm.envAddress("SEAT_SPLITTER");
         address proceeds = vm.envOr("SEAT_PROCEEDS", DEV_WALLET);
 
-        uint256[5] memory caps = [
+        // ⚠ SEAT_RESERVED_UNTIL IS DEMANDED, AND IT WAS NOT UNTIL 2026-08-12.
+        // This block used to argue the opposite: that zero is a real answer
+        // here — strand an unclaimed reserve forever — so demanding it "would
+        // force a date on an operator who meant no window."
+        //
+        // That reasoning does not survive reading `_mustUint`. Its sentinel is
+        // `type(uint256).max`, chosen precisely so that ZERO STAYS TYPEABLE; its
+        // own error message says "0 is a valid answer; it has to be typed." So
+        // demanding this forces a DECISION, never a date, and `=0` remains the
+        // one-character way to say "no window."
+        //
+        // What the old default actually bought was silence. Forgetting the line
+        // entirely welded "the free doors never expire" — permanently, with no
+        // setter — and looked identical to having chosen it. `NOW.md` carried
+        // that as a standing hazard and named it the one class of decision where
+        // being forgotten is permanent. The past-timestamp check the old comment
+        // pointed at catches a DIFFERENT mistake (a stale date) and cannot catch
+        // this one, because an omission has no timestamp to check.
+        uint256[6] memory caps = [
             _mustUint("SEAT_SUPPLY"),
             _mustUint("SEAT_SNAPSHOT_CAP"),
             _mustUint("SEAT_PLAY_CAP"),
             _mustUint("SEAT_BUILD_CAP"),
-            _mustUint("SEAT_TREASURY_CAP")
+            _mustUint("SEAT_TREASURY_CAP"),
+            _mustUint("SEAT_RESERVED_UNTIL")
         ];
+
+        // ⚠ A RESERVE WINDOW CAN BE STALE WITHOUT BEING INVALID, and the
+        // constructor cannot catch that. Its only check is `caps[5] == 0 ||
+        // caps[5] > block.timestamp` — so a timestamp two days out passes
+        // exactly like one sixty days out. The operator sentence (2026-08-12) is
+        // "60 days from DEPLOY", which is RELATIVE, while this argument is
+        // ABSOLUTE: a value computed when the env file was first filled in and
+        // then broadcast three weeks later silently welds a 39-day window, and
+        // there is no setter to widen it afterwards.
+        //
+        // A warning rather than a `require`, deliberately: a deliberately short
+        // window is a legitimate choice and this script does not get to overrule
+        // one. What it can do is make the stale case impossible to broadcast
+        // without having read the number out loud.
+        if (caps[5] != 0 && caps[5] < block.timestamp + 14 days) {
+            console2.log("");
+            console2.log("!! RESERVE WINDOW IS UNDER 14 DAYS FROM NOW - is that what you meant?");
+            console2.log("   welded, no setter. If this was computed days ago, recompute it:");
+            console2.log("     date -d '+60 days' +%s      (the 2026-08-12 sentence)");
+            console2.log("   window closes at (unix)", caps[5]);
+            console2.log("   ...which is this many seconds away:", caps[5] - block.timestamp);
+            console2.log("");
+        }
 
         // The royalty is not in the welded set: it is a request marketplaces may
         // ignore, and 500 is the posted figure rather than a guess at one.
-        uint96 royaltyBps = uint96(vm.envOr("SEAT_ROYALTY_BPS", uint256(500)));
-        uint16 burnBps = uint16(_mustUint("SEAT_BURN_BPS"));
+        uint256 royaltyRaw = vm.envOr("SEAT_ROYALTY_BPS", uint256(500));
+        uint256 burnRaw = _mustUint("SEAT_BURN_BPS");
+        // ⚠ RANGE-CHECK BEFORE THE CAST, because a narrowing cast in Solidity is
+        // silent. `uint16(70000)` is 4464 — which passes the constructor's
+        // `<= 10_000` and welds a burn nobody typed, on the one figure this
+        // script refuses to guess. A fat-fingered extra zero has to fail here,
+        // not become an immutable.
+        require(burnRaw <= 10_000, "SEAT_BURN_BPS is basis points - max 10000 (100%)");
+        require(royaltyRaw <= 1000, "SEAT_ROYALTY_BPS is basis points - max 1000 (10%)");
+        uint96 royaltyBps = uint96(royaltyRaw);
+        uint16 burnBps = uint16(burnRaw);
         bytes32 commitment = vm.envBytes32("SEAT_SALT_COMMITMENT");
 
         // Sequential, not an inline default: a url literal inside envOr's
@@ -206,6 +283,12 @@ contract DeploySeat is Script {
         console2.log("  snapshot / play / build reserved", caps[1] + caps[2] + caps[3]);
         console2.log("  treasury", caps[4]);
         console2.log("  paid float", caps[0] - caps[1] - caps[2] - caps[3] - caps[4]);
+        if (caps[5] == 0) {
+            console2.log("  reserve window: NONE - unclaimed free seats strand forever");
+        } else {
+            console2.log("  reserve window closes at (unix)", caps[5]);
+            console2.log("  ...after which unclaimed free seats join the paid float");
+        }
         console2.log("  tiers", costs.length);
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
@@ -222,8 +305,16 @@ contract DeploySeat is Script {
         // same drift as a trait whose colour moved out from under its name.
         // "characters" is the word the origin's own /seat/collection already
         // uses, so the two surfaces now agree.
+        // The third argument is the base for the collection's banner and its
+        // featured card — `<base>/banner.jpg` and `<base>/featured.jpg`, the
+        // two frames `watchtower/art/make_hive_banner.py` composes. The avatar
+        // is not here because the renderer draws it. Weld "" and the document
+        // simply carries no banner, which is the honest shape for a fork that
+        // has not drawn one.
         ScrySeatArt artc = new ScrySeatArt(
-            name_, "A capped run of characters. The seat transfers; the record never does."
+            name_,
+            "A capped run of characters. The seat transfers; the record never does.",
+            vm.envOr("SEAT_ART_BASE", string("https://scry.moreright.xyz/art/hive"))
         );
         require(artc.layerSumsAreExact(), "renderer: a weight row does not sum to 10000 bps");
         s.setRenderer(address(artc));
