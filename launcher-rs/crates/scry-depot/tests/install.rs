@@ -483,6 +483,16 @@ fn an_unknown_placeholder_is_refused_never_passed_through() {
     i.launch_args = vec!["--token".into(), "{secret}".into()];
     let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
     assert!(err.0.contains("unknown placeholder"), "{}", err.0);
+    // The message names what the launcher DOES fill — the player reading the
+    // dialog cannot diagnose, so the error has to.
+    assert!(err.0.contains("{server}") && err.0.contains("{wallet}"), "{}", err.0);
+
+    // The one that happened: a build published with `{servers}`. The receipt
+    // path skips the parser, so a build installed before the parse-time check
+    // existed still dies at launch — and the dialog now says the fix.
+    i.launch_args = vec!["--servers".into(), "{servers}".into()];
+    let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
+    assert!(err.0.contains("probably {server}"), "{}", err.0);
 
     i.launch_args = vec!["--server".into(), "{server}".into(), "--id".into(), "{wallet}".into()];
     let vals = BTreeMap::from([

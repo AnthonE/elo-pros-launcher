@@ -154,6 +154,11 @@ pub fn parse_depot(raw: &Value, allow_insecure: bool) -> Result<Depot> {
             );
         }
     }
+    // The launch command's placeholders are checked HERE, not only at launch:
+    // a depot that writes `{servers}` for `{server}` must be refused while it
+    // is still a download. Unchecked it installs, verifies clean, sits in the
+    // library as "up to date" — and every Play of it fails.
+    crate::launch::check_args(&args)?;
     let mut env = BTreeMap::new();
     if let Some(map) = launch.get("env") {
         let map = map
