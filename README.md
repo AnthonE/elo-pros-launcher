@@ -30,6 +30,11 @@ them. The published version and every artifact hash are served as JSON at
 [`/api/launcher`](https://scry.moreright.xyz/api/launcher), so you can check
 what you got against what we published without trusting this page.
 
+Already running it? **`scry self-update`** replaces it with the published
+build — checked against those same hashes before a byte lands, previous
+binaries kept beside it as `.old`, and a `.deb` install handed to `apt`
+rather than overwritten.
+
 ⚠ **The Windows build is cross-compiled and has never been started on a real
 Windows machine.** It builds, links, hash-verifies and installs, and that is
 all anyone has seen it do. Treat it as a first build rather than a tested one,

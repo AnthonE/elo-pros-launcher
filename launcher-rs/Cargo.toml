@@ -37,7 +37,7 @@ members = ["crates/scry-depot", "crates/scry-net", "crates/scry-hive", "crates/s
 # That is exactly how 0.1.0 sat on /download.html for five days and eighteen
 # commits — the artifacts were stale and nothing could say so. Bump this in
 # the same commit as any republish.
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
@@ -89,6 +89,17 @@ webpki-roots = "=1.0.9"
 rustls-pemfile = "=2.2.0"
 serde_json = "=1.0.145"
 sha2 = "=0.10.9"
+# ── unpacking the client's own release artifacts ─────────────────────────────
+# `scry self-update` (operator, 2026-08-15: *"this downloader needs to update
+# itself or have an updater it can run"*) downloads the same tar.gz/zip the
+# download page hands out and has to open it. This is the inflate half of
+# flate2 with nothing else attached: +2 packages (miniz_oxide, adler2) against
+# flate2's +4, and it is the same code — flate2's pure-Rust backend IS
+# miniz_oxide, and rustc's own backtraces link it. The gzip envelope and the
+# tar/zip walks are ~150 lines in `scry-launcher/src/selfup.rs` instead of two
+# more crates, the same trade `clock.rs` made against `jiff` — and unlike a
+# hand-rolled cipher, a truncated parse here fails loud on hash-verified input.
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 # ── a passphrase that does not appear on the screen ──────────────────────────
 # Asked directly rather than through `rpassword`, which is three packages to
 # clear ECHO in a termios struct. This one is ALREADY in the tree (`getrandom`

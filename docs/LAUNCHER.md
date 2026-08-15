@@ -1477,31 +1477,59 @@ on Windows, and a type-checked syscall is not a tested one.
 > we make it more compatible with linux ubuntu store things and windows store
 > type things if its worth it?"*
 
-### It does not replace itself, and that is the design
+### It replaces itself now — `scry self-update` (2026-08-15)
 
-`scry update <title>` updates a **game**. Nothing updated the **client** — and
-until now nothing even told you a newer one existed. `scry check` now asks the
-origin and says one of four things, never three:
+> Operator, 2026-08-15: *"this downloader needs to update itself or have an
+> updater it can run."*
+
+That sentence reverses the ruling kept below, which stood from 2026-08-09 to
+2026-08-15. It is not repealed by pretending it was wrong: each objection it
+raised is answered by a named mechanism in `scry-launcher/src/selfup.rs`, and
+the one wall it defended still stands untouched.
+
+| the old objection | what answers it |
+|---|---|
+| *"its own signature policy"* | the artifact is verified against the sha256 the `/api/launcher` card publishes — read off the same `SHA256SUMS` a human is told to check. No hash on the card, no bytes near the disk: a row without one is refused **by name**, before the download |
+| *"its own rollback"* | the previous pair stays beside the new one as `scry.old` / `scry-gui.old` until the *next* self-update. Rolling back is one rename, and the report says so |
+| *"its own answer for dying mid-write"* | stage `<name>.new` whole and fsynced → smoke-run it (`help`, no network) → land it. On unix the current binary is hardlinked to `.old` first and the landing is one atomic rename, so no instant exists with no client at the path. Windows cannot rename onto an occupied name, so it gets two renames and a stated one-rename-wide gap |
+| *"the package manager owns this on Linux"* | where it really does, it still does: an install under `/usr/bin` (dpkg's) is never scribbled over — the `.deb` is downloaded, verified, and the one privileged command is printed for the holder. Exit **12** marks that half-done state; `dpkg -V scry` stays clean |
+
+What did **not** change: nothing updates unasked (`self-update` is a typed
+command with a y/N, `--yes` for scripts, `--dry-run` to look); `scry check`
+and the GUI stay *notices* — a command that reports on everything must not
+also change anything, and the window computes nothing; and **"we could not
+look" is never printed as "you are up to date"** — an unreachable origin exits
+**3** with the reason, the same code `scry status` uses. Both binaries move
+together or not at all (a CLI-only install updates the CLI and does not *gain*
+a window — an updater that adds programs has changed jobs), and the artifact
+is opened in memory only after its hash matched, by ~150 lines of gzip/tar/zip
+walking over `miniz_oxide` (+2 packages, 120 of the 122 budget — the
+workspace manifest carries the trade).
+
+`scry check` still says one of four things, never three — the middle one now
+names the act:
 
 ```
 client      0.1.0 — current
 client      0.1.0 — 0.2.0 is published
-                    https://scry.moreright.xyz/download.html
+                    scry self-update takes it, or https://scry.moreright.xyz/download.html
 client      0.1.0 — ahead of the origin's 0.1.0        (a local build)
 client      0.1.0 — could not ask: io: Connection refused
 ```
 
-The last is the one that matters. **"We could not look" is never printed as
-"you are up to date"** — the trap `scry-net` exists around, applied to the
-client's own version.
+`tests/selfupdate.rs` drives the real binary against a stub origin: the happy
+swap with the `.old` pair left behind, a tampered artifact refused with the
+install untouched, exit 3 on an unreachable origin, EOF at the prompt reading
+as no, and `--json` for the harnesses.
 
-**A notice, not a self-update, and this is a decision rather than a shortfall.**
-A binary that rewrites itself is the one part of this client that would have to
-be trusted absolutely: it needs its own signature policy, its own rollback, and
-its own answer for dying mid-write. §1's third rule says the client is never a
-source of truth, and a self-replacing binary is the shape that quietly becomes
-one. On Linux the package manager already owns that job and does it better.
-On Windows nothing does, which is the honest gap below.
+### The ruling this replaced — kept, because its objections built the mechanism
+
+**A notice, not a self-update** *(2026-08-09 – 2026-08-15)*: a binary that
+rewrites itself is the one part of this client that would have to be trusted
+absolutely — its own signature policy, its own rollback, its own answer for
+dying mid-write; the package manager owns the job on Linux and does it better;
+on Windows nothing does. Every clause of that paragraph is now a row in the
+table above, which is what a good objection is for.
 
 ⚠ **Two defects found writing this**, both of the same family — a fact typed in
 two places, where only the machine-readable one was wrong:
@@ -1553,9 +1581,10 @@ not:
 
 1. **Run the Windows build.** It blocks every Windows channel and costs
    nothing but a machine.
-2. **The apt repo**, when a Linux population exists to auto-update. It is the
-   only item here that delivers real self-updating, and it needs no third
-   party's permission.
+2. **The apt repo**, when a Linux population exists to auto-update. With
+   `scry self-update` covering the typed-command case on every platform, what
+   an apt repo still uniquely buys is *unattended* updating owned by the OS —
+   and it needs no third party's permission.
 3. **winget**, once step 1 is done.
 4. **Snap / Flathub / MS Store** — only against a measured population asking
    for them. `CLAUDE.md`'s standing advice applies: prefer the thing that gets

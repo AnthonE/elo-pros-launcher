@@ -817,11 +817,9 @@ pub fn wire_signin(
 /// states: current, ahead (a dev build is not nagged), no client published,
 /// and a card we could not read. The caller must therefore never render
 /// `None` as "up to date" — the corner stays a bare local version, which
-/// claims nothing about currency. Same three-answer discipline as `scry
-/// check`, whose comment also carries the ruling this UI half inherits: **a
-/// notice, never a self-update** — a binary that replaces itself must be
-/// trusted absolutely, and the package manager or the download page does the
-/// swap in the open.
+/// claims nothing about currency. The WINDOW is still only a notice: the act
+/// is `scry self-update` (`selfup.rs`, operator 2026-08-15), and the dialog
+/// names it — this UI draws and dispatches and performs no swap itself.
 pub fn newer_client(card: Option<&serde_json::Value>, mine: &str) -> Option<String> {
     let there = card?.get("client")?.get("version")?.as_str()?;
     (scry_depot::update::version_cmp(there, mine) == std::cmp::Ordering::Greater)

@@ -100,6 +100,16 @@ const MANIFEST: &str = include_str!("../../../Cargo.toml");
 /// ⚠ **`k256` gained the `ecdsa` feature** in the same change. It was here for
 /// the hive's schnorr; signing an EIP-191 message needs the other curve API on
 /// the same crate, not a second implementation of the same curve.
+///
+/// ---
+///
+/// **Unchanged on 2026-08-15 when `scry self-update` landed, spending 118 →
+/// 120 of it.** The client now opens its own release artifacts (tar.gz, zip),
+/// which needs DEFLATE — `miniz_oxide` with `adler2` behind it, `flate2`'s own
+/// backend taken without `flate2`'s +2 more (`crc32fast` is redundant under a
+/// sha256 already checked against the published `SHA256SUMS`, and the gzip/
+/// tar/zip envelope walks are ~150 lines in `selfup.rs`, the `clock.rs` trade
+/// again). The workspace manifest carries the full reasoning.
 const MAX_PACKAGES: usize = 122;
 
 struct Package {

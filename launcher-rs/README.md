@@ -55,6 +55,7 @@ scry list                      every installed build, read off its receipt
 scry status  <title>           is a newer build published?
 scry install <title>           install the native build for this machine
 scry update  <title>           install it only if it is newer
+scry self-update               replace this client with the published one
 scry verify  <slug> [build]    re-hash an install against its receipt
 scry prune   <slug>            remove builds superseded by the newest
 scry uninstall <slug> <build>  remove one build
@@ -130,6 +131,25 @@ properties, and the last is the one this repo has to be careful about:
   a reader that returns `[]` for both *nothing there* and *we could not look*.
   `scry status` exits **3** for unknown and **10** for stale, so a script can
   tell them apart too.
+
+### And the client updates the client
+
+*"this downloader needs to update itself or have an updater it can run"*
+(operator, 2026-08-15 — reversing a 2026-08-09 ruling; `docs/LAUNCHER.md`
+§12b keeps both and the reasoning). `scry self-update` asks the origin's
+`/api/launcher` card, and only ever proceeds through this gate, in this
+order: a **strictly newer published version** (a dev build ahead of the shelf
+is left alone) → the artifact for this platform found **by the filename
+`build_release.py` writes** → its **sha256 matched** against what the card
+publishes off `SHA256SUMS` — no hash, no bytes → staged whole beside the
+install, smoke-run, then renamed in, both binaries together, with the old
+pair kept as `.old` (rollback = one rename). An install under `/usr/bin`
+belongs to dpkg and is not scribbled on: the verified `.deb` is downloaded
+and the one `sudo apt install` line is printed instead — exit **12**, so a
+script can tell "a privileged step remains" from done. Exit **3** is *could
+not look*, and it is never worn as current. `scry-gui` performs no swap
+itself; the CLI beside it is the updater it can run, and the update dialog
+says exactly that.
 
 ## The hive, ripped
 
@@ -296,9 +316,13 @@ chain attacks recently."*
 | tree budget, checksum and duplicate checks | `crates/scry-launcher/tests/supply_chain.rs` |
 | advisories, licences, registry allowlist | `deny.toml` → `cargo deny check` |
 
-Direct: `serde`, `serde_json`, `sha2`, `tempfile`, `ureq` (rustls). No async
-runtime, no web framework, no argument-parsing crate — the tree is a budget,
-and `clap` alone would have been the largest thing in it.
+Direct: `serde`, `serde_json`, `sha2`, `tempfile`, `ureq` (rustls), and
+`miniz_oxide` — the inflate for `self-update`'s own tar.gz/zip artifacts,
+taken at +2 packages instead of `flate2`'s +4 because it *is* flate2's
+backend, with the gzip/tar/zip envelope walks written here in ~150 lines
+(the `clock.rs` trade again). No async runtime, no web framework, no
+argument-parsing crate — the tree is a budget, and `clap` alone would have
+been the largest thing in it.
 
 **One trade worth recording, because it went the other way.** Asked to *"really
 utilize rust and any nice trusted rust packages"*, the obvious candidate was

@@ -10,6 +10,7 @@ mod args;
 mod dev;
 mod mcp;
 mod prompt;
+mod selfup;
 
 // The account's address and signature both come through this trait, so the CLI
 // and the window use one implementation rather than two that agree today.
@@ -39,6 +40,10 @@ scry — the desktop client
   scry status  <title>             is a newer build published?
   scry install <title>             install the native build for this machine
   scry update  <title>             install it only if it is newer
+  scry self-update                 replace THIS CLIENT with the published one,
+                                   hash-checked first. Exits 0 done or already
+                                   current, 3 could not look, 12 downloaded and
+                                   verified but a printed sudo step remains
   scry verify  <slug> [build]      re-hash an install against its receipt
   scry prune   <slug>              remove builds superseded by the newest
   scry uninstall <slug> <build>    remove one build
@@ -150,13 +155,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             );
             // ── is this client current? ──────────────────────────────────────
             //
-            // A NOTICE, not a self-update, and the distinction is deliberate.
-            // A binary that replaces itself is the one part of this client that
-            // would have to be trusted absolutely — it would need its own
-            // signature policy, its own rollback, and its own answer for what
-            // happens when it dies mid-write. The package manager already owns
-            // that job on Linux and does it better. So this says what it knows
-            // and lets the holder act.
+            // A notice here; the act is `scry self-update` (operator,
+            // 2026-08-15 — `selfup.rs` carries the reversal and the guardrails
+            // that answer the old ruling's objections one by one). `check`
+            // stays a read: a command that reports on everything must not
+            // also change anything.
             //
             // Three answers, never two: current, a version differs, or **we
             // could not look** — which is the trap this crate exists around and
@@ -175,9 +178,10 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     std::cmp::Ordering::Equal => println!("client      {mine} — current"),
                     std::cmp::Ordering::Greater => {
                         println!("client      {mine} — {there} is published");
-                        // The install line, not just the fact. Whoever reads
-                        // this is one command away from acting on it.
-                        println!("            {host}/download.html");
+                        // The act, not just the fact. Whoever reads this is
+                        // one command away — and the page stays named for a
+                        // holder who would rather see the swap happen by hand.
+                        println!("            scry self-update takes it, or {host}/download.html");
                     }
                     // A local build ahead of the shelf. Saying "up to date"
                     // here would be wrong in the other direction, and nagging
@@ -1191,6 +1195,23 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             do_install(&depot, &games, a)?;
             Ok(0)
         }
+
+        // ── the client updating the client ───────────────────────────────────
+        //
+        // `update` takes a title; this one's title is us. The rules, the
+        // reversal it implements and the exit codes live in `selfup.rs`;
+        // `--platform` is honoured like everywhere else, which with
+        // `--dry-run` is how another machine's artifact can be inspected
+        // without being taken.
+        "self-update" => selfup::run(
+            &host,
+            &platform,
+            &state_root(),
+            a.has("--yes"),
+            a.has("--dry-run"),
+            json_out,
+            insecure,
+        ),
 
         "verify" => {
             let slug = need(a.positional.first(), "a slug")?;
