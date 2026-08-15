@@ -17,7 +17,7 @@ interface IInsurancePool {
 }
 
 /// @title ScryJobBoard — hire a named worker for a task, with a trust mode
-/// @notice The on-chain spine of the agent-labor economy (AGENT-ECONOMY.md).
+/// @notice The on-chain spine of the agent-labor economy.
 ///         A buyer hires a named seller for a task carrying a HASHED completion
 ///         criterion and a deadline, under one of three trust modes:
 ///
@@ -256,8 +256,9 @@ contract ScryJobBoard is ReentrancyGuard {
         // depend on the status field.
         j.status = Status.Closed;
 
-        // Guarantee §9.1: the arbiter is paid a FLAT fee BEFORE ruling, from
-        // the party opening the case, identical whatever the verdict — and
+        // The verdict-independence guarantee: the arbiter is paid a FLAT fee
+        // BEFORE ruling, from the party opening the case, identical whatever
+        // the verdict — and
         // never more than the immutable ceiling this board was deployed with.
         uint256 fee = arbiter.flatFee();
         require(fee <= maxArbFee, "arb fee over the posted ceiling");

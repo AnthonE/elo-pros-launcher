@@ -10,8 +10,9 @@
 //! extension next to it. That is why MetaMask is an extension and not a page.
 //!
 //! **A desktop binary on the user's own disk is the one surface where none of
-//! that reasoning transfers**, and the surface where the rule costs most.
-//! `STEAM.md` §4 names that cost as the thing that loses the most players.
+//! that reasoning transfers**, and the surface where the rule costs most:
+//! making a stranger go install a wallet elsewhere before they can have an
+//! account is the thing that loses the most players at the door.
 //!
 //! So the carve-out is narrow and stated: **the desktop client may create a
 //! self-custody account; the website still may not.** What is unchanged is the

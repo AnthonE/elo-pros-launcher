@@ -20,10 +20,9 @@
 //!    without an explicit human act is a different product with a different
 //!    threat model, and `CLAUDE.md` invariant 6's whole shape is MCP plus a
 //!    curated allowlist. Writes stay on the CLI where a person typed them.
-//! 2. **One tool, not five.** `COMPANION.md` §4a: a tool costs context in
-//!    every session whether it is called or not, which is why the hosted
-//!    endpoint went 66 → 25. `launcher` with a `what=` selector is that
-//!    discipline applied locally.
+//! 2. **One tool, not five.** A tool costs context in every session whether it
+//!    is called or not, which is why the hosted endpoint went 66 → 25.
+//!    `launcher` with a `what=` selector is that discipline applied locally.
 //! 3. **It is LOCAL and could not be otherwise.** A hosted endpoint cannot see
 //!    your installs or reach your signer, and the hosted `/mcp` is at
 //!    29,614 B against a 32,000 B tripwire besides. This server is the only

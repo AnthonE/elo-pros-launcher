@@ -9,37 +9,55 @@ import "./MockToken.sol";
 
 /// The URL renderer is the other end of the `setRenderer` hinge, so what these
 /// pin is mostly about the SEAM rather than string building:
-///   - the two URLs are exactly what `meter/tickets.py` already serves, path
-///     for path — a renderer that is one segment off produces a collection of
-///     404s that looks fine on chain
+///   - the two URLs are exactly what the ORIGIN serves through nginx, path for
+///     path — a renderer that is one segment off produces a collection of 404s
+///     that looks fine on chain
+///
+/// ⚠ **THE BASE CARRIES `/api` AND THIS FILE ASSERTED THAT IT DID NOT** until
+/// 2026-08-12. `meter/tickets.py` DECLARES its routes bare (`/ticket/…`) because
+/// nginx strips the prefix — `CLAUDE.md`'s named trap — so what the internet
+/// can fetch is `https://scry.moreright.xyz/api/ticket/gates/1/metadata`, and
+/// the bare path is a 404 measured against the live origin. Every assertion
+/// here passed anyway, because a string-concatenation test cannot tell a url
+/// that resolves from one that does not; the test even called itself *the
+/// paths the meter serves*. On chain that is a collection of dead metadata
+/// welded into a contract, recoverable only by `setBase` — cheap here, and the
+/// exact shape of bug that has to be caught before a broadcast rather than
+/// after one.
+///
 ///   - it survives being wired into a real ticket, and `setRenderer(0)` still
 ///     takes the built-in document back (the posted door out of a dark origin)
 ///   - neither view can revert, for any token id, including ones never minted
 ///     — a renderer that throws bricks every token at once
 contract ScryTicketUrlRendererTest is Test {
+    /// The base a broadcast actually uses. Named once so the `/api` segment is
+    /// a fact of the fixture rather than a string somebody retypes correctly
+    /// four times and wrongly the fifth.
+    string constant BASE = "https://scry.moreright.xyz/api";
+
     ScryTicketUrlRenderer r;
     address owner = address(this);
     address alice = address(0xA11CE);
 
     function setUp() public {
-        r = new ScryTicketUrlRenderer(owner, "https://scry.moreright.xyz", "gates");
+        r = new ScryTicketUrlRenderer(owner, BASE, "gates");
     }
 
     function test_the_urls_are_the_paths_the_meter_serves() public view {
-        assertEq(r.tokenURI(1), "https://scry.moreright.xyz/ticket/gates/1/metadata");
-        assertEq(r.tokenURI(7), "https://scry.moreright.xyz/ticket/gates/7/metadata");
-        assertEq(r.contractURI(), "https://scry.moreright.xyz/ticket/gates/collection");
+        assertEq(r.tokenURI(1), "https://scry.moreright.xyz/api/ticket/gates/1/metadata");
+        assertEq(r.tokenURI(7), "https://scry.moreright.xyz/api/ticket/gates/7/metadata");
+        assertEq(r.contractURI(), "https://scry.moreright.xyz/api/ticket/gates/collection");
     }
 
     /// The digits matter: a token id is a path segment, and `_u` is the only
     /// arithmetic in the file.
     function test_the_id_renders_for_every_shape_of_number() public view {
-        assertEq(r.tokenURI(0), "https://scry.moreright.xyz/ticket/gates/0/metadata");
-        assertEq(r.tokenURI(10), "https://scry.moreright.xyz/ticket/gates/10/metadata");
-        assertEq(r.tokenURI(1000), "https://scry.moreright.xyz/ticket/gates/1000/metadata");
+        assertEq(r.tokenURI(0), "https://scry.moreright.xyz/api/ticket/gates/0/metadata");
+        assertEq(r.tokenURI(10), "https://scry.moreright.xyz/api/ticket/gates/10/metadata");
+        assertEq(r.tokenURI(1000), "https://scry.moreright.xyz/api/ticket/gates/1000/metadata");
         assertEq(
             r.tokenURI(type(uint256).max),
-            "https://scry.moreright.xyz/ticket/gates/115792089237316195423570985008687907853269984665640564039457584007913129639935/metadata"
+            "https://scry.moreright.xyz/api/ticket/gates/115792089237316195423570985008687907853269984665640564039457584007913129639935/metadata"
         );
     }
 
@@ -49,8 +67,8 @@ contract ScryTicketUrlRendererTest is Test {
     }
 
     function test_the_base_moves_and_only_the_owner_moves_it() public {
-        r.setBase("https://cdn.example.com");
-        assertEq(r.tokenURI(3), "https://cdn.example.com/ticket/gates/3/metadata");
+        r.setBase("https://cdn.example.com/api");
+        assertEq(r.tokenURI(3), "https://cdn.example.com/api/ticket/gates/3/metadata");
 
         vm.prank(alice);
         vm.expectRevert(ScryTicketUrlRenderer.NotOwner.selector);
@@ -99,8 +117,8 @@ contract ScryTicketUrlRendererTest is Test {
         uint256 id = 1;
 
         t.setRenderer(address(r));
-        assertEq(t.tokenURI(id), "https://scry.moreright.xyz/ticket/gates/1/metadata");
-        assertEq(t.contractURI(), "https://scry.moreright.xyz/ticket/gates/collection");
+        assertEq(t.tokenURI(id), "https://scry.moreright.xyz/api/ticket/gates/1/metadata");
+        assertEq(t.contractURI(), "https://scry.moreright.xyz/api/ticket/gates/collection");
 
         t.setRenderer(address(0));
         assertEq(

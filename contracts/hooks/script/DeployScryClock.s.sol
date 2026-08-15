@@ -38,7 +38,7 @@ import {ScryClock} from "../src/ScryClock.sol";
 ///         With OBOL `0xa003af4a…` < MYRRH `0xde967108…`, currency0 is OBOL and
 ///         currency1 is MYRRH, so price = MYRRH/OBOL = 1/5 = 0.2.
 contract DeployScryClock is Script {
-    // ---- chain 4663, verified by eth_getCode 2026-07-31 (docs/onchain/HOOKS.md §0a) --
+    // ---- chain 4663, verified by eth_getCode 2026-07-31 --------------------
     IPoolManager constant POOL_MANAGER = IPoolManager(0x8366a39CC670B4001A1121B8F6A443A643e40951);
 
     // ---- the coins (contracts/deployments.json) -----------------------------
@@ -62,10 +62,10 @@ contract DeployScryClock is Script {
     uint160 constant SQRT_PRICE_X96 = 35431911422859142059220343232;
 
     // ---- the game's immutables ---------------------------------------------
-    // Not one of these can be changed after deploy. `docs/onchain/HOOKS.md` §5 records
-    // which are still open; anything unconfirmed should stop this script.
+    // Not one of these can be changed after deploy, so anything below that is
+    // still unconfirmed should stop this script.
     uint256 constant POT_BPS = 100; // 1% of the MYRRH received
-    uint64 constant EXTENSION = 30 minutes; // minutes, never seconds (§2.1 fn 3)
+    uint64 constant EXTENSION = 30 minutes; // minutes, never seconds
     uint64 constant MAX_HORIZON = 24 hours;
     uint256 constant ROLLOVER_BPS = 1_000; // 10% seeds the next round
 

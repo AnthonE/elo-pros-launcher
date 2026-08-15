@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "../src/ScryHarvest.sol";
 
 /// Deploy ScryHarvest — the merkle claim bridge for a GAME coin's harvest
-/// ledger. This is the script TEST-AUDIT.md / SHIP.md flagged as missing:
+/// ledger. This is the script `TEST-AUDIT.md` flagged as missing:
 /// DeployScryEconomy explicitly defers it (the harvest is the OBOL game-coin
 /// claim, never funded by the SCRY splitter).
 ///

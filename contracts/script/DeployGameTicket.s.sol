@@ -14,9 +14,17 @@ import "../src/ScryGameTicket.sol";
 /// sentence for this class.
 ///
 ///   export PRIVATE_KEY=0x...
-///   export TICKET_NAME="Gates"                # the title, as the token name
-///   export TICKET_SYMBOL="GATES-COPY"
+///   export TICKET_NAME="Gates"                # ⚠ the title BARE — see below
+///   export TICKET_SYMBOL="GATES"
 ///   export TICKET_GAME="gates"                # the slug the depot serves
+///
+///   ⚠ TICKET_NAME IS THE TITLE AND NOTHING ELSE. Not "Gates copy", not
+///   "Gates on Scryward" — the contract builds both names off it: an item is
+///   `Gates #1` and the collection is `Gates on Scryward` (`PLATFORM`). Typing
+///   the platform in here yields "Gates on Scryward on Scryward", welded, in
+///   the field a marketplace shows biggest. The symbol is the bare ticker for
+///   the same reason: `GATES-COPY` reads like a knock-off (operator,
+///   2026-08-12) and neither string has a setter.
 ///   # addresses — read the real ones out of deployments.json, never retype:
 ///   export TICKET_SCRY=0x...                  # chains.4663.contracts.SCRY
 ///   export TICKET_USDG=0x...                  # the USDG the x402 rail uses

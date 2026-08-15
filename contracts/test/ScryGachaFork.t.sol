@@ -22,8 +22,8 @@ interface IRealNft {
 ///
 ///         Why this collection: measured 2026-07-26, it produced the single
 ///         largest NFT sale in the shelf sample (3.33 ETH), and it is
-///         Anvil/Clutch-affiliated — the crew `GACHA.md` §1b names as the actual
-///         clock on this window. 4,444 supply, 528 holders.
+///         Anvil/Clutch-affiliated — the crew that is the actual clock on this
+///         window. 4,444 supply, 528 holders.
 ///
 ///         **Its floor is nowhere near the global one, and the pool is opened
 ///         accordingly.** `MIN_BACKING_FLOOR` is 0.01 ETH because that is ~p80
@@ -280,7 +280,7 @@ contract ScryGachaForkTest is Test {
         emit log_named_uint("gas a whole pull (request+settle+keep)", pull);
         // At the 0.05 gwei base fee measured on 4663, wei = gas * 5e7.
         emit log_named_uint("wei at 0.05 gwei", pull * 5e7);
-        assertLt(pull, 1_500_000, "a pull got expensive - re-read GACHA.md 4.3 before shipping");
+        assertLt(pull, 1_500_000, "a pull got expensive - re-read the gas budget in ScryGacha.sol before shipping");
     }
 
     function _depositorOf(uint256 posId) internal view returns (address dep) {

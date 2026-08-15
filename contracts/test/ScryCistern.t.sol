@@ -100,7 +100,7 @@ contract ScryCisternTest is Test {
         seat = new ScrySeat(
             "scry seats",
             "SEAT",
-            [uint256(100), uint256(0), uint256(0), uint256(0), uint256(0)],
+            [uint256(100), uint256(0), uint256(0), uint256(0), uint256(0), uint256(0)],
             IERC20(address(scry)),
             splitter,
             proceeds,

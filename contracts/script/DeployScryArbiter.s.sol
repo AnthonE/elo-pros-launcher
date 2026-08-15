@@ -19,7 +19,7 @@ import "../src/ScryArbiter.sol";
 /// DeployScryMarket.s.sol — and afterwards call `setBoard(board)` here ONCE, or
 /// the panel cannot take a vote at all (see below). The fee and its recipient
 /// are immutable: retuning the fee is a fresh deploy + board.setArbiter(new),
-/// which keeps the fee's verdict-independence airtight (AGENT-ECONOMY.md §9.1).
+/// which keeps the fee's verdict-independence airtight.
 ///
 /// ── DENOMINATION ─────────────────────────────────────────────────────────
 /// The fee is SCRY, and SCRY is not a dollar: **$0.0000348** live on

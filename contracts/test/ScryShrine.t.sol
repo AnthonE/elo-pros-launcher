@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
 import "../src/ScryShrine.sol";
 
-/// The Shrine (SPOILS-ECONOMY.md): burn spoils as votive offerings, climb the
+/// The Shrine: burn spoils as votive offerings, climb the
 /// Mithraic seven-grade ladder on triangular thresholds. A rank is a public
 /// record and nothing else - no payout, no buff, no reputation, no access.
 /// `forge test -vv` before any broadcast.

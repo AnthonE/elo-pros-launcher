@@ -172,3 +172,31 @@ fn flags_survive_the_rewrite() {
     assert_eq!(a.flag("--games"), Some("/tmp/g"));
     assert!(a.has("--dry-run"));
 }
+
+#[test]
+fn a_titles_shard_list_reaches_its_argv_and_a_players_flags_do_not_reach_it() {
+    // The defect this gates: Gates draws its own shard browser, the list was
+    // published, the manifest named it — and nothing put it on the argv, so
+    // every launch outside the Servers window drew an empty list over a live
+    // shard. `{servers}` is the TITLE's to name, so it comes from the manifest
+    // and there is no flag for it.
+    let a = args::parse(&argv("play gates --server game.example:61234 --wallet 0xabc")).unwrap();
+
+    let v = args::launch_values(&a, Some("https://scry.example/api/launcher/servers/gates"));
+    assert_eq!(v.get("server").map(String::as_str), Some("game.example:61234"));
+    assert_eq!(v.get("wallet").map(String::as_str), Some("0xabc"));
+    assert_eq!(
+        v.get("servers").map(String::as_str),
+        Some("https://scry.example/api/launcher/servers/gates")
+    );
+
+    // A title that publishes no list inserts nothing rather than an empty
+    // string — `launch::fill` is what turns an absent value into `""`, and
+    // deciding it twice is how the two would drift.
+    let v = args::launch_values(&a, None);
+    assert!(!v.contains_key("servers"));
+
+    // And no flag can forge one: `--servers` is not a flag this parser knows,
+    // so it is refused rather than quietly ignored.
+    assert!(args::parse(&argv("play gates --servers https://evil.example/list")).is_err());
+}

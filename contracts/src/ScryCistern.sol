@@ -38,7 +38,7 @@ interface ISwapRouter {
 }
 
 /// @title ScryCistern — the drop bar: fee revenue in, a public round out
-/// @notice `SCRY-HIVE.md` §3g1 as bytecode, and the honest half of StonkBrokers'
+/// @notice The hive's drop bar as bytecode, and the honest half of StonkBrokers'
 ///         Clock In. Revenue fills a cistern anyone can watch. When it reaches
 ///         the posted line, **any wallet** opens a round and is paid a tip for
 ///         the gas. Every activated seat then draws its share, weighted by
@@ -52,7 +52,8 @@ interface ISwapRouter {
 ///         no permission from it, and is buy pressure on it. Their booster
 ///         works the same way and cannot mint AAPL either; the stock is simply
 ///         what their fee revenue is spent on. Ours is the game coins, and
-///         `SCRY-HIVE.md` §3g1 is the correction that got that right.
+///         buying them rather than minting them is the correction that got
+///         this right.
 ///
 ///         ⚠⚠ INVARIANT 9 IS WHAT SHAPED THIS FILE. *"Never trade ahead of our
 ///         own emissions — the house issues OBOL and MYRRH and knows schedules
@@ -81,7 +82,8 @@ interface ISwapRouter {
 ///         entire power is proposing knobs that take three days to land. Value
 ///         that reaches this contract leaves by `open` → `claim`, or it
 ///         recycles into the next round. That is deliberate and it is the
-///         sentence a rug screen is actually reading (`DEGEN.md` §1b).
+///         sentence a rug screen is actually reading: *can the team take my
+///         money.*
 ///
 ///         **THE POT IS SCRY, and that is a routing fact rather than a
 ///         preference.** Every game coin pairs against SCRY and only there

@@ -66,8 +66,8 @@ fn a_notification_gets_no_reply_at_all() {
 
 #[test]
 fn there_is_exactly_one_tool_and_it_is_read_only() {
-    // `COMPANION.md` §4a: a tool costs context in every session whether it is
-    // called or not. One dispatcher, not five flat tools.
+    // A tool costs context in every session whether it is called or not.
+    // One dispatcher, not five flat tools.
     let tmp = tempfile::tempdir().unwrap();
     let s = server(tmp.path(), tmp.path());
     let r = ask(&s, json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();

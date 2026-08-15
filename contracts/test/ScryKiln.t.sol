@@ -5,15 +5,15 @@ import "forge-std/Test.sol";
 import "../src/ScryItem.sol";
 import "../src/ScryKiln.sol";
 
-/// `CARDS.md` §7. The kiln burns one of each card in a declared set and mints
+/// The kiln burns one of each card in a declared set and mints
 /// one crest — so what this suite has to prove is mostly about what it
 /// REFUSES: cards you do not own, cards outside the set, two of the same card,
 /// the same token passed twice, and a set whose composition moved after
 /// somebody assembled it.
 ///
 /// This suite has run and passed — under Hardhat 3's EDR, which implements the
-/// forge-std cheatcodes it uses; the authoring box has no foundry (`CARDS.md`
-/// §8). The first execution surfaced four bugs in the tests themselves, all
+/// forge-std cheatcodes it uses; the authoring box has no foundry.
+/// The first execution surfaced four bugs in the tests themselves, all
 /// one shape: a `KIND_*()` getter inside a pranked call's argument list is a
 /// staticcall, and it consumes the one-shot prank before the call under test.
 /// The canonical gate is still owed on a box with foundry:

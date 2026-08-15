@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20} from "./IERC20.sol";
 import {SafeERC20} from "./SafeERC20.sol";
 import {ReentrancyGuard} from "./ReentrancyGuard.sol";
-import {ISwapRouter} from "./ScryLaunch.sol";
+import {ISwapRouter} from "./ScryLaunchpad.sol";
 
 /// @title ScryFeeConverter — a studio's pool fees, without the game-coin bag
 /// @notice OPT-IN, AND NOT THE DEFAULT (demoted 2026-08-10 — `LAUNCHPAD.md`
@@ -21,7 +21,7 @@ import {ISwapRouter} from "./ScryLaunch.sol";
 ///         address; point it here instead of at a splitter and the fee coin
 ///         becomes SCRY on the way to the studio.
 ///
-///         WHAT IT IS FOR. `ScryLaunch.collectFees()` pays both legs of the v3
+///         WHAT IT IS FOR. `ScryLaunchpad.collectFees()` pays both legs of the v3
 ///         position — SCRY and the game's coin — to two immutable destinations.
 ///         This is one thing the COIN leg can be pointed at.
 ///
@@ -50,7 +50,7 @@ import {ISwapRouter} from "./ScryLaunch.sol";
 ///
 ///         ⚠ THIS MUST NEVER BE THE TICKET'S PROCEEDS. It handles FEES. Pointing
 ///         a ticket's `proceeds` here would route the RAISE through a contract
-///         that pays it out to a person, which is precisely what `ScryLaunch`
+///         that pays it out to a person, which is precisely what `ScryLaunchpad`
 ///         exists to make impossible.
 contract ScryFeeConverter is ReentrancyGuard {
     string public constant NOTICE = "converts a launch position's fee income into SCRY before paying it out, so a "
@@ -98,7 +98,7 @@ contract ScryFeeConverter is ReentrancyGuard {
 
     /// Swap the fee coin held here into SCRY.
     ///
-    /// Steward-gated for the same reason `ScryLaunch.convert` is: a swap needs
+    /// Steward-gated for the same reason `ScryLaunchpad.convert` is: a swap needs
     /// a floor somebody chose, and a permissionless swap taking a
     /// caller-supplied `minOut` is a permissionless sandwich. The steward
     /// cannot profit by calling it — the output lands here and here pays only

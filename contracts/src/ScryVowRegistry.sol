@@ -23,7 +23,7 @@ pragma solidity ^0.8.24;
 /// covered by the anchor — putting them on-chain would tax the ritual with
 /// gas), readings (interpretations are not records), and any slash/stake
 /// mechanics (measuring and enforcing must never be the same party; parked
-/// forever — see VOWS.md).
+/// forever).
 /// @dev Optional external metadata renderer. If one is set, the registry
 ///      delegates tokenURI/contractURI to it — so the *look* of every vow in
 ///      wallets can be upgraded later with a single tx, without migrating any

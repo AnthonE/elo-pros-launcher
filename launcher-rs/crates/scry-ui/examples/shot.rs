@@ -99,9 +99,9 @@ fn main() {
         // `no shards up`.
         "servers" => windows::servers("gates", &windows::Shards::Unpublished).window,
         "servers2" => windows::servers("gates", &windows::Shards::Listed {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             rows: vec![
-                shard("eu-1", "Gates EU 1", "game.moreright.xyz:61234",
+                shard("us-east-1", "Gates US East 1", "game.moreright.xyz:61234",
                       Some(47), Some(100), Some("island 20260731")),
                 // No count at all: this shard publishes no status endpoint,
                 // and `?` is the honest render.
@@ -117,12 +117,12 @@ fn main() {
             ],
         }).window,
         "servers3" => windows::servers("gates", &windows::Shards::Unreadable {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             why: "could not reach it — dns error".into(),
             reachable: false,
         }).window,
         "servers4" => windows::servers("gates", &windows::Shards::Listed {
-            url: "https://scry.moreright.xyz/depot/gates/servers.json".into(),
+            url: "https://scry.moreright.xyz/api/launcher/servers/gates".into(),
             rows: vec![],
         }).window,
         // Both states are capturable, because they are different windows: with

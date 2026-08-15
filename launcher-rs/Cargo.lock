@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "scry-broker"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "scry-vault",
  "serde_json",
@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "scry-depot"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "scry-vault",
  "serde",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "scry-hive"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "bech32",
  "getrandom 0.3.4",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "scry-launcher"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "libc",
  "scry-broker",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "scry-net"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "scry-depot",
  "serde_json",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "scry-ui"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "fltk",
  "scry-broker",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "scry-vault"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aes",
  "ctr",

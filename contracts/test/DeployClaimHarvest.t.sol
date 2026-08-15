@@ -254,10 +254,10 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
     }
 }
 
-/// ── §0.4 and §M4 as executable laws ─────────────────────────────────────
-/// Both currently live as prose in `LAUNCH.md` / `DeployClaim`'s natspec and as
-/// an off-chain gate in `contracts/preflight.py`. Neither was pinned in
-/// Solidity, which is where the arithmetic actually happens.
+/// ── the drop-isolation laws, made executable ────────────────────────────
+/// Both currently live as prose in `DeployClaim`'s natspec and as an off-chain
+/// gate in `contracts/preflight.py`. Neither was pinned in Solidity, which is
+/// where the arithmetic actually happens.
 contract HarvestDropIsolationTest is ClaimHarvestBase {
     SpoilsToken obol;
 

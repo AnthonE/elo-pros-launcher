@@ -6,7 +6,7 @@ import "../src/ScryItem.sol";
 
 /// Deploy one catalog's item contract (`docs/items/ITEM-CONTRACT.md`).
 ///
-/// **One deployment per catalog** — `TOPOLOGY.md` §2. One ERC-721 holding five
+/// **One deployment per catalog.** One ERC-721 holding five
 /// games' skins renders as one incoherent marketplace collection with a
 /// meaningless floor, and a shared collection makes a `ScryGacha` pool's
 /// harmonic-mean price mean nothing.

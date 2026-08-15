@@ -4,8 +4,9 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import "../src/ScryGacha.sol";
 
-/// Deploy the NFT gacha (`GACHA.md`, forked from FWA — see
-/// `contracts/reference/fwa/README.md` for the port table).
+/// Deploy the NFT gacha (forked from FWA — see
+/// `contracts/reference/fwa/README.md` for the port table; `ScryGacha.sol`'s
+/// header is the design).
 ///
 ///   export PRIVATE_KEY=0x...
 ///   export GACHA_FEE_SINK=0x...              # where the house's ETH cut is swept
@@ -32,17 +33,17 @@ import "../src/ScryGacha.sol";
 ///   (~26s). Shortening it later would be a change to the fairness of the game,
 ///   which is why no setter exists.
 /// - `GACHA_MIN_BACKING = 0.01 ETH`. Measured twice from different windows:
-///   ~p82 of live Seaport sales when `GACHA.md` §4.4 chose it, **p80** when the
+///   ~p82 of live Seaport sales when it was chosen, **p80** when the
 ///   contract was written (`python3 meter/gacha_shelf.py`). It is also FWA's own
 ///   default, arrived at independently. Below it the harmonic mean is a free
-///   griefing vector on a dust chain (§4.2), so the contract enforces a floor of
+///   griefing vector on a dust chain, so the contract enforces a floor of
 ///   0.01 ETH and this knob can only go up.
 /// - `GACHA_BID_BPS = 8500`. FWA's number, and the contract fixes it per pool at
 ///   open: depositors price their backing against the buyback they were
 ///   promised, so it is not something a later operator gets to revise.
 ///
-/// **The toll rail ships DISARMED, and that is the deploy plan, not a default**
-/// (`GACHA.md` §10d/§10e). The toll asset is decided — `SCRY` — but the price is
+/// **The toll rail ships DISARMED, and that is the deploy plan, not a
+/// default.** The toll asset is decided — `SCRY` — but the price is
 /// a posted number and posting it is an operator act, so `GACHA_TOLL_RATE`
 /// defaults to **0**, which is the ETH rail this contract was measured on.
 /// Posting the coin without a rate is deliberately a no-op: arming takes two
@@ -62,7 +63,7 @@ import "../src/ScryGacha.sol";
 ///
 /// **THE FIRST COLLECTION IS DECIDED: StonkBrokers,**
 /// `0x539CdD042c2f3d93EbC5BE7DfFf0c79F3B4fAbF0` (operator, 2026-07-27 —
-/// `SENTENCES.md`, detail in `GACHA.md` §8a). That is the address `GACHA_POOL`
+/// `SENTENCES.md`). That is the address `GACHA_POOL`
 /// takes. It is not a taste: it is the collection `test/ScryGachaFork.t.sol`
 /// already drives the whole loop against on a fork of 4663 — real bytecode, real
 /// holders, standard ERC-721, no operator filter, no pause hook — so the first
@@ -74,7 +75,7 @@ import "../src/ScryGacha.sol";
 /// nothing — `blockCollection` is one-way. Read the address back off the
 /// explorer before broadcasting; a typo here is a permanent dead pool.
 ///
-/// Curation is the product surface (`GACHA.md` §5b), so run this with
+/// Curation is the product surface, so run this with
 /// `GACHA_CURATOR` pointed at whatever will decide which collections get a
 /// floor — the curator can open and close pools and can never touch escrow, a
 /// fee, or a payout. Blocking a collection stays with the owner and is one-way.
@@ -88,8 +89,8 @@ contract DeployGacha is Script {
         address sink = vm.envAddress("GACHA_FEE_SINK");
         // ⚠ ONE address serves BOTH sweeps: `sweepHouse` sends native ETH and
         // `sweepHouseToll` sends the toll coin. `ScryFeeSplitter` — the obvious
-        // thing to point this at, and what GACHA.md §10d called "zero new
-        // machinery" — has NO `receive()` and NO `fallback()`, so a plain ETH
+        // thing to point this at, and the reason the toll rail needed zero new
+        // machinery — has NO `receive()` and NO `fallback()`, so a plain ETH
         // send to it reverts. Point `feeSink` there and the SCRY sweep works
         // while the ETH sweep is refused forever (recoverable only by
         // `setFeeSink`, since `houseOwed` just keeps accruing).

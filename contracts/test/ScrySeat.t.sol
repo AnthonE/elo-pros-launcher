@@ -98,6 +98,10 @@ contract ScrySeatTest is Test {
     uint256 constant PLAY_CAP = 10;
     uint256 constant BUILD_CAP = 10;
     uint256 constant TREASURY_CAP = 5;
+    /// The reserve window, off. Every test that predates the window uses this,
+    /// so they keep asserting the ORIGINAL strand-forever behaviour rather than
+    /// silently re-testing the new one — the window gets its own tests below.
+    uint256 constant NO_WINDOW = 0;
     uint256 constant PAID_FLOAT = SUPPLY - SNAP_CAP - PLAY_CAP - BUILD_CAP - TREASURY_CAP;
 
     string constant SALT = "the-sealed-deck-salt-for-this-run";
@@ -113,8 +117,8 @@ contract ScrySeatTest is Test {
     bytes32 saltCommit;
 
     function _ladder() internal pure returns (uint256[] memory costs, uint32[] memory weights) {
-        // StonkBrokers' shape (`STONKBROKERS-READ.md` §1), scaled: 25x the capital buys
-        // 3.33x the weight. Cumulative cost, so an upgrade pays the difference.
+        // StonkBrokers' shape, scaled: 25x the capital buys 3.33x the weight.
+        // Cumulative cost, so an upgrade pays the difference.
         costs = new uint256[](5);
         costs[0] = 66_666e18;
         costs[1] = 166_666e18;
@@ -134,7 +138,7 @@ contract ScrySeatTest is Test {
         s = new ScrySeat(
             "scry seats",
             "SEAT",
-            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP],
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, NO_WINDOW],
             IERC20(address(scry)),
             splitter,
             proceeds,
@@ -150,7 +154,7 @@ contract ScrySeatTest is Test {
     function setUp() public {
         saltCommit = sha256(bytes(SALT));
         scry = new MockSCRY();
-        seat = _deploy(5000); // 50% burns, per SCRY-HIVE.md §2
+        seat = _deploy(5000); // 50% burns, the posted activation burn
     }
 
     // ── merkle helpers: a two-leaf tree, sorted-pair keccak ──────────────────
@@ -190,7 +194,7 @@ contract ScrySeatTest is Test {
         new ScrySeat(
             "n",
             "N",
-            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP],
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, NO_WINDOW],
             IERC20(address(scry)),
             splitter,
             proceeds,
@@ -214,7 +218,7 @@ contract ScrySeatTest is Test {
         new ScrySeat(
             "n",
             "N",
-            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP],
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, NO_WINDOW],
             IERC20(address(scry)),
             splitter,
             proceeds,
@@ -238,7 +242,7 @@ contract ScrySeatTest is Test {
         new ScrySeat(
             "n",
             "N",
-            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP],
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, NO_WINDOW],
             IERC20(address(scry)),
             splitter,
             proceeds,
@@ -253,7 +257,7 @@ contract ScrySeatTest is Test {
 
     function test_the_shipped_ladder_is_sublinear_and_matches_the_doc() public view {
         (uint256[] memory costs, uint32[] memory weights) = seat.ladder();
-        // SCRY-HIVE.md §2: "25x the capital buys 3.33x the weight."
+        // The posted ladder: "25x the capital buys 3.33x the weight."
         assertEq(costs[4] / costs[0], 25, "top tier is 25x the base cost");
         assertEq(uint256(weights[4]) * 100 / weights[0], 333, "top tier is 3.33x the base weight");
         // and the base is 7.5x more capital-efficient per token than the top.
@@ -271,7 +275,7 @@ contract ScrySeatTest is Test {
         new ScrySeat(
             "n",
             "N",
-            [uint256(10), uint256(5), uint256(5), uint256(5), uint256(0)],
+            [uint256(10), uint256(5), uint256(5), uint256(5), uint256(0), uint256(0)],
             IERC20(address(scry)),
             splitter,
             proceeds,
@@ -768,7 +772,7 @@ contract ScrySeatTest is Test {
         ScrySeat s = new ScrySeat(
             "n",
             "N",
-            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP],
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, NO_WINDOW],
             IERC20(address(scry)),
             splitter,
             rejecting,
@@ -1033,13 +1037,13 @@ contract ScrySeatTest is Test {
         assertEq(seat.totalSupply(), 1, "nothing burns a seat");
     }
 
-    // ═══ the wall (`SCRY-HIVE.md` §9, CLAUDE.md invariant 1) ═══
+    // ═══ the wall (CLAUDE.md invariant 1) ═══
 
     function test_the_contract_stores_no_record_and_no_measurement() public {
         // Asserted by ABI absence: a seat's entire on-chain state is a tier, a
         // door, a mint time and an election. There is no round, clear, badge,
         // rank, score or meter number to transfer, and therefore nothing a
-        // bought seat can launder. `SCRY-HIVE.md` §1.
+        // bought seat can launder.
         uint256 id = _mintOneTo(alice);
         assertEq(seat.doorOf(id), 4);
         assertEq(seat.tierOf(id), 0);
@@ -1079,5 +1083,121 @@ contract ScrySeatTest is Test {
         vm.stopPrank();
         assertEq(seat.tierOf(id), 1);
         assertEq(seat.mintedAt(id), stamped);
+    }
+
+    // ── the reserve window ───────────────────────────────────────────────────
+    //
+    // The answer to "what if the free mint does not mint out." A welded date;
+    // after it the three free doors shut and their remainder is public float.
+    // What these pin is that nobody can TIME it and nothing can be minted twice
+    // out of the same allocation.
+
+    function _deployWithWindow(uint256 until_) internal returns (ScrySeat s) {
+        (uint256[] memory costs, uint32[] memory weights) = _ladder();
+        s = new ScrySeat(
+            "scry seats",
+            "SEAT",
+            [SUPPLY, SNAP_CAP, PLAY_CAP, BUILD_CAP, TREASURY_CAP, until_],
+            IERC20(address(scry)),
+            splitter,
+            proceeds,
+            500,
+            5000,
+            saltCommit,
+            costs,
+            weights,
+            "https://scry.moreright.xyz/api"
+        );
+    }
+
+    function test_no_window_strands_an_unclaimed_reserve_exactly_as_before() public {
+        // the original decision, kept reachable: paidRemaining never grows
+        assertEq(seat.reservedUntil(), 0);
+        assertFalse(seat.reserveReleased());
+        assertEq(seat.paidRemaining(), PAID_FLOAT);
+        vm.warp(block.timestamp + 3650 days);
+        assertFalse(seat.reserveReleased());
+        assertEq(seat.paidRemaining(), PAID_FLOAT);
+    }
+
+    function test_the_window_hands_an_unclaimed_reserve_to_the_float() public {
+        ScrySeat s = _deployWithWindow(block.timestamp + 30 days);
+        assertEq(s.paidRemaining(), PAID_FLOAT);
+
+        // one seat leaves by the snapshot door before the window closes
+        bytes32 la = _leaf(alice, 1);
+        s.setDoorRoot(1, la);
+        bytes32[] memory empty = new bytes32[](0);
+        vm.prank(alice);
+        s.claim(1, 1, empty);
+
+        vm.warp(block.timestamp + 30 days);
+        assertTrue(s.reserveReleased());
+        // everything the three doors never drew, less the one that left
+        assertEq(s.paidRemaining(), PAID_FLOAT + SNAP_CAP + PLAY_CAP + BUILD_CAP - 1);
+    }
+
+    function test_the_free_doors_shut_when_the_window_does() public {
+        ScrySeat s = _deployWithWindow(block.timestamp + 1 days);
+        bytes32 la = _leaf(alice, 5);
+        s.setDoorRoot(1, la);
+        bytes32[] memory empty = new bytes32[](0);
+        vm.prank(alice);
+        s.claim(1, 5, empty); // fine, the window is open
+
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(alice);
+        vm.expectRevert("the reserve window has closed");
+        s.claim(1, 5, empty);
+    }
+
+    /// ⚠ THE DOUBLE-SPEND THE SHUT DOOR EXISTS TO PREVENT. If a free door kept
+    /// claiming after release, its seat would come out of an allocation the paid
+    /// ceiling had already counted, and the two together would exceed supply.
+    function test_the_window_never_lets_supply_be_counted_twice() public {
+        ScrySeat s = _deployWithWindow(block.timestamp + 1 days);
+        bytes32 la = _leaf(alice, 100);
+        s.setDoorRoot(1, la);
+        s.setPaidDoor(1 ether, 0);
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 float_ = s.paidRemaining();
+        vm.deal(alice, 10_000 ether);
+        vm.startPrank(alice);
+        for (uint256 i = 0; i < float_; i++) {
+            s.buyWithEth{value: 1 ether}();
+        }
+        vm.expectRevert("paid door spent");
+        s.buyWithEth{value: 1 ether}();
+        vm.stopPrank();
+
+        // supply less the treasury carve-out, and not one seat more
+        assertEq(s.totalSupply(), SUPPLY - TREASURY_CAP);
+    }
+
+    function test_a_window_already_in_the_past_cannot_be_deployed() public {
+        vm.warp(1_000_000);
+        vm.expectRevert("reserve window already closed");
+        _deployWithWindow(block.timestamp - 1);
+        vm.expectRevert("reserve window already closed");
+        _deployWithWindow(block.timestamp);
+    }
+
+    function test_the_treasury_carve_out_is_not_released() public {
+        ScrySeat s = _deployWithWindow(block.timestamp + 1 days);
+        vm.warp(block.timestamp + 1 days);
+        // the float grew by the three free doors and by nothing else
+        assertEq(s.paidRemaining(), PAID_FLOAT + SNAP_CAP + PLAY_CAP + BUILD_CAP);
+        s.mintTreasury(bob, TREASURY_CAP); // still the team's, still capped
+        assertEq(s.treasuryMinted(), TREASURY_CAP);
+    }
+
+    /// The window is welded. There is no call that moves it, which is the whole
+    /// difference between a posted expiry and an owner shifting supply around.
+    function test_nobody_can_move_the_window() public {
+        ScrySeat s = _deployWithWindow(block.timestamp + 1 days);
+        uint64 posted = s.reservedUntil();
+        s.transferOwnership(address(0)); // even renouncing changes nothing
+        assertEq(s.reservedUntil(), posted);
     }
 }

@@ -8,9 +8,9 @@ interface IERC721Receiver {
 }
 
 /// @title ScryItem — one catalog's items, and not one trait among them
-/// @notice The item contract from `docs/items/ITEM-CONTRACT.md`. One deployment per
-///         catalog (`TOPOLOGY.md` §2 — marketplace indexing decides it before
-///         security does), ERC-721 for everything a player collects, and
+/// @notice The item contract from `docs/items/ITEM-CONTRACT.md`. One deployment
+///         per catalog (marketplace indexing decides that before security
+///         does), ERC-721 for everything a player collects, and
 ///         **owned by the creator, never by the house** (operator, 2026-08-04).
 ///
 ///         WHAT IT STORES, WHICH IS ALMOST NOTHING. A token is
@@ -20,7 +20,7 @@ interface IERC721Receiver {
 ///         the published derivation spec, so **nothing about rarity is stored
 ///         and therefore nothing about rarity can be edited** — not by the
 ///         creator, not by a compromised key, not by a migration. That is
-///         `SKINS.md` §1 as bytecode instead of as a paragraph, and it is why
+///         the item spec as bytecode instead of as a paragraph, and it is why
 ///         this contract can ship BEFORE the derivation spec exists: it commits
 ///         to a `mintRef` and renders later.
 ///
@@ -71,7 +71,7 @@ contract ScryItem is ReentrancyGuard {
     uint8 public constant KIND_CASE = 1;
     uint8 public constant KIND_STORE = 2;
     /// Minted by consuming other items — `ScryKiln` firing a card set into a
-    /// crest (`CARDS.md` §7), and any future trade-up (`SKINS.md` §12 row 6).
+    /// crest, and any future trade-up.
     /// Added 2026-08-04, BEFORE any deploy, and that timing is the whole
     /// argument: `mintKind` is stored per token and this contract is welded the
     /// moment it ships, so a crest minted as `KIND_CASE` would carry the wrong
@@ -284,10 +284,9 @@ contract ScryItem is ReentrancyGuard {
         emit ItemMinted(tokenId, to, catalogId, mintKind, mintRef);
     }
 
-    /// Burn what you hold — the sink trade-ups and salvage need
-    /// (`SKINS.md` §12 row 6). `instanceOf` survives so a marketplace can still
-    /// say what a burned token was, and `mintRefUsed` survives so it can never
-    /// come back.
+    /// Burn what you hold — the sink trade-ups and salvage need.
+    /// `instanceOf` survives so a marketplace can still say what a burned token
+    /// was, and `mintRefUsed` survives so it can never come back.
     function burn(uint256 tokenId) external {
         address o = ownerOf(tokenId);
         require(msg.sender == o || _approved[tokenId] == msg.sender || _operator[o][msg.sender], "not authorized");

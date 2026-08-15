@@ -154,7 +154,7 @@
           "source": "src/ScryOrchard.sol",
           "script": "script/DeployOrchard.s.sol",
           "consumed_by": "ORCHARD (contracts/town.env) - the v3 LP staking seasons",
-          "note": "DEPLOYED WITH NO SEASON POSTED, which is the correct opening state - a season is a funded pot and its own operator act (RUNBOOK.md 2 7b: preflight with SEASON_POT for the <=10% reserve cap, then stewardMint -> approve -> createIncentive). rewardToken/npm/factory all IMMUTABLE and read back off chain: OBOL 0xA003af4A / NPM 0x73991a25 / factory 0x1f7d7550. The orchard NEVER mints - a season is funded up front or it does not exist - so this deploy moved no minter and is safe under the 2026-07-30 closing-act hold. Seasons pay OBOL, never MYRRH (SEASONS.md 4); the 2026-07-26 farm flip moved the GARDENER to MYRRH and left this alone.",
+          "note": "DEPLOYED WITH NO SEASON POSTED, which is the correct opening state - a season is a funded pot and its own operator act (RUNBOOK.md 2 7b: preflight with SEASON_POT for the <=10% reserve cap, then stewardMint -> approve -> createIncentive). rewardToken/npm/factory all IMMUTABLE and read back off chain: OBOL 0xA003af4A / NPM 0x73991a25 / factory 0x1f7d7550. The orchard NEVER mints - a season is funded up front or it does not exist - so this deploy moved no minter and is safe under the 2026-07-30 closing-act hold. Seasons pay OBOL, never MYRRH (FARMING.md 9); the 2026-07-26 farm flip moved the GARDENER to MYRRH and left this alone.",
           "broadcast": "2026-07-30",
           "verified": true
         },

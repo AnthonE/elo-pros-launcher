@@ -17,14 +17,14 @@ address constant SCRY_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         at any time; the current balance is pushed out by the posted
 ///         basis-point split — typically bank (ScryBank, the xSCRY flywheel) /
 ///         prize escrow / ops. The split is public state and every change is an
-///         event, so the fee math is auditable end to end, which is the
-///         SCRY-ECONOMY.md requirement.
+///         event, so the fee math is auditable end to end, which is what the
+///         posted-mechanics rule requires (`TOKENOMICS.md`).
 ///
 ///         ⚠ SUPERSEDED, 2026-07-25 — do not restore. This header used to read:
 ///         "only SCRY SERVICE revenue flows here. The GAMES pay in game tokens
 ///         (OBOL/MYRRH) — a game rake or buy-in is an OBOL ledger sink, never
 ///         SCRY, so it never reaches this splitter or the Bank." The operator
-///         sentence "scry can enter" (2026-07-25, FEES.md §1) REVERSED that:
+///         sentence "scry can enter" (2026-07-25, `SENTENCES.md`) REVERSED that:
 ///         SCRY is now taken on the game surfaces as fees, entries and bonds,
 ///         so a game rake CAN reach this splitter. The rule was fixed here
 ///         before broadcast on purpose — left alone, an on-chain fee policy
@@ -37,9 +37,9 @@ address constant SCRY_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         infrastructure and never enter the token economy — a furnace fed by
 ///         read revenue would make SCRY's supply a function of how many
 ///         readings get sold, giving every holder a stake in the meter selling
-///         more. Score-blind, forever (CLAUDE.md; SCRY-ECONOMY.md).
+///         more. Score-blind, forever (`CLAUDE.md`; `TOKENOMICS.md`).
 ///
-///         THE BURN (the SCRY half of the furnace, FEES.md §3.1). A burn is
+///         THE BURN (the SCRY half of the furnace, `TOKENOMICS.md`). A burn is
 ///         just another recipient: put BURN in the posted split and SCRY fees
 ///         end at 0xdEaD by default, with no new contract, no new key and no
 ///         new audit surface. burnBps() and totalBurned make the advertised
@@ -52,7 +52,7 @@ address constant SCRY_BURN = 0x000000000000000000000000000000000000dEaD;
 ///         DEFAULT path, not an unbreakable one. The honest sentence is "the
 ///         split is the only path funds take WITHOUT the operator key."
 ///         Overstating it is the one thing that would make the burn worth less
-///         than not having one (FEES.md §3.1; HELD-KEYS.md).
+///         than not having one (`TOKENOMICS.md`; `HELD-KEYS.md`).
 ///
 ///         The operator owns the split percentages/recipients AND holds an
 ///         escape hatch: rescue() pulls the balance (or any stray token) out
@@ -188,8 +188,8 @@ contract ScryFeeSplitter is ReentrancyGuard {
     ///         either the sale failed outright or the marketplace dropped the
     ///         royalty. The repo already knew this and guarded exactly one path
     ///         — DeployGacha.s.sol probes `sink.call{value: 0}("")` and refuses
-    ///         to broadcast, with GACHA.md naming this contract as the reason
-    ///         and prescribing this fix. DeployScryEidolon has no such probe.
+    ///         to broadcast, precisely because this contract is that sink and
+    ///         this `receive()` is the fix. DeployScryEidolon has no such probe.
     ///
     /// @dev    NATIVE VALUE IS NOT COVERED BY THE POSTED SPLIT, and that is
     ///         deliberate rather than an oversight: the split is denominated in

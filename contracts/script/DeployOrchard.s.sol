@@ -32,8 +32,8 @@ import {INonfungiblePositionManagerOrchard, IUniswapV3FactoryOrchard} from "../s
 /// MYRRH's only source now, FARMING.md 3a). The Silo is the one it matches.
 /// A season is funded by granary.stewardMint and a granary binds ONE
 /// SpoilsToken, so a season pays whatever ITS granary holds — the **OBOL** one
-/// (./deploy_town.sh granary), which is also the Silo's. SEASONS.md 4 is the
-/// standing rule: OBOL is the wage, MYRRH is never emitted to LPs.
+/// (./deploy_town.sh granary), which is also the Silo's. FARMING.md 9 is the
+/// standing rule: a season pays OBOL, and the orchard pays no MYRRH.
 /// The contract is token-generic (it binds one SpoilsToken at construction),
 /// so this is purely which address you export here. Point it at the same coin
 /// the granary mints, or a stewardMint cannot fund a season.
@@ -50,8 +50,8 @@ contract DeployOrchard is Script {
         // since the granary split MYRRH_TOKEN is a real town.env key naming a
         // DIFFERENT live coin, so honouring it here deploys a MYRRH-paying
         // Orchard the moment REWARD_TOKEN is merely unset - a wrong-coin
-        // footgun, not a spelling courtesy (SEASONS.md 4: MYRRH is never
-        // emitted to LPs). deploy_town.sh's orchard phase exports
+        // footgun, not a spelling courtesy (FARMING.md 9: a season pays
+        // OBOL). deploy_town.sh's orchard phase exports
         // REWARD_TOKEN=OBOL_TOKEN; a bare forge-script run must name it too.
         address rewardAddr = vm.envOr("REWARD_TOKEN", address(0));
         require(rewardAddr != address(0), "set REWARD_TOKEN (the OBOL address)");

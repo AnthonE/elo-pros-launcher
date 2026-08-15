@@ -102,8 +102,8 @@ key.
 
 Operator, 2026-08-04: *"we logged it somewhere we could let a new account be
 made inside of the app, user keeps keys on machine."* It was logged, twice, in
-tension: `WALLETS.md` §0 says the website creates no account, and `STEAM.md`
-§4 names onboarding as the thing that loses us most players. **The resolution
+tension: `WALLETS.md` §0 says the website creates no account, and onboarding is
+the thing that loses this platform the most players. **The resolution
 is that the first is a website rule and the second is about the client.**
 `WALLETS.md` now carries the carve-out and the reasoning; the short version is
 that a web page is the worst place in computing to hold a key and a desktop
@@ -141,9 +141,8 @@ surface, every time.** The Signing window prints it.
 ⚠ **This is the trade the operator took knowingly.** A player who already holds
 a wallet is not served by it — they make a second account and transfer. What it
 buys is that *"install, make an account, play"* has no extension, no seed
-phrase to paste, and no chain to add. Onboarding is what `STEAM.md` §4 names as
-the thing that loses the most players, and this is the side of that trade the
-client is on.
+phrase to paste, and no chain to add. Onboarding is the thing that loses the
+most players, and this is the side of that trade the client is on.
 
 It is therefore **not a new rung**. It is rung 0 with the wallet moved inside
 the process — the same authority model (a human approves each act), worse
@@ -329,7 +328,7 @@ message it can *parse*, from a family it knows:
   derives it.
 
 The thirteen families are `braid card covenant doc familiar hive holder meter
-pact play review store vow` — every EIP-191 message the town actually builds.
+pact play review store vow` — every EIP-191 message the platform actually builds.
 
 **The bound is a COUNT, not a value.** A message moves no native value (the
 0x19 prefix makes it structurally not a transaction), so charging it against

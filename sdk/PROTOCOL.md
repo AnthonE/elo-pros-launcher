@@ -109,7 +109,7 @@ without an address set is a normal player.
 ### `sign`
 
 ```json
-{"op": "sign", "text": "scry play\naction: duel\nvow: vow_x\nday: 2026-08-04\ndetail: ETH up 5",
+{"op": "sign", "text": "scry play\naction: duel\nwallet: 0xabc…\nday: 2026-08-04\ndetail: ETH up 5",
  "why": "settling round 41"}
 → {"ok": true, "signature": "0x…", "address": "0x…", "family": "play", "backend": "arca"}
 ```
@@ -117,6 +117,18 @@ without an address set is a normal player.
 The message must be an EIP-191 personal_sign text whose first line is
 `scry <family>`. Build it with the same rules the server uses
 (`meter/playauth.py` — the format is deterministic and rebuildable offline).
+
+> ⚠ **The subject is the `wallet` line, and it was `vow: <vow_id>` until
+> 2026-08-12.** A game no longer has to send its players to swear a vow before
+> they can act — the signature recovers the signer, so the wallet IS the
+> identity. **Two rules if you build the text yourself:** the address is
+> **lowercase** (a checksummed address is different bytes and verifies
+> differently), and the `day` is UTC `yyyy-mm-dd`, so a signature is good for
+> that day only.
+>
+> The old vow-keyed text is **still accepted** for a caller that has one, so an
+> integration written against the previous shape keeps working while it moves.
+> It is a transition, not a second dialect — build the wallet form.
 
 **A human reads both fields, so write them for one.** The launcher shows the
 player your `text` **verbatim** — every line of it, in a scrolling well, in the
@@ -345,10 +357,10 @@ serve.
 ### `open`
 
 ```json
-{"op": "open", "url": "https://scry.moreright.xyz/claim.html"}
+{"op": "open", "url": "https://scry.moreright.xyz/wallet.html"}
 ```
 
-https only. For sending a player to a page — a claim, a store page, the
+https only. For sending a player to a page — their coins, a store page, the
 handoff link from a `sign` refusal.
 
 ## What is deliberately absent

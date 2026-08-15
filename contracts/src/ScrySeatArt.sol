@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @title ScrySeatArt — the Scry Hive's face, drawn on chain, owned by nobody
-/// @notice `SCRY-HIVE.md` §3j asked for a face that is HELD. This is what makes
+/// @notice The hive's design asked for a face that is HELD. This is what makes
 ///         "held" true rather than rented: the art is not a URL, not a pin, not
 ///         a file on our box. It is this contract's own bytecode, and
 ///         `tokenURI` builds the SVG and the JSON at read time.
@@ -77,9 +77,26 @@ contract ScrySeatArt {
     string public collectionName;
     string public collectionDescription;
 
-    constructor(string memory name_, string memory desc_) {
+    /// Where the collection's OTHER two pictures live. A marketplace asks for
+    /// three (ERC-7572): the avatar, which is `emblemSvg()` inline below and
+    /// needs nobody; a banner; and a featured card. The last two are painted
+    /// frames — no contract draws those and none should try, so this is the
+    /// one pointer off chain in the whole renderer.
+    ///
+    /// ⚠ Welded, like every other string here — there is no setter and no
+    /// owner. What it points AT is not welded: the two files under this base
+    /// are ours to redraw whenever we like, which is the trade the pointer
+    /// buys. The url is the promise; the picture stays editable.
+    ///
+    /// Empty leaves both keys OUT of the document rather than emitting them
+    /// blank — a marketplace handed `"banner_image":""` tries the load and
+    /// fails, where an absent key just means the collection has no banner.
+    string public artBase;
+
+    constructor(string memory name_, string memory desc_, string memory artBase_) {
         collectionName = name_;
         collectionDescription = desc_;
+        artBase = artBase_;
     }
 
     // ── the palette: watchtower/css/store.css, the STORE skin ────────────────
@@ -1163,6 +1180,12 @@ contract ScrySeatArt {
     }
 
     function contractURI() external view returns (string memory) {
+        bytes memory frames = bytes(artBase).length == 0
+            ? bytes("")
+            : abi.encodePacked(
+                ',"banner_image":"', artBase, '/banner.jpg"',
+                ',"featured_image":"', artBase, '/featured.jpg"'
+            );
         bytes memory json = abi.encodePacked(
             '{"name":"',
             collectionName,
@@ -1171,7 +1194,9 @@ contract ScrySeatArt {
             '","external_link":"https://scry.moreright.xyz/mint.html"',
             ',"image":"data:image/svg+xml;base64,',
             _b64(bytes(emblemSvg())),
-            '"}'
+            '"',
+            frames,
+            "}"
         );
         return string(abi.encodePacked("data:application/json;base64,", _b64(json)));
     }

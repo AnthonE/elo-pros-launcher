@@ -6,7 +6,7 @@ import "../src/ScryTill.sol";
 import "../src/IERC20.sol";
 import {MockToken} from "./MockToken.sol";
 
-/// ScryTill — the game claim (`docs/money/CASHIER.md`).
+/// ScryTill — the game claim (`ScryTill.sol`'s header is the design).
 ///
 /// What this suite is actually defending, in rough order of what it would cost
 /// to get wrong:

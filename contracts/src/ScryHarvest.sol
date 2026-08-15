@@ -8,8 +8,8 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 /// @title ScryHarvest — merkle claims against the public Augury harvest ledger
 /// @notice The meter's harvest ledger (GET /augury/ledger) accrues the GAME
 ///         COIN — OBOL, from the elastic, distributor-gated spoils ledger — per wallet,
-///         deterministically and score-blind (base + streak,
-///         SCRY-ECONOMY.md line #1). Games pay game tokens, never SCRY
+///         deterministically and score-blind (base + streak — `TOKENOMICS.md`,
+///         the one line that never bends). Games pay game tokens, never SCRY
 ///         (operator split, 2026-07-20), so deploy this claim contract with
 ///         the OBOL SpoilsToken address as `token`. The contract is
 ///         token-generic; nothing below assumes a particular ERC-20. This

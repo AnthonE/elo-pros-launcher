@@ -325,7 +325,7 @@ ICON = _icon()
 # The prose is DESCRIPTION, reshaped — one source for both surfaces, so the
 # software center and `apt show` cannot drift apart.
 
-RELEASE_DATE = "2026-08-14"  # dates the <release> row; bump WITH the version
+RELEASE_DATE = "2026-08-15"  # dates the <release> row; bump WITH the version
 
 
 def _desc_paragraphs() -> str:

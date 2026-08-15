@@ -16,17 +16,17 @@ interface IJobBoardCases {
 ///         pays a FLAT fee (identical whatever the ruling) BEFORE it calls
 ///         `rule`, and here the fee AND its recipient are `immutable` — no
 ///         owner, no case, and no verdict can move them. That is the
-///         anti-Bar-Hadya guarantee in code (AGENT-ECONOMY.md §9.1): a court
+///         anti-Bar-Hadya guarantee in code: a court
 ///         you can pay for a verdict is Bar Hadya with extra steps, so the fee
 ///         cannot vary with the verdict, and here it structurally cannot.
 ///
-///         It is a PANEL, not an oracle (§9.2). A set of independent arbiters,
+///         It is a PANEL, not an oracle. A set of independent arbiters,
 ///         each of them a metered vow (scry's own instrument turns on the
 ///         court: an arbiter caught channel-switching is removed here and, off
 ///         chain, loses stake and reputation). Members deliberate off-chain
 ///         against the committed spec, then each casts ONE on-chain vote
 ///         carrying a pointer to their signed reasoning (kept on the public
-///         record, §9.4). Parties cannot choose their arbiter and no party can
+///         record). Parties cannot choose their arbiter and no party can
 ///         vote. A `quorum` is a strict majority of the panel, so at most one
 ///         verdict can ever reach it; whichever does is the ruling. If the
 ///         whole bench votes without a majority, the ruling is `Undecided`,
@@ -70,7 +70,7 @@ interface IJobBoardCases {
 ///         not ruled yet — so a party can never open a dispute and force a
 ///         settlement the panel never decided (a premature `dispute` reverts
 ///         whole, the flat fee rolled back with it). "No checkable basis" is a
-///         real panel verdict (`Undecided` → refund, §9.3), deliberately
+///         real panel verdict (`Undecided` → refund), deliberately
 ///         distinct from "not ruled yet" (a revert). Taste is never
 ///         adjudicated here; taste-heavy jobs fall back to refund + reputation
 ///         off the board's own timeout path.

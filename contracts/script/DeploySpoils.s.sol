@@ -61,7 +61,7 @@ import "../src/ScryGarden.sol";
 /// `seed_spoils_uniswap.py` helper) after the tokens exist and the minter
 /// is rotated — see POOLS.md §3 step 4.
 contract DeploySpoils is Script {
-    /// Canonical SCRY on RH-Chain (SCRY-ECONOMY.md / meter/scry_token.py).
+    /// Canonical SCRY on RH-Chain (`TOKENOMICS.md` / meter/scry_token.py).
     address public constant SCRY_CANON = 0xDa2a4b23459e9ca88183e990802be644AcA7C4B0;
     uint256 public constant RH_CHAIN_ID = 4663;
 
@@ -152,7 +152,7 @@ contract DeploySpoils is Script {
         // that this is POSTED, PURPOSED and WATCHABLE — it lands in a named
         // wallet whose balance anyone can follow as it drains into giveaways.
         // An unposted allocation is the exact thing this audience screens for
-        // (DEGEN.md 1b: holder concentration); a posted one that visibly empties
+        // (holder concentration); a posted one that visibly empties
         // is the opposite signal. `burn(uint256)` is public on SpoilsToken, so
         // burning powder is the lever back, and it lands as a Transfer to 0x0
         // that anyone can see.

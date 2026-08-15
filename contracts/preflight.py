@@ -456,8 +456,8 @@ def gate_drop(snap):
           else "could not parse the MYRRH row of the pool table",
           "keep the pool table in the decision doc parseable — code reads it")
     if float_myrrh:
-        # Deduped BY DROP_ID, not summed per file. `SHIP.md` §3b re-plans drop
-        # one immediately before rollout, so a superseded artifact sitting beside
+        # Deduped BY DROP_ID, not summed per file. Drop one is re-planned
+        # immediately before rollout, so a superseded artifact sitting beside
         # its replacement is the expected state, not an odd one — and summing
         # both would count the same drop twice and red the gate for a reason
         # that does not exist. Take the LARGEST per drop: if two files disagree,
@@ -699,8 +699,8 @@ def gate_season_pot_cap():
     Ten percent, under the ~13.4% dump threshold with margin: a fully-dumped
     10% pot moves price −17% by xy·k. (Corrected 2026-07-28 — the old label
     "13.4% causes −25%" mislabelled a proceeds figure; 13.4% moves price −22%
-    and −25% takes ~15.6%. SEASONS.md §7d.2 carries the correction; the cap is
-    unchanged and conservative.) Not applicable until a pot is actually being
+    and −25% takes ~15.6%. LAUNCH-DECISIONS.md §2 carries the correction; the
+    cap is unchanged and conservative.) Not applicable until a pot is actually being
     posted (`SEASON_POT`, DeployOrchard's own env, in wei).
     """
     raw = os.getenv("SEASON_POT", "").strip()
@@ -1108,31 +1108,78 @@ def gate_house_never_claims():
             "not a derived one")
     bad, checked = [], 0
     for p in sorted((REPO / "snapshots").glob("*.json")):
+        # The list cannot be checked against itself: `house-wallets.json` names
+        # every one of these wallets by design, and that is the control rather
+        # than a violation of it.
+        if p.name == cp.HOUSE_WALLETS_FILE:
+            continue
         d = _json(p)
-        if "allocations" not in d:
+        # ⚠ THE LINE IS DISTRIBUTION vs ACCESS, AND IT IS NOT THE FILE FORMAT.
+        # This gate read `allocations` only — the airdrop-plan dialect — and
+        # `continue`d past everything else. That skipped the drop's own MERKLE
+        # artifacts, which are the same distribution in a different shape and
+        # carry `claims[w].amount_wei`; a house wallet could sit in one and this
+        # gate would pass it. That is the real gap, and it is closed below.
+        #
+        # ⚠ WHAT IS **NOT** A GAP: a free-mint door's cohort. `SENTENCES.md`
+        # 2026-08-12 row 497 (*"im fine with house wallets"*) settles it —
+        # `house-wallets.json` is deliberately NOT subtracted from the seat
+        # door, because the door is an ACCESS shape and a distribution is not.
+        # One free seat is not a transfer to itself, and that row explicitly
+        # names `build_allowlist`'s no-exclusion default as the correct
+        # behaviour. A session "closed" this on 2026-08-13 by reading the pass
+        # as a hole, rebuilt the cohort against a rule nobody had asked for, and
+        # had to put it back. So the access dialect is skipped here BY DECISION,
+        # and re-adding it needs a sentence rather than an instinct.
+        #
+        # A holder snapshot is not graded either, for a plainer reason: it is a
+        # measurement of who held what, and the house appearing in one is the
+        # truth rather than a payout.
+        rows: dict[str, object] | None = None
+        what = ""
+        if isinstance(d.get("allocations"), dict):
+            rows, what = d["allocations"], "holds"
+        elif isinstance(d.get("claims"), dict):
+            # An access tree's claim carries `allowance`; a distribution's
+            # carries `amount_wei`. Only the second is this gate's business.
+            first = next(iter(d["claims"].values()), None)
+            if isinstance(first, dict) and "allowance" in first:
+                continue
+            rows, what = d["claims"], "can claim"
+        if rows is None:
             continue
         checked += 1
         # Map lowercase -> the artifact's own key. Comparing lowercased and then
         # indexing with the lowercased key crashes on a checksummed plan, which
         # is a legal artifact — an address is not a string, and every comparison
         # here has to survive the difference.
-        by_lower = {w.lower(): w for w in d["allocations"]}
+        by_lower = {w.lower(): w for w in rows}
         for w in sorted((house | other) & set(by_lower)):
             kind = "HOUSE (operator)" if w in house else "house-side, not ours"
-            a = d["allocations"][by_lower[w]]
-            # Two artifact shapes are on disk and both must be readable: the
-            # three-token plan maps wallet -> {obol, myrrh, scry, ticket}, while
-            # the 2026-07-22 single-token one maps wallet -> an int. Assuming the
-            # dict shape crashed the gate on the older file — and a gate that
-            # raises is a gate that gets commented out.
-            bad.append(f"{p.name}: [{kind}] {w[:10]}… holds " + (
-                f"{a.get('obol', 0):,} OBOL / {a.get('myrrh', 0):,} MYRRH / "
-                f"{a.get('scry', 0):,} SCRY"
-                + (" + A GOLDEN TICKET" if a.get("ticket") else "")
-                if isinstance(a, dict) else f"{a:,} {d.get('token', 'units')}"))
+            a = rows[by_lower[w]]
+            # Artifact shapes on disk, and every one must be readable: the
+            # three-token plan maps wallet -> {obol, myrrh, scry, ticket}, the
+            # 2026-07-22 single-token one maps wallet -> an int, and an access
+            # tree maps wallet -> {allowance, proof}. Assuming any one shape
+            # crashed the gate on the others — and a gate that raises is a gate
+            # that gets commented out.
+            if isinstance(a, dict) and "allowance" in a:
+                amt = f"{int(a['allowance']):,} seat(s)" + (
+                    f" at door {d['door']}" if d.get("door") else "")
+            elif isinstance(a, dict) and "amount_wei" in a:
+                amt = f"{int(a['amount_wei']) // 10 ** 18:,} {d.get('token', 'units')}"
+            elif isinstance(a, dict):
+                amt = (f"{a.get('obol', 0):,} OBOL / {a.get('myrrh', 0):,} MYRRH / "
+                       f"{a.get('scry', 0):,} SCRY"
+                       + (" + A GOLDEN TICKET" if a.get("ticket") else ""))
+            else:
+                amt = f"{a:,} {d.get('token', 'units')}"
+            bad.append(f"{p.name}: [{kind}] {w[:10]}… {what} {amt}")
     check("no excluded wallet claims from the drop", not bad,
           f"{len(house)} operator + {len(other)} house-side-not-ours, "
-          f"{checked} plan(s) on disk, none pays either"
+          f"{checked} distribution(s) on disk (plans + their merkle artifacts), "
+          f"none pays either. Free-mint door cohorts are ACCESS and deliberately "
+          f"out of scope — SENTENCES.md 2026-08-12 row 497"
           if not bad else "; ".join(bad),
           "re-plan with the house excluded: `python3 meter/claim_plan.py plan "
           "--snapshot … --label founders` excludes them by default. Note the draw "
@@ -1708,7 +1755,7 @@ def gate_custody():
     cap = re.search(r'SCRY_AGENCY_FAUCET_CAP_USD",\s*"([^"]+)"', a)
     check("hosted custody still cap 0 (no wallets exist)", cap and cap.group(1) == "0",
           f"faucet cap = {cap.group(1) if cap else '?'}",
-          "cap > 0 is its own separately spoken operator act (KEYLESS-WALLET.md) — "
+          "cap > 0 is its own separately spoken operator act (CLAUDE.md invariant 7) — "
           "it must not ride along on a launch")
     # The one NEGATIVE gate in the file, so the one that could fail open: an
     # absent server.py made `"X" not in ""` true and the gate PASSED.
@@ -1722,6 +1769,9 @@ def gate_custody():
 
 DECISION_RE = re.compile(r"^Operator, (\d{4}-\d{2}-\d{2}):", re.M)
 DECISION_LOOKBACK_DAYS = 30
+# Any hex run long enough to be a commit citation. 7 is git's own floor for an
+# abbreviation, and it is what most rows on the ledger carry.
+HEX_RUN_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 
 def _git(args):
@@ -1767,24 +1817,41 @@ def gate_sentences_record_decisions():
     if not ledger:
         return
 
+    # ⚠ THE CITATION IS MATCHED BY PREFIX, AND AN EXACT MATCH IS A BUG THAT
+    # FIRES ON ITS OWN. git abbreviates `%h` to whatever keeps a sha unique in
+    # THIS repo, and that length grows as the repo does: every row on the
+    # ledger cites 7 characters because 7 is what `%h` printed the day it was
+    # written, and `%h` prints 8 now. An `in` test against the full abbreviation
+    # therefore stopped matching all ten citations AT ONCE — the gate went red
+    # claiming the decisions were never recorded, when what actually changed was
+    # git's abbreviation length. It cost a red preflight from 2026-08-09 to
+    # 2026-08-12 and the message sent every reader to look for missing rows that
+    # were sitting right there.
+    #
+    # So: take the FULL sha and ask whether the ledger cites any prefix of it.
+    # That is what a citation MEANS, it is exact in both directions (a 7-char
+    # citation cannot match a different commit unless git itself would have
+    # collided), and it never rots again when the abbreviation grows to 9.
     log = _git(["log", f"--since={DECISION_LOOKBACK_DAYS}.days", "--no-merges",
-                "--format=%h%x1f%s%x1f%b%x1e"])
+                "--format=%h%x1f%H%x1f%s%x1f%b%x1e"])
     if log is None:
         check("every declared operator decision reaches SENTENCES.md", True,
               "git log unavailable — skipped (not a launch blocker)",
               "")
         return
 
+    cited = set(HEX_RUN_RE.findall(ledger))
+
     unrecorded = []
     for entry in (e for e in log.split("\x1e") if e.strip()):
         parts = entry.strip().split("\x1f")
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
-        sha, subject, body = parts[0], parts[1], parts[2]
+        sha, full, subject, body = parts[0], parts[1], parts[2], parts[3]
         if not DECISION_RE.search(body) and not DECISION_RE.search(subject):
             continue
         touched = _git(["show", "--name-only", "--format=", sha]) or ""
-        if "SENTENCES.md" in touched or sha in ledger:
+        if "SENTENCES.md" in touched or any(full.startswith(c) for c in cited):
             continue
         unrecorded.append((sha, subject))
 
@@ -1796,6 +1863,38 @@ def gate_sentences_record_decisions():
           "commit hash in that row so the decision can be traced to what was said")
 
 
+# The two dialects this repo publishes, and the one thing they share: the tree.
+# `seat_roots.py` imports `_leaf`, `_levels` and `verify_proof` straight out of
+# `claim_plan`, so an access tree is the SAME sorted-pair keccak walk over the
+# same 52-byte leaf. Only the second word differs, and with it the total that
+# gets armed:
+#
+#   airdrop  claims[w].amount_wei · total_wei      -> ScryHarvest's sweep floor
+#   access   claims[w].allowance  · seats_promised -> ScrySeat's door cap
+#
+# ⚠ AN UNKNOWN SHAPE IS RED, NEVER SKIPPED. This gate went red the day the
+# first access tree landed because it knew one dialect and globbed both — and
+# the tempting fix, skipping what it cannot parse, is the manufactured green
+# this repo has shipped before. A file it cannot grade is a file whose total
+# nobody checked.
+_MERKLE_SHAPES = (
+    # (the field on each claim, the artifact's total, what that total arms)
+    ("amount_wei", "total_wei", "the sweep floor"),
+    ("allowance", "seats_promised", "the door's seat cap"),
+)
+
+# ⚠ VERIFYING EVERY PROOF STOPPED BEING FREE. The walk is O(n log n) keccak in
+# pure Python: the 55-recipient drop trees finish instantly, while door 1's
+# 57,010-wallet tree costs ~9 MINUTES for the full sweep on top of a 63s root
+# recompute (measured 2026-08-12). A gate nobody waits for is a gate nobody
+# runs, so above this size the proofs are SAMPLED — evenly spaced, so the walk
+# reaches both ends where the odd-node carry lives — and the count checked is
+# PRINTED rather than implied. The root recompute is never sampled: it reads
+# every leaf, and it is the number that gets armed.
+_PROOF_SAMPLE_MAX = 500
+_PROOF_SAMPLE_N = 200
+
+
 def gate_merkle_totals_are_derived():
     """§M4's off-chain half — the half that IS closable.
 
@@ -1805,13 +1904,16 @@ def gate_merkle_totals_are_derived():
     That stays true, the contract's header says so, and the SWEEP_DELAY window
     is the structural consolation — which, note, does nothing on a FIRST root,
     where `priorOwed` is still zero (pinned in test/DeployClaimHarvest.t.sol).
+    `ScrySeat` has the same hole in the same place: a root commits to its
+    leaves, never to how many seats they add up to.
 
-    What is fixable is where the number COMES FROM. `claim_plan.py merkle`
-    derives `total_wei` by summing its own leaves, so an operator who pastes
-    that field into `CLAIM_*_TOTAL` is asserting a number nobody typed. This
-    gate makes that true of the artifact rather than assumed: the root must
-    recompute from the claims it ships, the total must equal their sum, and
-    every proof must verify in the dialect `ScryHarvest._verify` implements.
+    What is fixable is where the number COMES FROM. Both builders derive their
+    total by summing their own leaves, so an operator who pastes that field
+    into `CLAIM_*_TOTAL` or a door's cap is asserting a number nobody typed.
+    This gate makes that true of the artifact rather than assumed: the root
+    must recompute from the claims it ships, the total must equal their sum,
+    and the proofs must verify in the dialect the contract implements — both
+    dialects, since the trees are the same walk over a different second word.
 
     A red here means the number about to be welded into a broadcast disagrees
     with the tree it claims to describe.
@@ -1828,33 +1930,58 @@ def gate_merkle_totals_are_derived():
                      "no merkle artifact on disk yet — this gate arms with the "
                      "first `claim_plan.py merkle` output, which is what feeds "
                      "CLAIM_*_TOTAL", "")
-    bad = []
+    bad, notes = [], []
     for p in arts:
         art = _json(p)
         claims = art.get("claims") or {}
+        field = total_field = arms = None
+        for _f, _tf, _arms in _MERKLE_SHAPES:
+            if claims and all(_f in c for c in claims.values()):
+                field, total_field, arms = _f, _tf, _arms
+                break
+        if field is None:
+            seen = sorted({k for c in list(claims.values())[:1] for k in c})
+            bad.append(f"{p.name}: unknown claim shape {seen or '(no claims)'} — "
+                       f"expected one of {[s[0] for s in _MERKLE_SHAPES]}")
+            continue
         try:
-            entries = sorted((w, int(c["amount_wei"])) for w, c in claims.items())
-            leaves = [cp._leaf(w, amt) for w, amt in entries]
+            entries = sorted((w, int(c[field])) for w, c in claims.items())
+            leaves = [cp._leaf(w, v) for w, v in entries]
             root = "0x" + cp._levels(leaves)[-1][0].hex() if leaves else None
         except Exception as e:  # noqa: BLE001
             bad.append(f"{p.name}: unreadable ({e})")
             continue
         if root != art.get("root"):
             bad.append(f"{p.name}: root does not recompute from its own claims")
-        summed = sum(amt for _, amt in entries)
-        if summed != int(art.get("total_wei", -1)):
-            bad.append(f"{p.name}: total_wei {art.get('total_wei')} != sum of leaves {summed}")
+        summed = sum(v for _, v in entries)
+        if summed != int(art.get(total_field, -1)):
+            bad.append(f"{p.name}: {total_field} {art.get(total_field)} != "
+                       f"sum of leaves {summed}")
         if int(art.get("n", -1)) != len(entries):
             bad.append(f"{p.name}: n {art.get('n')} != {len(entries)} claims")
-        for w, amt in entries:
-            if not cp.verify_proof(w, amt, claims[w]["proof"], art["root"]):
+        if len(entries) <= _PROOF_SAMPLE_MAX:
+            idxs = list(range(len(entries)))
+        else:
+            step = (len(entries) - 1) / (_PROOF_SAMPLE_N - 1)
+            idxs = sorted({int(round(i * step)) for i in range(_PROOF_SAMPLE_N)})
+        for i in idxs:
+            w, v = entries[i]
+            if not cp.verify_proof(w, v, claims[w]["proof"], art["root"]):
                 bad.append(f"{p.name}: {w}'s proof does not verify")
                 break
+            # The leaf binds BOTH words, and that is the property worth testing:
+            # a proof that still walks to the root with a bumped value commits
+            # to the wallet alone, which makes every amount claimable.
+            if cp.verify_proof(w, v + 1, claims[w]["proof"], art["root"]):
+                bad.append(f"{p.name}: {w}'s proof accepts a tampered {field}")
+                break
+        notes.append(f"{p.name}: {len(entries)} claims, {total_field}={summed} "
+                     f"({arms}), {len(idxs)} proof(s) verified"
+                     f"{' (sampled)' if len(idxs) < len(entries) else ''}")
     check("published merkle totals are derived, not typed", not bad,
-          f"{len(arts)} artifact(s): root recomputes, total == sum of leaves, "
-          f"every proof verifies" if not bad else "; ".join(bad),
-          "the total is what the contract's sweep floor is armed to — it must "
-          "come from the tree, never from a keyboard")
+          "; ".join(notes) if not bad else "; ".join(bad),
+          "the total is what the contract's door cap or sweep floor is armed "
+          "to — it must come from the tree, never from a keyboard")
 
 
 def gate_holder_faucet():

@@ -3,9 +3,9 @@ pragma solidity ^0.8.24;
 
 /// @title IScryArbiter — the dispute court interface (the honest "AI court")
 /// @notice The whole point is that a verdict is INDEPENDENT of who pays. The
-///         board pays the arbiter a FLAT fee (identical whatever the ruling —
-///         guarantee §9.1 of AGENT-ECONOMY.md) BEFORE calling `rule`, so the
-///         arbiter can never be paid more for one verdict than another. A
+///         board pays the arbiter a FLAT fee (identical whatever the ruling)
+///         BEFORE calling `rule`, so the arbiter can never be paid more for
+///         one verdict than another. A
 ///         real implementation is a staked multi-arbiter panel whose members
 ///         are themselves metered (an arbiter caught channel-switching loses
 ///         stake); this interface is what the board depends on.

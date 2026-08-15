@@ -90,7 +90,7 @@ contract ScrySeatRootTest is Test {
         seat = new ScrySeat(
             "scry seats",
             "SEAT",
-            [uint256(100), uint256(20), uint256(10), uint256(10), uint256(5)],
+            [uint256(100), uint256(20), uint256(10), uint256(10), uint256(5), uint256(0)],
             IERC20(address(scry)),
             address(0xFEE),
             address(0xB0B),
@@ -117,7 +117,7 @@ contract ScrySeatRootTest is Test {
     }
 
     /// The allowance is bound INTO the leaf, so a cohort member cannot inflate
-    /// their own — the door is access, never a distribution (`SCRY-HIVE.md` §4).
+    /// their own — the door is access, never a distribution.
     function test_a_python_proof_does_not_verify_at_a_larger_allowance() public {
         vm.prank(W1);
         vm.expectRevert("not in this cohort");

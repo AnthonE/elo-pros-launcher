@@ -22,7 +22,7 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 ///
 /// @dev    ## Why a deterministic fee is safe and a random one is not
 ///
-///         `docs/onchain/HOOKS.md` R7 kills every hook that rolls a die inside a swap:
+///         The rule that kills every hook rolling a die inside a swap:
 ///         the trader controls the transaction, so they wrap it and revert on a
 ///         loss, and a "random fee" is really a discount for whoever polls.
 ///

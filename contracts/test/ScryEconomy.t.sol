@@ -442,7 +442,7 @@ contract ScryFeeSplitterTest is Test {
         assertEq(scry.balanceOf(bankSink) + scry.balanceOf(prizes) + scry.balanceOf(ops), 7);
     }
 
-    // ── THE FURNACE (FEES.md §3.1) ────────────────────────────────────────
+    // ── THE FURNACE (`TOKENOMICS.md`) ─────────────────────────────────────
     // The SCRY half of the burn is "just another recipient", which is exactly
     // why it needs tests: an advertised burn rate that can drift from what
     // distribute() actually does is worse than having no burn at all.

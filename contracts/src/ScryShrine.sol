@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {SpoilsToken} from "./SpoilsToken.sol";
 
 /// @title ScryShrine - burn-to-level votive offerings (the Meditation Circle rip)
-/// @notice The on-chain mirror of the Agora's shrine (SPOILS-ECONOMY.md: "burn MYRRH
-///         as a pure offering - no payout, no buff, just the public record"),
+/// @notice The on-chain mirror of the Agora's shrine - "burn MYRRH as a pure
+///         offering: no payout, no buff, just the public record" -
 ///         with the mechanic DFK's Meditation Circle proved: burning the
 ///         economy's coins to climb a posted ladder is a sink people climb
 ///         for its own sake. Offer spoils (burned forever, supply retired),

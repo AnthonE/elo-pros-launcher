@@ -23,7 +23,7 @@
 #   ./deploy_town.sh cashier  [--arm]      # grant the payout wallet a POSTED daily
 #                                          # mint cap on one granary - the whole
 #                                          # security story of the ledgerless
-#                                          # payout, in one call (CASHIER.md)
+#                                          # payout, in one call
 #   ./deploy_town.sh silo     [--arm]      # sealed lockers (+ MYRRH self-bin)
 #   ./deploy_town.sh shrine   [--arm]      # votive burn-to-rank altars
 #   ./deploy_town.sh pools    [--arm]      # mint the coin sides, seed the 3 v3 pools
@@ -328,7 +328,11 @@ ratios_locked() {
 import re, sys
 runtime = [float(x) for x in sys.argv[1:4]]
 try:
-    doc = open("../docs/launch/LAUNCH-DECISIONS.md", encoding="utf-8").read()
+    # WALK docs/ rather than joining a folder name — a re-file must not stop
+    # a broadcast (CLAUDE.md: resolve a doc by walking docs/).
+    import pathlib
+    _p = next(p for p in pathlib.Path("../docs").rglob("LAUNCH-DECISIONS.md") if p.is_file())
+    doc = _p.read_text(encoding="utf-8")
 except OSError as e:
     print(f"cannot read LAUNCH-DECISIONS.md ({e}) — the posted table is the "
           f"authority for these three numbers and it is unreadable"); sys.exit(2)
@@ -1018,7 +1022,7 @@ cashier)
     # CAP this phase sets. So this number is the blast radius of a hot key that
     # can mint, and it is the reason a grant is an acceptable place for one:
     # a stranger reads the cap at `grants(cashier)` and the steward kills it with
-    # one `revokeGrant`, no notice period (CASHIER.md).
+    # one `revokeGrant`, no notice period (HELD-KEYS.md, the cashier row).
     #
     # NOTHING IS DEFAULTED. A cap that appeared because an env var was unset is
     # not a posted cap, and the coin decides which granary - OBOL's and MYRRH's
@@ -1111,7 +1115,7 @@ shrine)
 
 orchard)
     need forge; need python3
-    # A season pays **OBOL** (SEASONS.md 4: OBOL is the wage, MYRRH is never
+    # A season pays **OBOL** (FARMING.md 9: OBOL is the wage, MYRRH is never
     # emitted to LPs). Unchanged by the 2026-07-26 farm flip -- the GARDENER
     # moved to MYRRH, the ORCHARD did not. A pot is funded by
     # granary.stewardMint and a granary binds one token, so the pot comes from
@@ -1121,7 +1125,7 @@ orchard)
     [ -n "${NPM:-}" ] && [ -n "${V3_FACTORY:-}" ] || die "export NPM and V3_FACTORY (then run: ./deploy_town.sh check)"
     # never silently clobber an operator's own export: a pre-set REWARD_TOKEN
     # that is not OBOL is either a typo or a deliberate act this phase refuses
-    # to guess about (SEASONS.md 4: the season wage is OBOL).
+    # to guess about (FARMING.md 9: the season wage is OBOL).
     if [ -n "${REWARD_TOKEN:-}" ] && [ "$(lc "$REWARD_TOKEN")" != "$(lc "$OBOL")" ]; then
         die "REWARD_TOKEN is exported as $REWARD_TOKEN but town.env's OBOL_TOKEN is $OBOL
    (the Orchard pays OBOL. unset REWARD_TOKEN and re-run, or fix town.env)"
@@ -1148,7 +1152,8 @@ bank|economy)
     # never blocked anything, so nothing ever demanded it.
     #
     # THE ONE NUMBER, and it is spoken: burn 5000 / bank 4000 / prizes 0 /
-    # ops 1000 (2026-07-27, SENTENCES.md - closes FEES.md 9 question 2).
+    # ops 1000 (2026-07-27, SENTENCES.md - prizes take no line at open,
+    # because that cut needs an escrow wallet the purse already replaces).
     #
     # This phase used to refuse to arm unless all four were exported, because a
     # default nobody chose must not weld itself. That gate has done its job and
@@ -1618,10 +1623,10 @@ launch)
         else
             # THE CANARY IS THE LAUNCH'S DEFAULT, because a v3 pool's first
             # mint IS its price and this is the one step the script cannot undo
-            # for you. LAUNCH.md 4 has said "canary first, always" since it was
-            # written; `launch --arm` went straight to the full 60M/20M anyway,
-            # which is the doc of record and the driver disagreeing about the
-            # only number that cannot be corrected afterwards.
+            # for you. The launch plan has said "canary first, always" since it
+            # was written; `launch --arm` went straight to the full 60M/20M
+            # anyway, which was the posted order and the driver disagreeing
+            # about the only number that cannot be corrected afterwards.
             POOL_SCRY_BUDGET=100000 POOL_OBOL_BUDGET=10000 ./deploy_town.sh pools --arm
             cat <<'EON'
 
@@ -1702,8 +1707,8 @@ rotate)
     # The `spoils` phase deploys OBOL and MYRRH with minter = the deployer
     # key, which is what lets you seed pools, fund claim contracts and fund
     # harvest. That key
-    # is UNLIMITED MINT while it holds the role. LAUNCH.md called rotating it
-    # "a launch step and not a someday" - and then no phase did it and no gate
+    # is UNLIMITED MINT while it holds the role. The launch plan called rotating
+    # it "a launch step and not a someday" - and then no phase did it and no gate
     # checked it, so the launch's own closing act existed only as prose.
     #
     # setMinter is onlyMinter, so this is one-way: after it runs, the deployer
@@ -1915,7 +1920,7 @@ except Exception: print(0)')
             *)
                 # A CONTRACT DESTINATION IS NOT SELF-EVIDENTLY THE GRANARY PATH,
                 # and this arm blessed every one of them. The lethal case is
-                # written down in a doc marked `status: live`: SPOILS-ECONOMY.md's
+                # written down in a doc marked `status: live` - the old spoils
                 # arming runbook said `SpoilsToken.setMinter(claimsContract)`
                 # where the claims contract is a ScryHarvest. ScryHarvest has no
                 # mint call and no setMinter passthrough - its whole external
@@ -1932,7 +1937,7 @@ except Exception: print(0)')
                 if [ -z "$d_spoils" ]; then
                     echo "   !! $sym -> $next is a CONTRACT that does not answer spoils()."
                     echo "      Only a ScryGranary can hold a minter slot and still mint."
-                    echo "      A ScryHarvest here (SPOILS-ECONOMY.md said this until 2026-07-28) ends"
+                    echo "      A ScryHarvest here (a runbook said this until 2026-07-28) ends"
                     echo "      $sym's mint authority forever - it has no mint path at all."
                     warn=$((warn + 1))
                 elif [ "$(lc "$d_spoils")" != "$(lc "$coin")" ]; then
@@ -2343,7 +2348,7 @@ EON
 # here, so nothing ever did it automatically.
 #
 # It matters more than it sounds for this launch specifically. The audience
-# screens for rugs (DEGEN.md 1b: liquidity/FDV, holder concentration), and an
+# screens for rugs (TOKENOMICS.md: liquidity/FDV, holder concentration), and an
 # unverified token contract is the first thing that screen fails on. Everything
 # needed is derived - the constructor arguments come from foundry's own
 # broadcast receipt and the types from the compiled artifact - so this cannot
@@ -2596,13 +2601,13 @@ status)
     [ -n "$SHRINE_A" ]   && echo "   shrine altars     $(cast call "$SHRINE_A" 'offeringCount()(uint256)' --rpc-url "$RPC")"
     if [ -n "$ORCHARD_A" ]; then
         echo "   orchard seasons   $(cast call "$ORCHARD_A" 'incentiveCount()(uint256)' --rpc-url "$RPC")"
-        # the wage tripwire: a MYRRH-bound Orchard would violate SEASONS.md 4
+        # the wage tripwire: a MYRRH-bound Orchard would break the OBOL wage
         # silently and forever (the binding is immutable). Read, do not trust.
         ocoin=$(cast call "$ORCHARD_A" 'rewardToken()(address)' --rpc-url "$RPC" 2>/dev/null || echo "")
         OBOL_T=$(town_get OBOL_TOKEN)
         if [ -n "$ocoin" ] && [ -n "$OBOL_T" ] && [ "$(lc "$ocoin")" != "$(lc "$OBOL_T")" ]; then
             echo "   !! orchard rewardToken $ocoin is NOT town.env's OBOL_TOKEN $OBOL_T"
-            echo "   !! seasons pay the wrong coin - SEASONS.md 4. Redeploy the orchard."
+            echo "   !! seasons pay the wrong coin - a season pays OBOL. Redeploy the orchard."
         fi
     fi
 
@@ -2703,7 +2708,8 @@ claims = (dep.get("chains", {}).get("4663", {}) or {}).get("claims") or {}
 if not claims:
     print("   no claim contracts recorded in deployments.json yet.")
     print("   This arms after `forge script script/DeployClaim.s.sol --broadcast`,")
-    print("   which LAUNCH.md requires you to record under chains.4663.claims.")
+    print("   which you must record under chains.4663.claims - this check reads")
+    print("   every posted root from there and can see nothing you did not record.")
     sys.exit(0)
 
 

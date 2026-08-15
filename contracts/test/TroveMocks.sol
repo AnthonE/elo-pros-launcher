@@ -140,7 +140,8 @@ contract MockToken {
 ///         proves the CALL succeeded; it cannot prove the tokens ARRIVED — so a
 ///         wrapper minted against the stated amount would promise more than it
 ///         holds, and the last holder out eats the difference. `pullExact` is
-///         what refuses it (`GACHA.md` §1d, the half that always applied).
+///         what refuses it — the half of the FWA Token Packs read that always
+///         applied.
 contract SkimToken is MockToken {
     function _move(address from, address to, uint256 amount) internal override returns (bool) {
         uint256 fee = amount / 100;

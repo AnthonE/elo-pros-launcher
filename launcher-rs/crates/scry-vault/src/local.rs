@@ -21,8 +21,9 @@
 //! no far side: the process that draws the window also holds the key, so a
 //! compromise of the launcher is a compromise of the key. `ArcaSigner` is the
 //! one with a real boundary — its own uid, its own ledger, `SO_PEERCRED`. This
-//! backend exists because `STEAM.md` §4 is right that the alternative loses
-//! most players at the door, not because it is the safe one.
+//! backend exists because the alternative — no account at all until you have
+//! gone and installed a wallet elsewhere — loses most players at the door, not
+//! because it is the safe one.
 
 use crate::{keystore, Account};
 use scry_broker::protocol::Refusal;

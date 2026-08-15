@@ -22,9 +22,8 @@ interface IERC721Receiver {
 ///
 ///         That is fine for a collection with a thousand holders and a real
 ///         spread. **It is fatal for a game launching its first ten items**,
-///         because a gacha's whole product is the SPREAD (`GACHA.md` §0c): put
-///         ten similar items in a pool and a ticket costs more than the best
-///         prize. The measured version of that sentence is §0c's last row —
+///         because a gacha's whole product is the SPREAD: put ten similar items
+///         in a pool and a ticket costs more than the best prize. Measured —
 ///         *ten positions all at 2 ETH: a ticket costs 2.20 and the biggest
 ///         prize is 1.70.* **A uniform pool is a terrible gacha no matter how
 ///         valuable its contents.**
@@ -44,9 +43,9 @@ interface IERC721Receiver {
 ///         donate to it"*).
 ///
 ///         ⛔ **An earlier version of this header refused that path**, arguing
-///         from `GACHA.md` §1d — which read FWA's Token Packs, an ERC-20 → 721
-///         wrapper feeding their own gacha, and concluded it *"must not be
-///         copied."* The argument here was that the gacha assumes the drawn
+///         from FWA's Token Packs — an ERC-20 → 721 wrapper feeding their own
+///         gacha, read once and written off as *"must not be copied."* The
+///         argument here was that the gacha assumes the drawn
 ///         object's worth is **opaque**, so wrapping something with a public
 ///         price makes the backing and the contents drift apart by themselves.
 ///
@@ -64,8 +63,8 @@ interface IERC721Receiver {
 ///         worth is public.** What changes is that the buyer's private `?value=`
 ///         input becomes computable, so the buyer stops guessing. That transfers
 ///         value from depositor to buyer whenever backing sits below contents —
-///         which is **exactly** the risk `GACHA.md` §0b already names for NFTs,
-///         in its own words: *back it at what it is actually worth,* or *somebody
+///         which is **exactly** the risk the gacha already carries for NFTs:
+///         *back it at what it is actually worth,* or *somebody
 ///         will draw you and take the bid, cheaply, on purpose, and repeatedly.*
 ///         A fungible only makes the counterparty's arithmetic easier. Same
 ///         rule, not a new one.
@@ -252,8 +251,8 @@ contract ScryTrove is ReentrancyGuard {
     ///      ceremony: a fee-on-transfer token would deliver less than the
     ///      wrapper claims, and then `unwrap` would promise a number this
     ///      contract does not hold — the wrapper would be short and the last
-    ///      holder out would eat it. `GACHA.md` §1d is where this check came
-    ///      from and it is the half of that finding that always applied.
+    ///      holder out would eat it. That came out of the FWA Token Packs
+    ///      read, and it is the half of that finding that always applied.
     function wrapTokens(address token, uint256 amount)
         external
         nonReentrant

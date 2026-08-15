@@ -8,7 +8,7 @@ import "../src/ScryTicket.sol";
 /// Deploy the Thousand (eidolon vessels) + their mint tickets to Robinhood
 /// Chain, and weld them together in one broadcast.
 ///
-/// BEFORE deploy — the salt ritual (EIDOLON.md §provenance):
+/// BEFORE deploy — the salt ritual, which is what makes the roll checkable:
 ///   1. generate a long random salt; store it ONLY in the deploy box env
 ///      (SCRY_EIDOLON_SALT) — it must stay secret until mint-out
 ///   2. EIDOLON_SALT_COMMITMENT below = sha256(utf8(salt)), hex with 0x

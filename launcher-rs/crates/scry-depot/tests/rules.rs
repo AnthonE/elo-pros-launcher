@@ -149,21 +149,24 @@ fn launch_exec_must_be_one_of_the_depots_own_files() {
 
 #[test]
 fn launch_args_with_an_unknown_placeholder_are_refused_at_parse() {
-    // The observed failure: a depot shipped `{servers}` for `{server}`. It
-    // installed, verified clean, sat in the library as "up to date" — and
-    // every Play of it died in a dialog. The refusal belongs here, while the
-    // build is still a download.
+    // The observed failure was a depot shipping `{servers}` for `{server}` —
+    // it installed, verified clean, sat in the library as "up to date", and
+    // every Play of it died in a dialog. `{servers}` has since become a real
+    // placeholder (the title's shard-list url), so the exemplar here is a
+    // near-miss that is still wrong; the refusal it earns belongs at parse,
+    // while the build is still a download.
     let d = depot_with(json!({
-        "launch": {"exec": "run", "args": ["--servers", "{servers}"]}
+        "launch": {"exec": "run", "args": ["--id", "{wallets}"]}
     }));
     let err = parse_depot(&d, false).unwrap_err();
     assert!(err.0.contains("unknown placeholder"), "{}", err.0);
     // The message does the diagnosis, because the player it lands on cannot:
     // it names what the launcher fills, and the near-miss it suspects.
-    assert!(err.0.contains("{server}"), "{}", err.0);
+    assert!(err.0.contains("probably {wallet}"), "{}", err.0);
 
     let d = depot_with(json!({
-        "launch": {"exec": "run", "args": ["--server", "{server}", "--id", "{wallet}"]}
+        "launch": {"exec": "run",
+                   "args": ["--server", "{server}", "--servers", "{servers}", "--id", "{wallet}"]}
     }));
     assert!(parse_depot(&d, false).is_ok());
 }
@@ -258,6 +261,18 @@ fn the_shipped_gates_example_parses() {
     assert_eq!(d.slug, "gates");
     assert!(d.files.iter().any(|f| f.path == d.launch_exec));
     assert!(d.digest().unwrap().starts_with("0x"));
+
+    // Every placeholder it uses is one a launcher actually fills. Parsing does
+    // not check this — `fill` refuses at LAUNCH time, which is a player's
+    // machine — so a typo here would ship a build that installs perfectly and
+    // never starts, and the example is what a title copies from.
+    for a in &d.launch_args {
+        let Some(name) = a.strip_prefix('{').and_then(|s| s.strip_suffix('}')) else { continue };
+        assert!(
+            scry_depot::launch::ARG_VARS.contains(&name),
+            "the example uses {{{name}}}, which no launcher fills"
+        );
+    }
 }
 
 // ── rebasing an origin-served manifest ───────────────────────────────────────

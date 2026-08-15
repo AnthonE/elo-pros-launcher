@@ -6,8 +6,8 @@
 //!
 //! ## The join already existed; nothing used it
 //!
-//! `PROFILE.md` settled this on 2026-08-02 — *"the profile is a view, not a
-//! table"* — and `GET /api/who?handle=…` is that view. It takes **a wallet, an
+//! This was settled on 2026-08-02 — *"the profile is a view, not a table"* —
+//! and `GET /api/who?handle=…` is that view. It takes **a wallet, an
 //! npub, a vow id or a sworn name** and answers with one identity. The comment
 //! in `meter/directory.py` even says it out loud: *"One face across every
 //! surface."*
@@ -125,8 +125,8 @@ impl Identity {
 
     /// An identity for an address the town knows nothing about.
     ///
-    /// A bare wallet still gets a name and a face — `PROFILE.md` §0: *"a bare
-    /// wallet with no vow still gets a page… no account exists to require."*
+    /// A bare wallet still gets a name and a face: *a bare wallet with no vow
+    /// still gets a page — no account exists to require.*
     pub fn bare(address: &str, host: &str) -> Identity {
         Identity {
             wallet: address.starts_with("0x").then(|| address.to_string()),
@@ -206,7 +206,7 @@ struct WhoReply {
     /// every real wallet came back bare.
     #[serde(default)]
     found: Option<WhoIdentity>,
-    /// The account itself. `PROFILE.md`: *a profile is the wallet.*
+    /// The account itself — *a profile is the wallet.*
     #[serde(default)]
     subject: Option<Subject>,
     #[serde(default)]
@@ -323,8 +323,8 @@ pub fn resolve(net: &Net, host: &str, handle: &str) -> Fetched<Identity> {
     let got = net.get_json(&url);
     // ⚠ **404 here means "nobody by that name", not "we could not look".**
     // `/api/who` answers 404 for an address with nothing sworn to it, and that
-    // is a true statement about a real address — `PROFILE.md` §0: a bare wallet
-    // still gets a page, and no account exists to require. Rendering it as an
+    // is a true statement about a real address: a bare wallet still gets a
+    // page, and no account exists to require. Rendering it as an
     // error would make every un-sworn player look like a broken lookup.
     if got.status == Some(404) {
         // …but "not sworn" is not "unknown". The directory carries a row for
@@ -500,8 +500,8 @@ mod tests {
     #[test]
     fn nobody_is_faceless() {
         // The register's mark is the fallback, so an identity always has a
-        // picture — `PROFILE.md`: clearing a field restores the default rather
-        // than blanking the profile.
+        // picture: clearing a field restores the default rather than blanking
+        // the profile.
         let bare = who(json!({"identity": {}}));
         assert!(bare.face.starts_with("https://scry.test/"), "{}", bare.face);
 

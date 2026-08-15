@@ -93,6 +93,33 @@ pub fn normalize_link(mut a: Args) -> Args {
     a
 }
 
+/// What a game's `{placeholder}` argv is filled from.
+///
+/// Its own function because this is the seam that decides what the game is
+/// *told*, and it had no test while it was three lines inside a match arm —
+/// which is how Gates shipped for a while drawing an empty shard browser over
+/// a live shard. `scry-depot`'s `ARG_VARS` says which names are legal; this
+/// says where each one's value comes from, and the two halves are only correct
+/// together.
+///
+/// The split is deliberate: **`server`, `wallet` and `host` are the player's**,
+/// typed or chosen, and **`servers` is the title's** — the manifest already
+/// names the list it serves, so asking a player to re-type a url the launcher
+/// is holding would be a knob for nothing. A value that is absent is simply
+/// not inserted; `launch::fill` writes the empty string for it, which every
+/// game on this launcher reads as absence rather than as a bad value.
+pub fn launch_values(a: &Args, servers_url: Option<&str>) -> BTreeMap<String, String> {
+    // The title's half comes from `scry-depot`, which is where the GUI's two
+    // launch sites read it from too — one rule, three doors.
+    let mut values = scry_depot::launch::title_values(servers_url);
+    for key in ["server", "wallet", "host"] {
+        if let Some(v) = a.flag(&format!("--{key}")) {
+            values.insert(key.into(), v.to_string());
+        }
+    }
+    values
+}
+
 impl Args {
     pub fn has(&self, switch: &str) -> bool {
         self.switches.iter().any(|s| s == switch)

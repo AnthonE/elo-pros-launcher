@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import "../src/ScryTrove.sol";
 
-/// Deploy the shared pot's wrapper (`docs/items/GACHA.md` §12,
-/// `docs/ops/TROVE-BRINGUP.md` step 4).
+/// Deploy the shared pot's wrapper (`ScryTrove.sol`'s header is the design;
+/// `contracts/RUNBOOK.md` is the deploy order).
 ///
 /// **ONE deployment, ever — and this is the opposite of `DeployScryItem`.**
 /// That script deploys once per catalog, because one ERC-721 holding five
@@ -53,7 +53,7 @@ contract DeployScryTrove is Script {
         console2.log("Record it in contracts/deployments.json - broadcast/ is gitignored,");
         console2.log("so that file is the durable record.");
         console2.log("");
-        console2.log("Then, and NOT before, open its pool (TROVE-BRINGUP.md step 5):");
+        console2.log("Then, and NOT before, open its pool:");
         console2.log("  cast send $SCRY_GACHA \\");
         console2.log("    'openPool(address,uint256,uint256,uint256)' \\");
         console2.log("    <trove> 10000000000000000 1000 8500");

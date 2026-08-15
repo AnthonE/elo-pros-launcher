@@ -233,9 +233,9 @@ each a refusal:
 - **read-only.** No install, no play, no uninstall, no speaking. An agent that
   can install software or post as you without a human act is a different
   product. Writes stay on the CLI where a person typed them.
-- **one tool, not five.** `COMPANION.md` §4a — a tool costs context in every
-  session whether it is called or not, which is why the hosted endpoint went
-  66 → 25. `launcher` takes a `what=` selector.
+- **one tool, not five.** A tool costs context in every session whether it is
+  called or not, which is why the hosted endpoint went 66 → 25. `launcher`
+  takes a `what=` selector.
 - **local, and it could not be otherwise.** A hosted endpoint cannot see your
   installs or reach your signer, and the hosted `/mcp` is at 29,614 B against a
   32,000 B tripwire besides.

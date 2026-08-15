@@ -34,8 +34,9 @@ interface IERC721Balance {
 /// REAL script entry (`runWith`) against the REAL RH-Chain factory + NPM:
 ///
 ///   - the hardcoded DEFAULT_FACTORY / DEFAULT_NPM / DEFAULT_SCRY literals
-///     are re-verified against live chain state (SHIP.md: "re-verify the
-///     hardcoded NPM/factory on-chain first") — npm.factory() wiring, the
+///     are re-verified against live chain state — the standing pre-broadcast
+///     rule is to re-verify the hardcoded NPM/factory on-chain first, so
+///     this checks npm.factory() wiring, the
 ///     1% fee tier's spacing, and that SCRY really sits at its address;
 ///   - a fork-deployed SpoilsToken + real SCRY go through the script's
 ///     full path: sort, tripwire, approvals, createAndInitialize + mint in
@@ -79,7 +80,7 @@ contract SeedSpoilsForkTest is Test {
         deal(script.DEFAULT_SCRY(), operator, 1_000e18);
     }
 
-    /// SHIP.md's pre-broadcast tripwire, as a test: the posted literals match
+    /// The pre-broadcast tripwire, as a test: the posted literals match
     /// the live chain. If Uniswap redeploys or the fee tier changes, this
     /// reverts before anyone trusts the defaults.
     function test_fork_defaults_match_live_chain() public {

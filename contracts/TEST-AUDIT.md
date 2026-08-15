@@ -10,8 +10,8 @@ about: "the 2026-07-22 read-audit of the Solidity test suites: does a green forg
 > test suites against their contracts, deploy scripts, and the real on-chain
 > state. The question audited is NOT "are the contracts correct" but **"if
 > `forge test -vv` runs green, does that green mean enough to broadcast to
-> RH-Chain mainnet without a testnet pass?"** Read this next to `SHIP.md`
-> (the launch punch-list) and `deployments.json` (what is actually live).
+> RH-Chain mainnet without a testnet pass?"** Read this next to `NOW.md`
+> (the punch-list) and `deployments.json` (what is actually live).
 >
 > Reality check first: **no one has ever executed this suite** — there is no
 > CI, no cached artifacts, and the authoring environment had no forge. Green
@@ -465,8 +465,9 @@ That was accurate and is now closed. `_seedOne` reads the existing pool's
 granted** — because `createAndInitializePoolIfNecessary` is a no-op against a
 pool that already exists, so a re-run mints at *that* pool's price rather than
 the one the tripwire just validated. Two ways that happens and both are real:
-`LAUNCH.md` §3b step 4 is a deliberate top-up after the canary, and a squatter
-can open the pair first.
+the launch's top-up after the 0.1% canary is a deliberate second seed into the
+pool the canary just opened (`RUNBOOK.md` §0b2), and a squatter can open the
+pair first.
 
 **Read via `staticcall`, not a typed call, and this is the part worth keeping.**
 An address that cannot answer `slot0()` must not turn a good run into a revert
@@ -535,7 +536,7 @@ served by backends at differing heights. Plain `eth_blockNumber` is tight — 12
 reads spanned 6 blocks, monotonic — so a keeper watching for a reveal block reads
 a fresh head, and the ~26s settle deadline is real rather than theoretical.
 
-**And it turned §4.3 of `GACHA.md` from an estimate into a number:** a whole pull
+**And it turned the gacha's own cost-per-pull from an estimate into a number:** a whole pull
 (request + settle + keep) is **580,523 gas**, a deposit **872,903**. At the
 0.0479 gwei base fee measured the same day a pull costs **≈$0.055** — the earlier
 estimate had the gas low and the fee 10× high, and what retired the concern was a

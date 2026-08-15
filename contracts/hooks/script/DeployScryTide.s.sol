@@ -14,8 +14,8 @@ import {ScryTide} from "../src/ScryTide.sol";
 /// @title DeployScryTide — mine, deploy, and open a dynamic-fee pool
 ///
 /// @notice ⚠ **There is no pool for this yet, and that is the blocker — not the
-///         code.** Every hook is a NEW pool starting at zero depth (`HOOKS.md`
-///         R1), and as of 2026-07-31 the house's uncommitted float is **94.78
+///         code.** Every hook is a NEW pool starting at zero depth, and as of
+///         2026-07-31 the house's uncommitted float is **94.78
 ///         OBOL and 178.13 MYRRH** — everything else is already pooled. The one
 ///         raidable source is halving the v3 MYRRH/OBOL pair (~$2,002) and the
 ///         Clock has first claim on it.

@@ -31,7 +31,45 @@ pub const ENV_DENY: [&str; 9] = [
 ];
 
 /// Placeholders a depot's argv may use. Anything else is a refusal.
-pub const ARG_VARS: [&str; 4] = ["server", "wallet", "build_dir", "host"];
+///
+/// `servers` is the **manifest's** `servers.url`, not a shard address: a game
+/// with its own in-client shard browser needs the list the Servers window
+/// reads, and until this existed there was no way for a depot document to ask
+/// for it. Gates shipped with exactly that hole — the list was published, the
+/// url was set, and every launch drew an empty browser because nothing could
+/// pass it. An unset one arrives as the empty string, the same shape `{wallet}`
+/// already has, which a game reads as absence rather than as a bad url.
+pub const ARG_VARS: [&str; 5] = ["server", "wallet", "build_dir", "host", "servers"];
+
+/// The values a launch gets from the TITLE, before the player adds any.
+///
+/// One function because there are **three** launch sites — `scry play`, the
+/// Servers window's Join, and the GUI's Play button — and the rule they have to
+/// agree on is the one that is easy to miss: **`servers` is the title's, not
+/// the player's.** The manifest already names the shard list it serves, so a
+/// launcher that is holding that url and passes nothing is drawing an empty
+/// browser over a live shard.
+///
+/// ⚠ That has now happened twice, and the second time is why this exists. The
+/// first was the depot side — no argv could ask for `{servers}` at all, which
+/// `ARG_VARS` above records. The second was the GUI's **Play** button passing
+/// an empty map while the Servers window beside it passed a full one, so the
+/// same title launched with a shard list through one door and without it
+/// through the other. Two call sites, two rules, and only one of them was ever
+/// tested.
+///
+/// The player's own values — `server`, `wallet`, `host` — are inserted by the
+/// caller on top of this, because only the caller knows whether a player typed
+/// or chose one. An absent value is simply not inserted; [`fill`] writes the
+/// empty string for it, which every game on this launcher reads as absence
+/// rather than as a bad value.
+pub fn title_values(servers_url: Option<&str>) -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    if let Some(u) = servers_url {
+        values.insert("servers".to_string(), u.to_string());
+    }
+    values
+}
 
 /// The depot platform string for this machine.
 pub fn platform_tag() -> String {

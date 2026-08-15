@@ -280,9 +280,14 @@ else:
 
     # `play_message` is built OFFLINE. A client that asks a server what to sign
     # has handed that server the ability to change what it is signing.
-    m = scry_overlay.play_message("duel", "vow_x", "ETH up 5", day="2026-08-07")
+    # ⚠ Keyed to the WALLET since 2026-08-12, and the address is lowercased for
+    # you — a checksummed one is different bytes and would verify differently.
+    m = scry_overlay.play_message("duel", "0xAbC0000000000000000000000000000000000001",
+                                  "ETH up 5", day="2026-08-07")
     check("play_message is deterministic and rebuildable offline",
-          m == "scry play\naction: duel\nvow: vow_x\nday: 2026-08-07\ndetail: ETH up 5",
+          m == ("scry play\naction: duel\n"
+                "wallet: 0xabc0000000000000000000000000000000000001\n"
+                "day: 2026-08-07\ndetail: ETH up 5"),
           repr(m))
     check("…and it names its family on the first line, which is what consent counts",
           m.split("\n")[0] == "scry play")

@@ -9,16 +9,16 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 /// @notice The game claim: a player wins in the barrow at 3am and is paid at
 ///         3am. The meter signs a DRAFT — "this wallet may have withdrawn N in
 ///         total" — anyone submits it, this contract verifies, caps and pays.
-///         Full design, tradeoffs and the numbers the operator must size:
-///         `docs/money/CASHIER.md`.
+///         The design and its tradeoffs are in this header; the coins it pays
+///         and the numbers the operator must size are `docs/money/TOKENOMICS.md`.
 ///
 ///         THIS IS NOT THE AIRDROP AND DOES NOT REPLACE `ScryHarvest`. Merkle
 ///         is the right tool for a snapshot distribution to a fixed list (the
 ///         drops); it is the wrong tool for "I won, pay me", because nothing
 ///         can be claimed until an operator posts a root. This is the wrong
 ///         tool for the drops for the mirror reason: it puts a KEY where a
-///         published tree would do the same job with less trust. Both ship.
-///         `ONCHAIN-LINE.md` §the seam is TWO instruments.
+///         published tree would do the same job with less trust. Both ship —
+///         the seam is TWO instruments, and neither replaces the other.
 ///
 ///         THE HONEST TRADEOFF, stated in the contract that embodies it: a
 ///         signing key can authorize any amount; a published merkle root
@@ -36,8 +36,8 @@ import {ReentrancyGuard} from "./ReentrancyGuard.sol";
 ///         clawback of a paid amount, and — pending the operator's call — a
 ///         pause. A pause is a real answer to a leaked key and also a
 ///         censorship lever aimed at the one function players depend on; the
-///         cap already bounds a leak. `CASHIER.md` §what the operator has
-///         to decide.
+///         cap already bounds a leak, and that call is the operator's and
+///         still open.
 contract ScryTill is ReentrancyGuard {
     // ── what the meter signs ────────────────────────────────────────────────
     /// A draft is an order to pay, and `cumulative` is a LIFETIME RUNNING

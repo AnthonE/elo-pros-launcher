@@ -6,10 +6,10 @@
 //! that starts it. Installing is fetch, hash, move. Verifying is re-hash.
 //! Both are Steam's, and neither is interesting.
 //!
-//! What is interesting is the third thing, and it is the row Steam cannot copy
-//! (`STEAM.md` §1 rows 3–4): **the depot's own digest is a `bytes32` that can
-//! be notarized on chain.** So a player can ask a question no other storefront
-//! can answer — *is the build I just installed the build the house listed?* —
+//! What is interesting is the third thing, and it is the row Steam cannot
+//! copy: **the depot's own digest is a `bytes32` that can be notarized on
+//! chain.** So a player can ask a question no other storefront can answer —
+//! *is the build I just installed the build the house listed?* —
 //! and answer it from a block explorer, without trusting the launcher, the
 //! CDN, or us.
 //!

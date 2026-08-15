@@ -724,7 +724,7 @@ contract GachaHandler is Test {
     ScryGacha public g;
     InvNft public nft;
     MockArbSys public arb;
-    /// The toll coin (`GACHA.md` §10). The handler ARMS AND DISARMS it mid-run
+    /// The toll coin. The handler ARMS AND DISARMS it mid-run
     /// rather than picking a rail once, because the interesting states are the
     /// transitions: a pool that earned in ether, then in coin, then in ether
     /// again, with credits outstanding on both the whole time.
@@ -1007,7 +1007,7 @@ contract GachaInvariants is Test {
     /// BURN address, which is why it is summed here rather than treated as gone.
     /// The burn makes coins unspendable; it does not destroy them, and an
     /// invariant that pretended otherwise would be asserting the overstatement
-    /// `GACHA.md` §10d warns against.
+    /// the toll rail's own notes warn against.
     function invariant_no_toll_unit_is_created_or_destroyed() public view {
         assertEq(_coinEverywhere(), startCoinTotal, "toll coin appeared or vanished");
     }

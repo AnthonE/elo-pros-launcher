@@ -19,8 +19,8 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 ///         runs out, the last buyer takes the pot. Then it starts again.
 ///
 ///         This is the FOMO3D format and we are not claiming otherwise
-///         (`docs/onchain/HOOKS.md` §2.8 — it has shipped twice on v4, both are dead,
-///         neither published source). What v4 adds is that **the ticket is the
+///         (it has shipped twice on v4, both are dead, neither with published
+///         source). What v4 adds is that **the ticket is the
 ///         trade**: there is no separate "enter" button, and the pot is fed by
 ///         the swap itself rather than by a deposit into some other contract.
 ///
@@ -28,9 +28,8 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 ///
 ///         No owner. No admin role. No proxy. No setter of any kind. Every
 ///         parameter is `immutable` and public, fixed in the constructor and
-///         readable by anyone forever. `docs/onchain/HOOKS.md` R3: a hook is
-///         team-authored code in the swap path, so the one thing it must never
-///         do is add a key. There is no function on this contract that the
+///         readable by anyone forever. The rule: a hook is team-authored code
+///         in the swap path, so the one thing it must never do is add a key. There is no function on this contract that the
 ///         deployer can call and you cannot.
 ///
 ///         The consequence is real and is the intended trade: **nothing here
@@ -40,7 +39,7 @@ import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 ///
 ///         ## Why there is no randomness anywhere in this file
 ///
-///         `docs/onchain/HOOKS.md` R7. A swap is a call the trader fully controls, so
+///         A swap is a call the trader fully controls, so
 ///         any random outcome resolved *inside* it can be simulated and
 ///         reverted when it loses — a free option we would be writing and
 ///         giving away. No entropy source fixes this, because every source

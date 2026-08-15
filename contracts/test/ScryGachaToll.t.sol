@@ -5,7 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {ScryGacha} from "../src/ScryGacha.sol";
 import {MockArbSys} from "./MockArbSys.sol";
 
-/// The toll rail (`GACHA.md` §10, decided 2026-07-27: the toll is `SCRY`).
+/// The toll rail (decided 2026-07-27, `SENTENCES.md`: the toll is `SCRY`).
 ///
 /// `ScryGacha.t.sol` covers the ETH rail and every one of its 36 tests still
 /// passes untouched — which is the first thing this suite is for. The toll is an
@@ -514,7 +514,7 @@ contract ScryGachaTollTest is Test {
 
     /// The house's toll goes to the same posted sink as its ether, by the same
     /// permissionless push. When that sink is `ScryFeeSplitter` this is the
-    /// whole handoff — `GACHA.md` §10d's "zero new machinery".
+    /// whole handoff, and it needed zero new machinery.
     function test_theHouseTollSweepsToThePostedSink() public {
         _twoPositions();
         _arm();

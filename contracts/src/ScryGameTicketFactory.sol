@@ -12,7 +12,7 @@ pragma solidity ^0.8.24;
 ///         no source-verification step and no trust in scry.
 ///
 ///         That shape is already the house's settled answer for item contracts
-///         (`TOPOLOGY.md` §167, closed 2026-08-04: *"The house publishes an
+///         (`ITEM-CONTRACT.md` §1b, closed 2026-08-04: *"The house publishes an
 ///         optional factory so `deployedByFactory[addr]` is a known-code signal,
 ///         and renders mint authority on the rug screen instead of holding
 ///         it"*). This is the same doctrine applied to the contract that takes
