@@ -483,6 +483,26 @@ fn an_unknown_placeholder_is_refused_never_passed_through() {
     i.launch_args = vec!["--token".into(), "{secret}".into()];
     let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
     assert!(err.0.contains("unknown placeholder"), "{}", err.0);
+    // The message names what the launcher DOES fill — the player reading the
+    // dialog cannot diagnose, so the error has to.
+    assert!(err.0.contains("{server}") && err.0.contains("{wallet}"), "{}", err.0);
+
+    // The one that actually happened — a build published with `{servers}`
+    // meaning `{server}` — can no longer be refused by name: `{servers}` is a
+    // real placeholder now, the title's shard-list url (`title_values`). What
+    // survives of that incident is the dialog's name-the-fix hint, which fires
+    // for any OTHER singular/plural near-miss, and that is what this asserts.
+    i.launch_args = vec!["--id".into(), "{wallets}".into()];
+    let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
+    assert!(err.0.contains("probably {wallet}"), "{}", err.0);
+
+    // `{servers}` unvalued fills as an empty string — not a literal
+    // `{servers}` in a game's argv, and not a refusal: a title with no
+    // published shard list still launches, and the SDK backstop is the door
+    // that answers (`title_url`).
+    i.launch_args = vec!["--servers".into(), "{servers}".into()];
+    let l = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap();
+    assert_eq!(&l.argv[1..], &["--servers", ""]);
 
     i.launch_args = vec!["--server".into(), "{server}".into(), "--id".into(), "{wallet}".into()];
     let vals = BTreeMap::from([

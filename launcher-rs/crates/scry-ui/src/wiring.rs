@@ -37,6 +37,41 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+/// Put a window where the player is looking, and say how far it moved.
+///
+/// **The middle of the screen the mouse is on, a third of the way down.** Every
+/// window in this client is constructed at a fixed coordinate — `(100, 100)`
+/// for the menu, then a 20px cascade down to the lock screen at `(300, 240)` —
+/// which was written against one 1080p desktop and reads as a pile in the top
+/// left corner of anything bigger. A modal is the case that actually costs
+/// something: the consent prompt and the passphrase window are *answers a
+/// player has to give*, and one that opens a monitor away from the pointer
+/// gets answered late or not at all.
+///
+/// A third of the way down rather than halfway, because a window centred on
+/// the vertical looks low — the eye reads a window's weight from its title bar.
+///
+/// ⚠ **Before `show()`, never after.** Moving a window that is already up is a
+/// jump on screen, and doing it on every show would drag back any window the
+/// player had deliberately put somewhere else.
+///
+/// Returns the `(dx, dy)` it applied, so a caller centring the main window can
+/// carry the rest of the family along by the same amount and keep the cascade
+/// it was built with. `(0, 0)` when there is nothing to measure against — a
+/// screen the toolkit reports as zero-sized is one this leaves alone.
+pub fn centre(win: &mut fltk::window::Window) -> (i32, i32) {
+    let (mx, my) = app::get_mouse();
+    let (sx, sy, sw, sh) = app::screen_work_area(app::screen_num(mx, my));
+    if sw <= 0 || sh <= 0 {
+        return (0, 0);
+    }
+    let x = (sx + (sw - win.width()) / 2).max(sx);
+    let y = (sy + (sh - win.height()) / 3).max(sy);
+    let delta = (x - win.x(), y - win.y());
+    win.set_pos(x, y);
+    delta
+}
+
 /// The one account, shared by everything that touches it.
 ///
 /// ⚠ **`Arc<Mutex<…>>` and not `Rc<RefCell<…>>`, because the game door is on
@@ -116,6 +151,7 @@ pub fn ask_in_window(title: &str, prompt: &str) -> Option<String> {
     let mut w2 = win.window.clone();
     cancel.set_callback(move |_| w2.hide());
 
+    centre(&mut win.window);
     win.window.show();
     let _ = win.field.take_focus();
     while win.window.shown() {
@@ -149,6 +185,7 @@ pub fn show_notice(kind: Note, title: &str, body: &str, offer_restart: bool) -> 
         });
     }
 
+    centre(&mut win.window);
     win.window.show();
     while win.window.shown() {
         if !app::wait() {
@@ -512,6 +549,7 @@ pub fn ask_consent(signer: &Shared, ask: &crate::consent::Ask) -> Option<u32> {
     let mut win = crate::windows::consent(ask, address.as_deref(), unlocked);
     let answer = wire_consent(&win);
 
+    centre(&mut win.window);
     win.window.show();
     while win.window.shown() {
         // `wait` returning false is the app shutting down. Breaking here is
@@ -952,6 +990,7 @@ pub fn lock_screen(signer: &Shared, why: &str) {
     let mut field = win.field.clone();
     field.set_callback(move |_| try_unlock());
 
+    centre(&mut win.window);
     win.window.show();
     let _ = win.field.take_focus();
     while win.window.shown() && !done.get() {

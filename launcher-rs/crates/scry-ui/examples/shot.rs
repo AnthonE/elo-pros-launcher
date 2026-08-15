@@ -51,6 +51,15 @@ fn main() {
             row("unreached", "0.1.0", 4_100_000, None, None),
         ]).window,
         "empty" => windows::games(&[]).window,
+        // A library longer than any window it could be shown in — the state
+        // the shelf was drawing off the bottom edge until 2026-08-13, and the
+        // reason `chrome::shelf` scrolls. Worth a capture rather than only a
+        // test: what a picture shows and an assertion cannot is that the
+        // scrollbar is REACHABLE and the footer is still on screen under it.
+        "games2" => windows::games(&(0..15)
+            .map(|i| row("gates", "0.1.0-g607af0314", 75_829_730, Some(false),
+                         Some(&format!("Title {i}"))))
+            .collect::<Vec<_>>()).window,
         "about" => windows::about(),
         "store" => windows::store(&[], false, "dns error: no such host").window,
         "store2" => windows::store(&[
@@ -155,6 +164,32 @@ fn main() {
     };
     w.show();
     app::flush();
+    // A capture instead of a session when SCRY_SHOT_OUT names a file: render
+    // the window into an offscreen surface, write the pixels as a P6 PPM,
+    // exit. `watchtower/art/make_client_shots.py` drives this under a headless
+    // X and folds the PPM into the PNGs the download page and the .deb's
+    // metainfo point at. A surface render rather than a screen read on
+    // purpose: there is no map-then-read race to lose, no stride to guess,
+    // and nothing else can be in frame — the capture IS the window's own
+    // draw, which is the claim a client screenshot should make anyway.
+    if let Ok(out) = std::env::var("SCRY_SHOT_OUT") {
+        for _ in 0..10 {
+            let _ = app::wait_for(0.02);
+        }
+        let (ww, wh) = (w.width(), w.height());
+        let sur = fltk::surface::ImageSurface::new(ww, wh, false);
+        sur.draw(&w, 0, 0);
+        let shot = sur.image().expect("the surface yielded no image");
+        let px = shot.to_rgb_data();
+        let mut ppm = format!("P6\n{} {}\n255\n", shot.data_w(), shot.data_h()).into_bytes();
+        match shot.depth() as usize {
+            3 => ppm.extend_from_slice(&px),
+            4 => ppm.extend(px.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]])),
+            d => panic!("capture depth {d} — expected RGB or RGBA"),
+        }
+        std::fs::write(&out, ppm).expect("could not write the capture");
+        return;
+    }
     a.run().unwrap();
 }
 

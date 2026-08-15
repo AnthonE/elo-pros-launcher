@@ -421,6 +421,32 @@ fn main() {
     );
 
     let mut menu = windows::main_menu(has_account, env!("CARGO_PKG_VERSION"));
+
+    // Where the client opens. Every window is constructed at a hard-coded
+    // coordinate — the menu at `(100, 100)`, then a 20px cascade — so the
+    // whole family is put back where the player is looking by centring the
+    // menu and carrying everything else by the same amount. That keeps the
+    // cascade the windows were built with instead of stacking six windows on
+    // one spot (`wiring::centre`).
+    let drift = wiring::centre(&mut menu.window);
+
+    // ⚠ **Escape must not quit the launcher.** FLTK ends a window on Escape by
+    // calling its callback (`Fl.cxx`: *"make Escape key close windows"*), and
+    // for the main menu that is the whole program: the game door closes, every
+    // other window goes with it, and the player pressed one key. It is exactly
+    // the key they press to dismiss the passphrase prompt, so it is exactly
+    // the key that lands on this window a moment later. `Event::Close` is the
+    // window manager's own close box and nothing else, which is the one that
+    // means it.
+    //
+    // Closing the menu DOES quit, deliberately: it is the way back to every
+    // other window, so a client with the menu shut and Games still open is a
+    // program the player cannot navigate but also cannot see they still have.
+    menu.window.set_callback(|_| {
+        if app::event() == fltk::enums::Event::Close {
+            app::quit();
+        }
+    });
     menu.window.show();
 
     // ── the one place a restart is genuinely the fix ────────────────────────
@@ -545,6 +571,7 @@ fn main() {
         host: host.clone(),
         root: root.clone(),
         front: Rc::clone(&front),
+        drift,
         shelf: std::cell::RefCell::new(Vec::new()),
         store: std::cell::RefCell::new(None),
         games: std::cell::RefCell::new(None),
@@ -558,6 +585,13 @@ fn main() {
         ("Signing", signing_w.window.clone()),
         ("About", windows::about()),
     ];
+    // Carried by the same amount the menu was, so the cascade they were built
+    // with survives the move. Done before any of them is shown — see
+    // `wiring::centre`.
+    for (_, w) in windows_by_label.iter() {
+        let mut w = w.clone();
+        w.set_pos(w.x() + drift.0, w.y() + drift.1);
+    }
     for i in 0..menu.window.children() {
         if let Some(mut child) = menu.window.child(i) {
             let label = child.label();
@@ -618,14 +652,27 @@ fn main() {
         println!("scry-gui: client {mine} — {newer} is published at {host}/download.html");
         // One dialog, once per launch, dismissible — a nudge with the reason
         // in it, never a nag loop and never a download this program performs.
-        fltk::dialog::message_default(&format!(
-            "A newer scry is published: {newer} (this is {mine}).\n\n\
-             Get it at {host}/download.html — or from your package manager,\n\
-             if you installed it there.\n\n\
-             This program does not replace itself: a binary that rewrites\n\
-             itself would need absolute trust, so the swap happens in the\n\
-             open, where you can see it."
-        ));
+        //
+        // ⚠ **This was the last `dialog::message_default` in the client**, and
+        // it outlived the pass that removed the other three (`windows.rs`, the
+        // three-stock-dialogs note). It drew FLTK's own grey box with a blue
+        // `?` over an olive client — the operator's *"the passphrase screen
+        // doesnt match anything else"*, surviving in the one window a player
+        // sees before they have touched anything. `Note::Done` and not
+        // `Refused`: a published update is news, not a fault.
+        wiring::show_notice(
+            windows::Note::Done,
+            "A newer scry is published",
+            &format!(
+                "{newer} is out — this is {mine}.\n\n\
+                 Get it at {host}/download.html, or from your package manager\n\
+                 if you installed it there.\n\n\
+                 This program does not replace itself: a binary that rewrites\n\
+                 itself would need absolute trust, so the swap happens in the\n\
+                 open, where you can see it."
+            ),
+            false,
+        );
     }
 
     a.run().unwrap();
@@ -814,6 +861,10 @@ struct Ui {
     host: String,
     root: std::path::PathBuf,
     front: Rc<dyn wiring::Storefront>,
+    /// How far the menu moved when it was centred, for the FIRST build of
+    /// these two. Every later one inherits the position of the window it
+    /// replaces instead — see [`place`].
+    drift: (i32, i32),
     /// The last shelf that was read. The library borrows it for names and
     /// icons, so the two windows cannot disagree about what a title is called.
     shelf: std::cell::RefCell<Vec<windows::Shelf>>,
@@ -834,6 +885,25 @@ fn defer(ui: &Rc<Ui>, what: fn(&Rc<Ui>, bool)) {
     app::add_timeout3(0.05, move |_| what(&ui, true));
 }
 
+/// Put a rebuilt window where the one it replaces was standing.
+///
+/// **A refresh is not a new window to the player**, whatever it is to this
+/// program. Pressing Refresh rebuilt the widgets and put the result back at
+/// the constructor's hard-coded coordinate, so a Store the player had dragged
+/// onto their second monitor jumped home — and a game installed from the Store
+/// refreshes Games too, which meant a window moving on its own while nobody
+/// had touched it.
+///
+/// The SIZE is deliberately not carried. A window's height is a function of
+/// how many rows there are, and a library that just lost a game would keep a
+/// well of empty olive where the game used to be.
+fn place(new: &mut fltk::window::Window, previous: Option<(i32, i32)>, drift: (i32, i32)) {
+    match previous {
+        Some((x, y)) => new.set_pos(x, y),
+        None => new.set_pos(new.x() + drift.0, new.y() + drift.1),
+    }
+}
+
 /// Read the shelf and put up a Store window over whatever was there.
 fn refresh_store(ui: &Rc<Ui>, show: bool) {
     let (rows, reachable, why) = read_shelf(&ui.host, &ui.root);
@@ -845,7 +915,13 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
             format!("unreadable ({why}) — the Store will say so")
         }
     );
-    let store_w = windows::store(&rows, reachable, &why);
+    let mut store_w = windows::store(&rows, reachable, &why);
+    // Where the window it replaces was standing, before that one is dropped.
+    place(
+        &mut store_w.window,
+        ui.store.borrow().as_ref().map(|s| (s.window.x(), s.window.y())),
+        ui.drift,
+    );
     *ui.shelf.borrow_mut() = rows;
 
     // Installing from the Store puts a game in the library, so the library is
@@ -889,7 +965,12 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
 fn refresh_games(ui: &Rc<Ui>, show: bool) {
     let rows = read_library(&ui.host, &ui.root, &ui.shelf.borrow());
     println!("scry-gui: {} install(s) under {}", rows.len(), ui.root.display());
-    let games_w = windows::games(&rows);
+    let mut games_w = windows::games(&rows);
+    place(
+        &mut games_w.window,
+        ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
+        ui.drift,
+    );
     wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
 
     let mut refresh = games_w.refresh.clone();

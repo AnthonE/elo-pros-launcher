@@ -172,6 +172,36 @@ fn check_env(env: &BTreeMap<String, String>, build: &Path) -> Result<BTreeMap<St
     Ok(out)
 }
 
+/// The refusal an unknown placeholder earns, worded for the two people who
+/// will read it: the player it lands on, who can do nothing about it, and the
+/// publisher whose depot it names the fix for.
+fn unknown_placeholder(name: &str) -> DepotError {
+    let known = ARG_VARS.map(|v| format!("{{{v}}}")).join(", ");
+    // `{servers}` for `{server}` is the observed failure — a build shipped
+    // with the plural and every Play of it died here, as "a weird issue".
+    // Naming the likely intent turns that dialog into a one-word depot fix.
+    let hint = ARG_VARS
+        .iter()
+        .copied()
+        .find(|v| name.strip_suffix('s') == Some(v) || v.strip_suffix('s') == Some(name))
+        .map(|v| format!(" — probably {{{v}}}, and the fix belongs in the depot"))
+        .unwrap_or_default();
+    DepotError::new(format!(
+        "launch arg uses unknown placeholder {{{name}}}; this launcher fills {known}{hint}"
+    ))
+}
+
+/// Refuse argv placeholders this launcher will never fill.
+///
+/// The installer calls this so a bad launch command is refused while it is
+/// still a download — the alternative is what `{servers}` actually did: a
+/// build that installs, verifies clean, and then dies on Play, one player at
+/// a time. Launching still re-checks through [`fill`], because a receipt is a
+/// file on disk and can be edited after it is written.
+pub fn check_args(args: &[String]) -> Result<()> {
+    fill(args, &BTreeMap::new()).map(|_| ())
+}
+
 /// Substitute `{server}`-style placeholders.
 ///
 /// An unknown placeholder is a refusal, not a passthrough — a literal
@@ -193,9 +223,7 @@ fn fill(args: &[String], values: &BTreeMap<String, String>) -> Result<Vec<String
             let name = &after[..close];
             if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
                 if !ARG_VARS.contains(&name) {
-                    return Err(DepotError::new(format!(
-                        "launch arg uses unknown placeholder {{{name}}}"
-                    )));
+                    return Err(unknown_placeholder(name));
                 }
                 s.push_str(values.get(name).map(String::as_str).unwrap_or(""));
             } else {

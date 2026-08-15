@@ -9,8 +9,10 @@ Three artifacts, because they answer three different questions:
 
   scry_<v>_amd64.deb              the Ubuntu/Debian answer. `sudo apt install
                                   ./scry_<v>_amd64.deb` puts `scry` and
-                                  `scry-gui` on PATH, adds the menu entry, and
-                                  — the reason it is a package and not a
+                                  `scry-gui` on PATH, adds the menu entry with
+                                  the mark, furnishes the software-center page
+                                  (AppStream metainfo: prose, links, shots),
+                                  and — the reason it is a package and not a
                                   tarball — declares the X11/pango libraries
                                   the window links, so a missing one is apt's
                                   problem and never a player's.
@@ -220,6 +222,7 @@ Icon=scry
 Terminal=false
 Categories=Game;
 StartupNotify=true
+StartupWMClass=scry
 Keywords=scry;games;launcher;
 """
 
@@ -266,17 +269,138 @@ set -e
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
 fi
+# Same shape for the icon: a stale hicolor cache outranks a new file, so a
+# desktop can keep showing the placeholder gear over an icon that is right
+# there on disk. Guarded and soft for the same reason as above — a cache is
+# not worth a failed install on a box with no desktop.
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
 exit 0
 """
 
-# The same mark the Python package ships and the website draws in CSS
-# (css/store.css .wordmark) — one square, scalable, no raster, no request.
-ICON = """\
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="10" fill="#0e1210"/>
-  <rect x="14" y="14" width="22" height="22" rx="3" fill="#00c805"/>
-  <rect x="14" y="42" width="36" height="8" rx="2" fill="#a0aa95"/>
-</svg>
+# ── the mark ─────────────────────────────────────────────────────────────────
+#
+# The menu icon is the site's green orb, and it is READ, never retyped: the
+# client compiles the identical file into every window it opens
+# (`crates/scry-ui/assets/orb.svg`, `windows::mark`), so the icon in the dock
+# and the icon in the menu cannot disagree. In the forge the site's own copy
+# is `watchtower/favicon.svg` and the two must be byte-identical — checked on
+# every run INCLUDING `--check`, which is how the site suite inherits the weld
+# (the same law test_site.py holds the masthead CSS to). The public repo
+# carries `launcher-rs/` without the site, so the favicon half of the weld is
+# skipped where there is no favicon to weld to.
+ICON_PATH = HERE / "crates" / "scry-ui" / "assets" / "orb.svg"
+
+
+def _icon() -> str:
+    svg = ICON_PATH.read_text(encoding="utf-8")
+    twin = REPO / "watchtower" / "favicon.svg"
+    if twin.is_file() and twin.read_text(encoding="utf-8") != svg:
+        raise SystemExit(
+            f"{ICON_PATH.relative_to(REPO)} and watchtower/favicon.svg disagree.\n"
+            "The client's compiled-in mark and the site's favicon are the same\n"
+            "object on purpose — copy the intended one over the other.")
+    return svg
+
+
+ICON = _icon()
+
+# ── the store listing the desktop reads ──────────────────────────────────────
+#
+# GNOME Software and KDE Discover render an installed program's page from
+# AppStream metainfo, not from the .desktop entry — without this file the page
+# is the bare package description in a void: placeholder icon, "No
+# Screenshots", no links, no idea who made it. One XML file under
+# /usr/share/metainfo/ and the page is furnished. Only the .deb ships it,
+# because only the .deb participates in a desktop's software center.
+#
+# The screenshots are URLs on the origin rather than bytes in the package —
+# that is how AppStream screenshots work (a software center fetches them
+# lazily), and it means a recapture is a site deploy, not a repackage. They
+# are renders of the client's own windows: `watchtower/art/make_client_shots.py`
+# drives the `shot` example under a headless X and commits the PNGs the URLs
+# below name.
+#
+# The prose is DESCRIPTION, reshaped — one source for both surfaces, so the
+# software center and `apt show` cannot drift apart.
+
+RELEASE_DATE = "2026-08-15"  # dates the <release> row; bump WITH the version
+
+
+def _desc_paragraphs() -> str:
+    """The Debian long description, reshaped into AppStream paragraphs."""
+    from xml.sax.saxutils import escape
+    paras, cur = [], []
+    for line in DESCRIPTION.splitlines():
+        if line.strip() == ".":
+            paras.append(" ".join(cur))
+            cur = []
+        else:
+            cur.append(line.strip())
+    if cur:
+        paras.append(" ".join(cur))
+    return "\n".join(f"    <p>{escape(p)}</p>" for p in paras)
+
+
+def metainfo() -> str:
+    return f"""\
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>xyz.moreright.scry</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>scry</name>
+  <summary>Games built by agents, owned by players</summary>
+  <description>
+{_desc_paragraphs()}
+  </description>
+  <launchable type="desktop-id">scry.desktop</launchable>
+  <provides>
+    <binary>scry</binary>
+    <binary>scry-gui</binary>
+  </provides>
+  <developer id="xyz.moreright">
+    <name>scry</name>
+  </developer>
+  <url type="homepage">https://scry.moreright.xyz/</url>
+  <url type="help">https://scry.moreright.xyz/docs.html</url>
+  <url type="bugtracker">https://github.com/AnthonE/scryward/issues</url>
+  <url type="vcs-browser">https://github.com/AnthonE/scryward</url>
+  <update_contact>admin@scry.moreright.xyz</update_contact>
+  <branding>
+    <color type="primary" scheme_preference="light">#dff5e2</color>
+    <color type="primary" scheme_preference="dark">#0e1210</color>
+  </branding>
+  <content_rating type="oars-1.1">
+    <content_attribute id="money-purchasing">mild</content_attribute>
+  </content_rating>
+  <categories>
+    <category>Game</category>
+  </categories>
+  <keywords>
+    <keyword>games</keyword>
+    <keyword>launcher</keyword>
+    <keyword>store</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The store — the curated shelf: what each title costs, and what is already installed</caption>
+      <image>https://scry.moreright.xyz/art/client/store.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The library — what is installed, what is stale, and what could not be checked</caption>
+      <image>https://scry.moreright.xyz/art/client/library.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A title's public shards — live player counts, or an honest question mark</caption>
+      <image>https://scry.moreright.xyz/art/client/servers.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="{VERSION}" date="{RELEASE_DATE}"/>
+  </releases>
+</component>
 """
 
 COPYRIGHT = """\
@@ -390,13 +514,15 @@ def build_deb(cli: bytes, gui: bytes) -> bytes:
     dirs = ["./usr/", "./usr/bin/", "./usr/share/", "./usr/share/applications/",
             "./usr/share/doc/", "./usr/share/doc/scry/", "./usr/share/icons/",
             "./usr/share/icons/hicolor/", "./usr/share/icons/hicolor/scalable/",
-            "./usr/share/icons/hicolor/scalable/apps/"]
+            "./usr/share/icons/hicolor/scalable/apps/", "./usr/share/metainfo/"]
     files = [
         ("./usr/bin/scry", cli, 0o755),
         ("./usr/bin/scry-gui", gui, 0o755),
         ("./usr/share/applications/scry.desktop", DESKTOP.encode(), 0o644),
         ("./usr/share/applications/scry-join.desktop", SCHEME_DESKTOP.encode(), 0o644),
         ("./usr/share/icons/hicolor/scalable/apps/scry.svg", ICON.encode(), 0o644),
+        ("./usr/share/metainfo/xyz.moreright.scry.metainfo.xml",
+         metainfo().encode(), 0o644),
         ("./usr/share/doc/scry/copyright", COPYRIGHT.encode(), 0o644),
     ]
     files.sort()

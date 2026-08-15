@@ -2,7 +2,7 @@
 status: live
 lane: [platform]
 updated: 2026-08-12
-about: "the desktop client — the 2003 Steam client ripped and pointed at scry: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons."
+about: "the desktop client — the 2003 Steam client ripped and pointed at scry: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -226,7 +226,7 @@ tested:
 | `launch.exec` must be one of the depot's own files | it is re-checked at launch, not trusted from the install: a receipt is a file on disk and can be edited afterwards |
 | `LD_PRELOAD`, `LD_AUDIT`, `PATH`, `PYTHONPATH`, `DYLD_*` are refused | a depot does not get to redirect the loader |
 | `LD_LIBRARY_PATH` is allowed, and must resolve **inside the build** | game builds legitimately need it; letting it point out is letting the depot choose which libc you run |
-| an unknown `{placeholder}` in argv is refused, never passed through | a literal `{token}` reaching a game's argv shows up once, in production, on someone else's machine |
+| an unknown `{placeholder}` in argv is refused, never passed through — **at install and again at launch** | a literal `{token}` reaching a game's argv shows up once, in production, on someone else's machine. And a depot that writes `{servers}` for `{server}` must fail while it is still a download — unchecked it installs, verifies clean, reads "up to date", and every Play of it dies in a dialog. The refusal names what the launcher fills and the near-miss it suspects, because the player it lands on cannot diagnose it |
 | the depot root must be https | and `open_url` refuses any scheme but http(s), so a catalog cannot hand the client a `file://` or a custom handler |
 
 ## 4 · Signing — reach a signer, never become one
@@ -842,6 +842,19 @@ and `watchtower/dl/SHA256SUMS` is what a reader checks them against.
 ⚠ **Publishing is a release act on the origin box, not a commit here** — the
 page's version and the committed artifacts are gated by `test_site.py`, so a
 version bump made with the change goes red until the release runs.
+
+**The `.deb` also furnishes the desktop it lands on.** The menu icon is
+the site's green orb — one file, compiled into every window the client opens
+(`crates/scry-ui/assets/orb.svg`, `windows::mark`) and byte-welded to
+`watchtower/favicon.svg` by `build_release.py --check`, so the dock, the menu
+and the browser tab cannot show three different marks. An AppStream metainfo
+file is what GNOME Software / KDE Discover render an installed program's page
+from: without it the page is a placeholder icon over "No Screenshots"; with it
+the page carries the summary, the description (the same prose `apt show`
+prints), the links, and screenshots. The screenshots are renders of the
+client's own windows — `watchtower/art/make_client_shots.py` drives the `shot`
+example under a headless X and commits the PNGs the metainfo names by URL, and
+`test_site.py` fails on a named capture nobody committed.
 
 ### 10c · The dependency policy
 
@@ -1558,6 +1571,107 @@ the audit that makes the cost known, in the shape §12 used.
 The two shelves have buttons, the passphrase screen is the toolkit's own, and
 the client owns its dialogs rather than borrowing the desktop's. The dated
 walk-through is in `CHANGELOG.md` 2026-08-12.
+
+### 10p · The tenth game was drawn off the bottom of the window
+
+> Operator, 2026-08-13: *"can we make the launcher even better? its not bad
+> right now. and btw it works on windows and linux. we should we using smaller
+> icons for games and a few other things."*
+
+**The ask was the icons and the pass found a data-loss bug**, which is the
+order worth recording: looking at the library at a size nobody had drawn it at
+is what turned up the rest. Measured before anything was changed:
+
+| | |
+|---|---|
+| a library of ten or more games | **rows nine and up were drawn past the window's bottom edge** — painted over the footer, then onto nothing. Not clipped and not scrolled to: *gone*, with their Play and Verify buttons |
+| the same, on the Store and Servers | identical shape — every shelf sized a well with `.clamp(_, 520)` and then drew rows down the window at a fixed pitch, so the clamp cut the LIST and not the view |
+| a title's icon in the library | `44px`, the Store's number, on a two-line row — nine games in a 620px window |
+| every window | **no icon at all**: a blank page on the Windows taskbar, the desktop's default on Linux, for the two windows a stranger's game can cause to appear |
+| **Escape** on the main menu | quit the launcher. FLTK ends a window on Escape by calling its callback, and for the menu that is the whole program — the same key that dismisses the passphrase prompt a moment earlier |
+| any origin string containing `@` | **the text after it was thrown away.** `@home` drew nothing at all, `mail@example.test` drew `mail`, and a title called `Gates @ Home` drew `Gates` — FLTK reads `@` as a symbol spec, and it looks for the second one with `strrchr` |
+| the update notice | `dialog::message_default` — the fourth stock dialog, missed by §10o's pass, in the one window a player sees before touching anything |
+| **Refresh** on either shelf | rebuilt the window at its constructor's coordinate, so a Store dragged to a second monitor jumped home — and a Store install refreshes Games, so a window moved on its own |
+
+#### What changed, and the rule each one follows
+
+**The shelves scroll** (`chrome::shelf`). The clamp stays and now bounds the
+*viewport*: how many rows are on screen is this window's business, how many
+exist is the origin's and the player's. ⚠ **FLTK draws `Fl_Scroll`'s bar INSIDE
+the well**, so every row's right-hand column is laid out short of it
+(`windows::BAR`) whether or not a bar is showing — a Verify button laid out to
+the well's edge is one the bar covers the moment a tenth game is installed.
+`tests/shelves.rs` asserts both: that no row is a direct child of the window
+(the state that could not scroll) and that no control reaches under the bar.
+
+**And the windows grow downward.** `Games`, `Store` and `Servers` are resizable
+in height, with the shelf as the resizable child so the footer moves with the
+bottom edge instead of being covered. The width is pinned deliberately: every
+row is laid out in fixed pixels, so a wider window would stretch the well and
+strand the buttons mid-row. Reflowing a row on resize is a different change.
+
+**Two icon sizes, and the split is a rule rather than a taste**
+(`art::ROW_ICON` at 28, `art::SHELF_ICON` at 44). **The Store is browsed and
+the library is scanned** — a player opens Games to find something they already
+own and start it, and a list is measured in rows that reach the eye. Nine games
+became thirteen in the same window. Both numbers stay in `art` because one
+window quietly taking the other's number is the failure this used to protect
+against by having a single constant.
+
+**Every window wears the client's mark** (`chrome::wear_icon`), including the
+consent prompt and the lock screen — *which program is asking* is worth a
+picture on a taskbar. ⚠ It is a rect-and-circles SVG on purpose: FLTK's reader
+is nanosvg, nanosvg does not render `<text>`, and a mark built from a letter
+would draw an empty square **silently**. `chrome`'s own test asserts it parses
+to something with pixels.
+
+**Escape no longer quits.** Only `Event::Close` — the window manager's own
+close box — ends the launcher, and closing the menu *does* quit, because the
+menu is the way back to every other window and a client with it shut is one the
+player can neither navigate nor see they still have.
+
+**Every `@` is escaped where untrusted text becomes a label**
+(`chrome::defuse`). This is the same hole `art::sniff` refuses at, one layer
+up: a *parser* reached by a stranger's string. The clipping bound could never
+have caught it — clipping bounds where text is drawn, and this is about what
+FLTK decides the text *is*.
+
+⚠ **Doubling only the leading one is not enough, and that is not what the
+toolkit's docs lead you to.** A label may carry a symbol at each end and
+`fl_draw.cxx` finds the second with `strrchr` — *the last `@` in the string,
+wherever it is* — so an address in a blurb ends the text at `mail`. `@@` is
+FLTK's own escape and renders back to one literal `@`, so doubling all of them
+changes what is parsed and not what is read. Confirmed by drawing it both ways
+rather than by reading the header: the before picture is a shelf of titles with
+their names cut off.
+
+**The full string goes on as a tooltip**, defused as well: FLTK draws tooltips
+with symbols ENABLED (`Fl_Tooltip::draw_symbols_` is a compiled-in `1`), so an
+undefused tooltip is the same hole with a hover in front of it. A clip is still
+the only bound that holds, and it still eats the end of a 140-character blurb —
+the tooltip is where the rest stays reachable without letting one row's text
+decide another row's layout.
+
+**The controls whose verb is not self-evident carry one too**, and
+`Act::what_it_does` is where the shelf's live. Two of the five are why it
+exists: **Buy a copy…** opens a browser and moves no money in here, and **No
+build yet** means listed-but-nothing-for-this-machine. A player who reads
+either as the other learns the client lied to them, and a five-word button has
+no room to prevent it.
+
+**The last stock dialog is gone** — the update notice is `windows::notice` now,
+`Note::Done` because a published update is news and not a fault.
+
+**Windows open where the player is looking** (`wiring::centre`): the middle of
+the screen the mouse is on, a third of the way down. The menu is centred and
+every other window is carried by the same offset, which keeps the 20px cascade
+they were built with instead of stacking six windows on one spot. A rebuilt
+shelf inherits the position of the window it replaces; the *size* is
+deliberately not carried, because a library that just lost a game would keep a
+well of empty olive where the game used to be.
+
+⚠ **What this pass did not fix:** the install still blocks the UI thread
+(above), and a resized window's height is not remembered across a Refresh.
 
 ## Reading order
 
