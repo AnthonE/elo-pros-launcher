@@ -375,32 +375,61 @@ pub trait Storefront {
 /// guessed: a row saying *"an update is published"* over a Play button is the
 /// exact defect `tests/rows.rs` exists for, and wiring it as Play would have
 /// re-introduced it one layer down.
+///
+/// ⚠ **The verb is live state, not a wiring-time constant.** Until 2026-08-15
+/// it was read once, here, and moved into the callback — so a finished update
+/// relabelled its button **Play** while the closure went on holding *update*.
+/// Operator: *"after i update and hit play it just updates again."* Every
+/// press of that Play button re-downloaded the build it had just installed,
+/// and nothing ever launched. The verb lives in a cell now: a landed update
+/// flips it, and a press reads it as of the press. A FAILED act deliberately
+/// does not flip it — **Failed** retries the verb that failed.
+///
+/// `after_update` is called once an update lands, after the player dismisses
+/// the notice. The binary re-reads the library with it — the same shape as
+/// `wire_store`'s `after_install`, for the same reason: the row under the
+/// button still says *"an update is published"* over the old build id, and a
+/// row that keeps saying that about a build it no longer means is this bug's
+/// sentence-vs-control disagreement all over again.
 pub fn wire_games(
     games_w: &crate::windows::GamesWindow,
     front: Rc<dyn Storefront>,
     tell: Tell,
+    after_update: Rc<dyn Fn()>,
 ) {
     for row in &games_w.rows {
         let (slug, build) = (row.slug.clone(), row.build.clone());
-        let updating = row.act.label() == "Update";
+        let updating = Rc::new(std::cell::Cell::new(row.act.label() == "Update"));
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let after = Rc::clone(&after_update);
         let mut act = row.act.clone();
         act.set_callback(move |b| {
+            let is_update = updating.get();
             b.deactivate();
-            b.set_label(if updating { "Updating…" } else { "Starting…" });
+            b.set_label(if is_update { "Updating…" } else { "Starting…" });
             app::redraw();
             app::flush();
-            let done = if updating {
+            let done = if is_update {
                 front_c.install(&slug)
             } else {
                 front_c.play(&slug)
             };
             match done {
                 Ok(said) => {
-                    b.set_label(if updating { "Play" } else { "Running" });
+                    b.set_label(if is_update { "Play" } else { "Running" });
                     b.activate();
-                    if updating {
+                    if is_update {
+                        // Flipped BEFORE the notice goes up: the notice runs a
+                        // nested event loop, and this button — already saying
+                        // Play — is still pressable under it.
+                        updating.set(false);
                         tell_c(Told::Done, &said);
+                        // And the rebuild is asked for AFTER the notice comes
+                        // down, never before: `after_update` defers a rebuild
+                        // that drops the window this button lives in, and the
+                        // nested loop above would dispatch that drop with the
+                        // button's own callback still on the stack.
+                        after();
                     }
                 }
                 Err(e) => {

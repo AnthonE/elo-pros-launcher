@@ -339,6 +339,87 @@ fn main() {
               allowed.get("family").and_then(|f| f.as_str()) == Some("play"));
     }
 
+    // ── 9 · Update becomes Play by being pressed — never Update twice ───────
+    //
+    // Operator, 2026-08-15: *"after i update and hit play it just updates
+    // again."* The verb was decided when the window was wired and moved into
+    // the callback, so the button a landed update relabels **Play** still ran
+    // the update — every press re-downloaded the build it already had, and
+    // nothing ever launched. The storefront here counts what each press
+    // actually did, which is the one thing the relabelled button cannot show.
+    {
+        use std::cell::Cell;
+
+        struct Counting {
+            installs: Rc<Cell<u32>>,
+            plays: Rc<Cell<u32>>,
+        }
+        impl wiring::Storefront for Counting {
+            fn install(&self, _slug: &str) -> Result<String, String> {
+                self.installs.set(self.installs.get() + 1);
+                Ok("gates 0.2.0 is installed.".into())
+            }
+            fn verify(&self, _slug: &str, _build: &str) -> Result<String, String> {
+                Ok("verified".into())
+            }
+            fn play(&self, _slug: &str) -> Result<String, String> {
+                self.plays.set(self.plays.get() + 1);
+                Ok("running".into())
+            }
+            fn open(&self, _url: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn page_url(&self, _slug: &str) -> String {
+                "https://x.example".into()
+            }
+        }
+
+        let (installs, plays) = (Rc::new(Cell::new(0u32)), Rc::new(Cell::new(0u32)));
+        let refreshed = Rc::new(Cell::new(0u32));
+        // A row whose build is measured stale, so the window offers Update.
+        let stale = windows::Row {
+            slug: "gates".into(),
+            build: "0.1.0".into(),
+            bytes: 75_829_730,
+            digest: "0xold".into(),
+            stale: Some(true),
+            name: None,
+            icon: None,
+            why: None,
+        };
+        let games_w = windows::games(&[stale]);
+        let after = {
+            let refreshed = Rc::clone(&refreshed);
+            Rc::new(move || refreshed.set(refreshed.get() + 1)) as Rc<dyn Fn()>
+        };
+        wiring::wire_games(
+            &games_w,
+            Rc::new(Counting {
+                installs: Rc::clone(&installs),
+                plays: Rc::clone(&plays),
+            }),
+            wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+            after,
+        );
+
+        let mut act = games_w.rows[0].act.clone();
+        check(&mut failures, "a stale row's button says Update", act.label() == "Update");
+
+        act.do_callback();
+        check(&mut failures, "pressing Update installs, and does not play",
+              installs.get() == 1 && plays.get() == 0);
+        check(&mut failures, "a landed update relabels the button Play",
+              act.label() == "Play");
+        check(&mut failures, "and asks the library to re-read itself",
+              refreshed.get() == 1);
+
+        // The press that was the bug: the button says Play, so it must PLAY.
+        act.do_callback();
+        check(&mut failures, "pressing that Play plays — not a second update",
+              plays.get() == 1 && installs.get() == 1);
+        check(&mut failures, "and the row says Running", act.label() == "Running");
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
     if failures == 0 {
         println!("\nclick: every control does what it says");

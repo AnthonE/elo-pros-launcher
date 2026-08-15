@@ -971,7 +971,16 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
         ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
         ui.drift,
     );
-    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
+    // An update rewrites the row under its own button — new build id, new
+    // digest, a status line that must now read *"up to date"* — so the library
+    // is re-read when one lands, exactly as the Store re-reads after an
+    // install. Deferred, because the rebuild drops the window whose button is
+    // mid-callback (see `defer`).
+    let after_update = {
+        let ui = Rc::clone(ui);
+        Rc::new(move || defer(&ui, |ui, _| refresh_games(ui, false))) as Rc<dyn Fn()>
+    };
+    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell(), after_update);
 
     let mut refresh = games_w.refresh.clone();
     let ui_c = Rc::clone(ui);
