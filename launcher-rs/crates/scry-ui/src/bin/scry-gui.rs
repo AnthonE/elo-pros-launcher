@@ -279,10 +279,16 @@ fn games_root() -> std::path::PathBuf {
 
 /// Serve the game door for as long as the launcher is open.
 ///
-/// One thread, one connection at a time — which is enough, because a player
-/// runs one game. It is spawned detached: if the door cannot be opened the
-/// launcher still runs, because being unable to serve games is not a reason to
-/// refuse to show a player their library.
+/// Spawned detached: if the door cannot be opened the launcher still runs,
+/// because being unable to serve games is not a reason to refuse to show a
+/// player their library.
+///
+/// ⚠ **This read "one thread, one connection at a time — which is enough,
+/// because a player runs one game" and that reasoning was wrong.** The count
+/// that matters is connections per *game*, not games: a game holds its boot
+/// connection for the life of the process and opens a second one every time it
+/// wants a signature. `transport::serve_forever` is one thread per connection
+/// and `scry-broker/tests/door.rs` is the failing case it was written against.
 fn open_the_door(host: String, games_root: std::path::PathBuf,
                  signer: wiring::Shared, consent: consent::Doorbell) -> Option<String> {
     let endpoint = transport::default_endpoint();
@@ -295,27 +301,14 @@ fn open_the_door(host: String, games_root: std::path::PathBuf,
         }
     };
     let shown = listener.endpoint();
-    std::thread::spawn(move || loop {
-        match listener.accept() {
-            Ok(conn) => {
-                let mut launcher = Launcher {
-                    host: host.clone(),
-                    games_root: games_root.clone(),
-                    signer: Arc::clone(&signer),
-                    net: scry_net::Net::new(),
-                    consent: consent.clone(),
-                };
-                // One game at a time. A panic in a connection must not take
-                // the launcher with it.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let _ = scry_broker::serve_conn(conn, &mut launcher);
-                }));
-            }
-            Err(e) => {
-                eprintln!("scry-gui: the door stopped accepting ({e})");
-                return;
-            }
-        }
+    std::thread::spawn(move || {
+        transport::serve_forever(listener, move || Launcher {
+            host: host.clone(),
+            games_root: games_root.clone(),
+            signer: Arc::clone(&signer),
+            net: scry_net::Net::new(),
+            consent: consent.clone(),
+        })
     });
     Some(shown)
 }

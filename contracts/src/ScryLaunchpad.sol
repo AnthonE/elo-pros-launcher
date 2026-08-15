@@ -97,7 +97,14 @@ interface ILaunchPool {
     function increaseObservationCardinalityNext(uint16 observationCardinalityNext) external;
 }
 
-/// @title ScryLaunch — the copy sale's money, with only one door and it leads to the pool
+/// @title ScryLaunchpad — the copy sale's money, with only one door and it leads to the pool
+/// @dev formerly `ScryLaunch`, renamed 2026-08-13 while still undeployed —
+///      "launch" is the most overloaded word in this repo (the Hive launch,
+///      `docs/launch/`, `launch_preflight.py`, LAUNCH-DECISIONS) and none of
+///      them are this. `docs/money/LAUNCHPAD.md` already carried the better
+///      name. Nothing moved on chain because nothing was ever broadcast; the
+///      old name survives in `CHANGELOG.md` and `SENTENCES.md` 2026-08-10 as
+///      the dated record of what it was called then.
 /// @notice `COPIES.md`'s launch, as the contract that was missing. The ticket
 ///         takes money and mints a copy; it knows nothing about pools, and
 ///         should not. This is the layer above it — named as the ticket's
@@ -110,7 +117,7 @@ interface ILaunchPool {
 ///         no path that moves the position NFT. Not "we promise not to" —
 ///         there is no function. That is the honest answer to the only
 ///         question this audience actually asks (*"can the team take my
-///         money"*, `DEGEN.md` §1b), and it is the reason the design does not
+///         money"*), and it is the reason the design does not
 ///         need an escrow: an escrow holds a refund, and the refund is the coin.
 ///
 ///         ⚠ THIS IS NOT THE DELETED ESCROW WEARING A NEW NAME. What died on
@@ -170,7 +177,7 @@ interface ILaunchPool {
 ///         advances once per ~12s while the chain runs at 101ms. `ScryGacha`
 ///         shipped a "~10 second" window that was really ~20 minutes and
 ///         nothing failed. Every duration here is a timestamp.
-contract ScryLaunch is ReentrancyGuard {
+contract ScryLaunchpad is ReentrancyGuard {
 
     string public constant NOTICE = "the copy sale's raise, paired into the game's pool and never withdrawable - "
         "no threshold, no graduation event, no exit: this contract has no function that removes liquidity, and "
