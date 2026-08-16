@@ -8,7 +8,7 @@
 //! they are the toolkit's own `ThinUpBox`/`ThinDownBox` and cost no widgets.
 
 use crate::theme::{self, Tone};
-use fltk::{button, enums, frame, group, image, prelude::*, window};
+use fltk::{button, enums, frame, group, image, misc, prelude::*, window};
 
 /// A raised panel — a region sitting on the window body.
 pub fn panel(x: i32, y: i32, w: i32, h: i32) -> group::Group {
@@ -219,6 +219,36 @@ pub fn button_off(x: i32, y: i32, w: i32, h: i32, text: &str) -> button::Button 
     b.set_color(theme::BTN_LO);
     b.deactivate();
     b
+}
+
+/// A download meter — a sunken track that fills as bytes land.
+///
+/// **Hidden until someone has bytes to report.** A meter at rest is a promise
+/// of motion the row cannot keep, so the wiring shows it on the first tick and
+/// puts it away when the download is over.
+///
+/// The fill is the chrome's own pale on the well's own dark — exactly the
+/// scrollbar's pair in [`shelf`], because it is the same statement: *this much
+/// of the whole*. Deliberately not [`theme::LIVE`]: a download moves bytes,
+/// not money, and the green fill stays reserved (`theme::Tone`,
+/// `tests/palette.rs`).
+///
+/// The byte count draws BESIDE the bar (`Align::Right`, outside the box), not
+/// on it — text laid over a travelling fill is legible on the track or on the
+/// fill but never reliably on both.
+pub fn meter(x: i32, y: i32, w: i32, h: i32) -> misc::Progress {
+    let mut m = misc::Progress::new(x, y, w, h, None);
+    m.set_frame(enums::FrameType::ThinDownBox);
+    m.set_color(theme::WELL);
+    m.set_selection_color(theme::BTN);
+    m.set_label_color(theme::INK);
+    m.set_label_size(10);
+    m.set_align(enums::Align::Right);
+    m.set_minimum(0.0);
+    m.set_maximum(100.0);
+    m.set_value(0.0);
+    m.hide();
+    m
 }
 
 #[cfg(test)]

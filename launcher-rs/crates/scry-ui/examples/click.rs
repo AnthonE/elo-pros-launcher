@@ -339,6 +339,165 @@ fn main() {
               allowed.get("family").and_then(|f| f.as_str()) == Some("play"));
     }
 
+    // ── 9 · Update becomes Play by being pressed — never Update twice ───────
+    //
+    // Operator, 2026-08-15: *"after i update and hit play it just updates
+    // again."* The verb was decided when the window was wired and moved into
+    // the callback, so the button a landed update relabels **Play** still ran
+    // the update — every press re-downloaded the build it already had, and
+    // nothing ever launched. The storefront here counts what each press
+    // actually did, which is the one thing the relabelled button cannot show.
+    {
+        use std::cell::Cell;
+
+        struct Counting {
+            installs: Rc<Cell<u32>>,
+            plays: Rc<Cell<u32>>,
+            /// The row's meter and the status line it stands in for, cloned in
+            /// so the MID-download state can be recorded: the meter being up
+            /// while bytes move is exactly what no after-the-fact assertion
+            /// can see, because `meter_rest` runs before install returns.
+            bar: fltk::misc::Progress,
+            status: fltk::frame::Frame,
+            mid: Rc<Cell<bool>>,
+        }
+        impl wiring::Storefront for Counting {
+            fn install(&self, _slug: &str, tick: wiring::Meter<'_>) -> Result<String, String> {
+                self.installs.set(self.installs.get() + 1);
+                // What a real install does, in miniature: a first chunk, a
+                // half-way chunk, the last one.
+                tick(1, 100);
+                tick(50, 100);
+                self.mid.set(
+                    self.bar.visible()
+                        && !self.status.visible()
+                        && (self.bar.value() - 50.0).abs() < f64::EPSILON,
+                );
+                tick(100, 100);
+                Ok("gates 0.2.0 is installed.".into())
+            }
+            fn verify(&self, _slug: &str, _build: &str) -> Result<String, String> {
+                Ok("verified".into())
+            }
+            fn play(&self, _slug: &str) -> Result<String, String> {
+                self.plays.set(self.plays.get() + 1);
+                Ok("running".into())
+            }
+            fn open(&self, _url: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn page_url(&self, _slug: &str) -> String {
+                "https://x.example".into()
+            }
+        }
+
+        // A row whose build is measured stale, so the window offers Update.
+        let stale = || windows::Row {
+            slug: "gates".into(),
+            build: "0.1.0".into(),
+            bytes: 75_829_730,
+            digest: "0xold".into(),
+            stale: Some(true),
+            name: None,
+            icon: None,
+            why: None,
+        };
+
+        let (installs, plays) = (Rc::new(Cell::new(0u32)), Rc::new(Cell::new(0u32)));
+        let (refreshed, mid) = (Rc::new(Cell::new(0u32)), Rc::new(Cell::new(false)));
+        let games_w = windows::games(&[stale()]);
+        let after = {
+            let refreshed = Rc::clone(&refreshed);
+            Rc::new(move || refreshed.set(refreshed.get() + 1)) as Rc<dyn Fn()>
+        };
+        wiring::wire_games(
+            &games_w,
+            Rc::new(Counting {
+                installs: Rc::clone(&installs),
+                plays: Rc::clone(&plays),
+                bar: games_w.rows[0].progress.clone(),
+                status: games_w.rows[0].status.clone(),
+                mid: Rc::clone(&mid),
+            }),
+            wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+            after,
+        );
+
+        let mut act = games_w.rows[0].act.clone();
+        let bar = games_w.rows[0].progress.clone();
+        check(&mut failures, "a stale row's button says Update", act.label() == "Update");
+        check(&mut failures, "and its meter is down until bytes move", !bar.visible());
+
+        act.do_callback();
+        check(&mut failures, "pressing Update installs, and does not play",
+              installs.get() == 1 && plays.get() == 0);
+        check(&mut failures, "mid-download the meter stands where the status line stood",
+              mid.get());
+        check(&mut failures, "a landed update leaves the full meter standing",
+              bar.visible() && (bar.value() - 100.0).abs() < f64::EPSILON
+                  && bar.label().contains(" of "));
+        check(&mut failures, "a landed update relabels the button Play",
+              act.label() == "Play");
+        check(&mut failures, "and asks the library to re-read itself",
+              refreshed.get() == 1);
+
+        // The press that was the bug: the button says Play, so it must PLAY.
+        act.do_callback();
+        check(&mut failures, "pressing that Play plays — not a second update",
+              plays.get() == 1 && installs.get() == 1);
+        check(&mut failures, "and the row says Running", act.label() == "Running");
+
+        // ── 10 · a failed download gives the row back ────────────────────────
+        //
+        // The meter stands in for the status line while bytes move, so a
+        // download that DIES has to hand the line back — its sentence ("an
+        // update is published") is still true. A meter left standing at 4%
+        // under a Failed button would be the window keeping the player's one
+        // status line as a souvenir.
+        struct Failing;
+        impl wiring::Storefront for Failing {
+            fn install(&self, _slug: &str, tick: wiring::Meter<'_>) -> Result<String, String> {
+                tick(4, 100); // the meter went up and moved...
+                Err("the origin dropped the connection".into())
+            }
+            fn verify(&self, _slug: &str, _build: &str) -> Result<String, String> {
+                Ok("verified".into())
+            }
+            fn play(&self, _slug: &str) -> Result<String, String> {
+                Ok("running".into())
+            }
+            fn open(&self, _url: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn page_url(&self, _slug: &str) -> String {
+                "https://x.example".into()
+            }
+        }
+
+        let failing_w = windows::games(&[stale()]);
+        wiring::wire_games(
+            &failing_w,
+            Rc::new(Failing),
+            wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+            Rc::new(|| {}),
+        );
+        let mut act = failing_w.rows[0].act.clone();
+        let bar = failing_w.rows[0].progress.clone();
+        let status = failing_w.rows[0].status.clone();
+        act.do_callback();
+        check(&mut failures, "a failed download puts the meter away",
+              !bar.visible() && bar.value() == 0.0);
+        check(&mut failures, "and gives the status line back", status.visible());
+        check(&mut failures, "and the button says Failed", act.label() == "Failed");
+
+        // Failed retries the verb that failed: the next press must try the
+        // UPDATE again, not launch the stale build under a player who just
+        // asked for the new one.
+        act.do_callback();
+        check(&mut failures, "pressing Failed retries the update",
+              act.label() == "Failed");
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
     if failures == 0 {
         println!("\nclick: every control does what it says");

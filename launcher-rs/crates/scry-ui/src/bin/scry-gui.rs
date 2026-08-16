@@ -978,7 +978,16 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
         ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
         ui.drift,
     );
-    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
+    // An update rewrites the row under its own button — new build id, new
+    // digest, a status line that must now read *"up to date"* — so the library
+    // is re-read when one lands, exactly as the Store re-reads after an
+    // install. Deferred, because the rebuild drops the window whose button is
+    // mid-callback (see `defer`).
+    let after_update = {
+        let ui = Rc::clone(ui);
+        Rc::new(move || defer(&ui, |ui, _| refresh_games(ui, false))) as Rc<dyn Fn()>
+    };
+    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell(), after_update);
 
     let mut refresh = games_w.refresh.clone();
     let ui_c = Rc::clone(ui);
@@ -1019,12 +1028,20 @@ impl wiring::Storefront for Front {
     /// Fetch, hash-verify and place a build.
     ///
     /// ⚠ **This blocks the UI thread for as long as the download takes**, and
-    /// that is a real cost stated rather than hidden: the window freezes.
-    /// It is still better than the alternative shipped today, which is no
-    /// button at all — and the honest fix is a progress row, which is work
-    /// this change does not do. The button says `Installing…` before it
-    /// starts, so the freeze reads as the install and not as a crash.
-    fn install(&self, slug: &str) -> Result<String, String> {
+    /// that is a real cost stated rather than hidden: the window holds still.
+    /// What keeps the hold honest is `tick` — the row's meter is repainted
+    /// from inside the block as bytes land (this used to be the "progress
+    /// row" this comment owed; it exists now). Two sources feed it:
+    ///
+    ///  * per CHUNK from [`scry_net::Net::fetch_with`], while a file is in
+    ///    flight — the count a one-pak game actually needs;
+    ///  * per FILE from `scry_depot::install`'s own callback, which also
+    ///    counts files REUSED off disk (those are copied, never fetched, so
+    ///    the fetcher never sees them).
+    ///
+    /// `base` is the bytes of files already landed; a chunk count is per-file,
+    /// and `base + chunk` is what makes it a statement about the whole build.
+    fn install(&self, slug: &str, tick: wiring::Meter<'_>) -> Result<String, String> {
         let net = scry_net::Net::new();
         let url = format!("{}/api/launcher/manifest/{slug}", self.host);
         let got = net.get_json(&url);
@@ -1075,7 +1092,19 @@ impl wiring::Storefront for Front {
             return Ok(format!("{} is already up to date.", m.name));
         };
         let plan = scry_depot::plan(&depot, &self.root);
-        let at = scry_depot::install(&depot, &self.root, &net, Some(&plan), None)
+        let feed = MeterFeed::over(depot.total_bytes);
+        let tick = std::cell::RefCell::new(tick);
+        let fetch = |url: &str, dest: &std::path::Path| {
+            net.fetch_with(url, dest, &mut |sofar| {
+                let (done, total) = feed.chunk(sofar);
+                (*tick.borrow_mut())(done, total)
+            })
+        };
+        let mut per_file = |done: i64, _all: i64, _path: &str, _reused: bool| {
+            let (done, total) = feed.file(done);
+            (*tick.borrow_mut())(done, total)
+        };
+        let at = scry_depot::install(&depot, &self.root, &fetch, Some(&plan), Some(&mut per_file))
             .map_err(|e| e.to_string())?;
         // The digest goes in the message. It is the one number a player can
         // take to a block explorer, and an install that computes it and keeps
@@ -1175,6 +1204,37 @@ impl wiring::Storefront for Front {
 
     fn page_url(&self, slug: &str) -> String {
         format!("{}/game.html?slug={slug}", self.host)
+    }
+}
+
+/// The two progress sources an install produces, funnelled into one count
+/// about the whole build — the arithmetic behind `Front::install`'s meter.
+///
+/// A chunk count restarts at zero with every file; the build's count must
+/// not. So `file` records where landed files ended, and `chunk` speaks from
+/// there — which is also what keeps the meter from running BACKWARDS at each
+/// file boundary, the visible symptom if this addition is ever dropped.
+///
+/// Reused files never pass through the fetcher at all (they are copied, not
+/// fetched), so their bytes arrive only through `file` — the meter jumps
+/// forward over them, which is true: those bytes were already here.
+struct MeterFeed {
+    total: i64,
+    landed: std::cell::Cell<i64>,
+}
+
+impl MeterFeed {
+    fn over(total: i64) -> MeterFeed {
+        MeterFeed { total, landed: std::cell::Cell::new(0) }
+    }
+    /// A chunk landed: `sofar` bytes of the CURRENT file are down.
+    fn chunk(&self, sofar: u64) -> (i64, i64) {
+        (self.landed.get().saturating_add(sofar as i64), self.total)
+    }
+    /// A whole file landed: `done` bytes of the BUILD are down.
+    fn file(&self, done: i64) -> (i64, i64) {
+        self.landed.set(done);
+        (done, self.total)
     }
 }
 
@@ -1548,6 +1608,29 @@ mod tests {
         assert_eq!(ask.family, "play");
         assert!(ask.text.contains("ETH up 5"), "the message must arrive verbatim");
         assert_eq!(ask.why, "settling round 41");
+    }
+
+    /// The meter never runs backwards at a file boundary.
+    ///
+    /// Chunk counts restart at zero with every file; the build's count must
+    /// not — a meter that reaches 40% and snaps back to 0% at the second file
+    /// reads as a download starting over. `MeterFeed` is the addition that
+    /// prevents it, so the addition is what this holds still.
+    #[test]
+    fn the_meter_feed_speaks_about_the_whole_build_and_never_backwards() {
+        let feed = MeterFeed::over(100);
+        // File one, 40 bytes, two chunks — then the installer's file callback.
+        assert_eq!(feed.chunk(10), (10, 100));
+        assert_eq!(feed.chunk(40), (40, 100));
+        assert_eq!(feed.file(40), (40, 100));
+        // File two, 30 bytes REUSED off disk: it never passes the fetcher, so
+        // it arrives only as a file — a forward jump, which is true.
+        assert_eq!(feed.file(70), (70, 100));
+        // File three, 30 bytes fetched: its chunks restart at zero, and the
+        // feed must not.
+        assert_eq!(feed.chunk(10), (80, 100));
+        assert_eq!(feed.chunk(30), (100, 100));
+        assert_eq!(feed.file(100), (100, 100));
     }
 }
 
