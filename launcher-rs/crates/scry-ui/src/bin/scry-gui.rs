@@ -636,10 +636,12 @@ fn main() {
     }
 
     // Is this build current? Same read and same three answers as `scry
-    // check`, whose comment carries the ruling: **a notice, never a
-    // self-update** — a binary that replaces itself is the one part of this
-    // client that would need absolute trust, so the swap stays with the
-    // package manager or the download page, in the open. Only a MEASURED
+    // check`. The updater is `scry self-update` — the CLI beside this
+    // window, per the operator's 2026-08-15 ask (*"update itself or have an
+    // updater it can run"*; `selfup.rs` carries the rules). The WINDOW still
+    // performs no swap: scry-ui draws and dispatches and computes nothing,
+    // and a downloader running inside the thing being replaced is the one
+    // wiring that cannot report its own failure honestly. Only a MEASURED
     // newer version speaks; current, ahead, unpublished and unreadable all
     // leave the corner as built (`newer_client`'s own test pins that), so
     // "could not look" never wears "up to date".
@@ -649,7 +651,10 @@ fn main() {
         menu.version_line
             .set_label(&format!("v{mine} — {newer} is out"));
         menu.version_line.set_label_color(scry_ui::theme::GOLD);
-        println!("scry-gui: client {mine} — {newer} is published at {host}/download.html");
+        println!(
+            "scry-gui: client {mine} — {newer} is published; `scry self-update` \
+             takes it, or {host}/download.html"
+        );
         // One dialog, once per launch, dismissible — a nudge with the reason
         // in it, never a nag loop and never a download this program performs.
         //
@@ -665,11 +670,13 @@ fn main() {
             "A newer scry is published",
             &format!(
                 "{newer} is out — this is {mine}.\n\n\
-                 Get it at {host}/download.html, or from your package manager\n\
-                 if you installed it there.\n\n\
-                 This program does not replace itself: a binary that rewrites\n\
-                 itself would need absolute trust, so the swap happens in the\n\
-                 open, where you can see it."
+                 In a terminal:   scry self-update\n\
+                 It checks the download against the published SHA256SUMS\n\
+                 before a byte lands, keeps this version beside it as .old,\n\
+                 and hands a dpkg install to apt instead of overwriting it.\n\n\
+                 Or take it by hand at {host}/download.html.\n\
+                 This window performs no swap itself — the updater runs in\n\
+                 the open, where you can read what it did."
             ),
             false,
         );

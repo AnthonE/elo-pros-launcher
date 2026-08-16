@@ -323,7 +323,33 @@ impl Net {
         }
     }
 
-    /// One GET, capped, as bytes. The shared body of the two reads above —
+    /// The client's own release artifact — one bounded GET, held in memory
+    /// so its sha256 is taken over exactly the bytes that will be opened,
+    /// with no on-disk instant where an unverified file exists.
+    ///
+    /// On the patient agent: this is a download somebody asked for and is
+    /// watching, not a poll. Over `cap` is a refusal, not a truncation — a
+    /// truncated artifact would then honestly fail its hash, but "it is too
+    /// big to be ours" is the better sentence and costs nothing.
+    pub fn artifact(&self, url: &str, cap: u64) -> Fetched<Vec<u8>> {
+        let got = self.get_bytes(url, cap + 1, false);
+        match got.value {
+            Some(b) if b.len() as u64 > cap => Fetched::bad(format!(
+                "over {} MB — not a client artifact",
+                cap / (1024 * 1024)
+            )),
+            Some(b) => Fetched::good(b),
+            None => Fetched {
+                value: None,
+                ok: got.ok,
+                reachable: got.reachable,
+                status: got.status,
+                why: got.why,
+            },
+        }
+    }
+
+    /// One GET, capped, as bytes. The shared body of the reads above —
     /// they differ only in their cap, their agent and what they parse.
     fn get_bytes(&self, url: &str, limit: u64, quick: bool) -> Fetched<Vec<u8>> {
         let agent = if quick {
