@@ -60,6 +60,27 @@ fn main() {
             .map(|i| row("gates", "0.1.0-g607af0314", 75_829_730, Some(false),
                          Some(&format!("Title {i}"))))
             .collect::<Vec<_>>()).window,
+        // Mid-download, posed exactly as `wiring::drive_meter` leaves it: the
+        // meter standing where the status line stood, the byte count beside
+        // it, the button already saying what it is doing. A capture rather
+        // than only an assertion, because what a picture shows is whether the
+        // count CLEARS the Update button and the fill reads against the well.
+        "downloading" => {
+            let g = windows::games(&[
+                row("gates", "0.1.0-g607af0314", 75_829_730, Some(true), Some("Gates")),
+                row("barrow", "0.3.0", 4_100_000, Some(false), Some("The Barrow")),
+            ]);
+            let r = &g.rows[0];
+            let (mut bar, mut status) = (r.progress.clone(), r.status.clone());
+            status.hide();
+            bar.show();
+            bar.set_value(37.0);
+            bar.set_label("28.0 MB of 75.8 MB");
+            let mut act = r.act.clone();
+            act.deactivate();
+            act.set_label("Updating…");
+            g.window
+        }
         "about" => windows::about(),
         "store" => windows::store(&[], false, "dns error: no such host").window,
         "store2" => windows::store(&[

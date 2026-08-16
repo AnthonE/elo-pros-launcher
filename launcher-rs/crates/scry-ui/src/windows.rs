@@ -283,6 +283,13 @@ pub struct GameControls {
     /// Re-hash every file the depot names. Its own control, because verifying
     /// is the one thing this client can do that no other storefront's can.
     pub verify: button::Button,
+    /// The download meter, hidden until an update is moving bytes. It stands
+    /// where [`status`](Self::status) stands, and the wiring swaps them: while
+    /// bytes land, the truest status line IS the meter.
+    pub progress: fltk::misc::Progress,
+    /// The row's status line ([`Row::status_line`]), handed back so the meter
+    /// can stand in for it during a download and give it back after.
+    pub status: frame::Frame,
 }
 
 /// The Games window and the controls on it.
@@ -348,8 +355,13 @@ pub fn games(rows: &[Row]) -> GamesWindow {
             // A title's name and its build id both come from a depot somebody
             // else wrote, so both are clipped — see `chrome::label_untrusted`.
             chrome::label_untrusted(66, y, 290, 18, row.title(), theme::INK, 14);
-            chrome::label_untrusted(66, y + 18, 340, 15, &row.status_line(),
-                                    theme::MUTED, 11);
+            let status = chrome::label_untrusted(66, y + 18, 340, 15, &row.status_line(),
+                                                 theme::MUTED, 11);
+            // The meter stands exactly where the status line does — while an
+            // update is moving bytes, the truest status line IS the meter.
+            // Shorter than the label it replaces because the byte count draws
+            // beside it (`chrome::meter`), in the rest of the same rect.
+            let progress = chrome::meter(66, y + 18, 190, 15);
             // Laid out from the well's inner right edge (644) backwards, so
             // the bar's reservation is in the arithmetic and not in a pair of
             // hand-tuned numbers that would drift from it.
@@ -365,6 +377,8 @@ pub fn games(rows: &[Row]) -> GamesWindow {
                 build: row.build.clone(),
                 act,
                 verify,
+                progress,
+                status,
             });
             y += ROW_H;
         }
@@ -582,6 +596,13 @@ pub struct ShelfControls {
     /// Always offered, whatever the main control says: reading about a game
     /// before deciding is the normal path through a store.
     pub page: button::Button,
+    /// The download meter, hidden until an install is moving bytes. Stands
+    /// where the price line stands — see [`GameControls::progress`] for the
+    /// swap this row makes with [`price`](Self::price).
+    pub progress: fltk::misc::Progress,
+    /// The row's price line, handed back so the meter can stand in for it
+    /// during a download and give it back after.
+    pub price: frame::Frame,
 }
 
 /// The Store window and the controls on it.
@@ -676,7 +697,12 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
                 Price::Unknown { .. } => theme::GOLD,
                 _ => theme::DIM,
             };
-            chrome::label_untrusted(80, y + 35, 360, 15, &row.price_line(), price_ink, 10);
+            let price = chrome::label_untrusted(80, y + 35, 360, 15, &row.price_line(),
+                                                price_ink, 10);
+            // Where the meter stands while an install moves bytes — over the
+            // price line, because that is the row's one line about THIS act:
+            // the money moved (or was never asked for), and now the bytes are.
+            let progress = chrome::meter(80, y + 35, 190, 15);
 
             let act = row.act();
             // From the well's inner right edge (684) back, less the bar — see
@@ -695,7 +721,14 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
             let mut page = chrome::button(page_x, y + 8, 84, 28, "Page…", Tone::Plain);
             page.set_align(enums::Align::Center | enums::Align::Inside);
             page.set_tooltip("open this title's page on the origin, in your browser");
-            controls.push(ShelfControls { slug: row.slug.clone(), act, button, page });
+            controls.push(ShelfControls {
+                slug: row.slug.clone(),
+                act,
+                button,
+                page,
+                progress,
+                price,
+            });
             y += SHELF_H;
         }
     }

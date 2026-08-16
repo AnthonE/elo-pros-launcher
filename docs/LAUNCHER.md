@@ -1672,6 +1672,10 @@ well of empty olive where the game used to be.
 
 ⚠ **What this pass did not fix:** the install still blocks the UI thread
 (above), and a resized window's height is not remembered across a Refresh.
+(The block got a face on 2026-08-16: a download meter stands in for the row's
+status line while bytes land — `chrome::meter`, fed per quarter-megabyte chunk
+by `Net::fetch_with` and repainted from inside the hold — so the hold reads as
+the download it is. The thread is still held, and there is still no cancel.)
 
 ## Reading order
 

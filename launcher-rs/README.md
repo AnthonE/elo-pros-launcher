@@ -354,9 +354,12 @@ the thing in front of them does not exist. What is actually missing:
   Games, Store, Servers, Account, Signing, About — and every entry names a
   window that exists, because the menu renders an unbuilt one as deactivated
   and says so. `Library`, `Friends`, `Monitor` and `Settings` are not built.
-- **A progress row for an install.** The download blocks the UI thread for its
-  whole length; the button says `Installing…` first so the freeze reads as the
-  install rather than as a crash, but that is a mitigation and not the fix.
+- **An install cannot be cancelled, and still blocks the UI thread.** The row
+  grew a real download meter on 2026-08-16 — `chrome::meter`, fed per chunk
+  from `Net::fetch_with`, repainted from inside the block — so the hold now
+  reads as the download it is rather than as a crash. But the hold is real:
+  the thread is held for the whole length, and the only way out of a download
+  is to let it finish or quit the program.
 - **A resized shelf forgets its height on Refresh.** The position carries over,
   the size does not (`docs/client/LAUNCHER.md` §10p).
 

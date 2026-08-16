@@ -417,10 +417,25 @@ impl scry_depot::JsonSource for Net {
     }
 }
 
-/// `scry_depot::Fetcher` over the real network — streamed to disk, never held
-/// in memory, because a depot file is a game asset and not a document.
-impl Fetcher for Net {
-    fn fetch(&self, url: &str, dest: &Path) -> Result<(), DepotError> {
+impl Net {
+    /// One depot file to disk, saying how far it is as it goes.
+    ///
+    /// `tick` is handed the bytes written so far **of this file**, once per
+    /// chunk ([`scry_depot::CHUNK`]-sized reads). This is what makes a real
+    /// download meter possible at all: `scry_depot::install`'s own progress
+    /// callback fires per FILE, and a game is typically one huge pak — a
+    /// per-file meter on a two-file depot holds still for minutes and then
+    /// jumps, which reads as a hang, not a download.
+    ///
+    /// The count is bytes WRITTEN, not bytes promised: it comes off the read
+    /// loop rather than off a `Content-Length` an origin could misstate, so a
+    /// meter driven by it can only move when the disk does.
+    pub fn fetch_with(
+        &self,
+        url: &str,
+        dest: &Path,
+        tick: &mut dyn FnMut(u64),
+    ) -> Result<(), DepotError> {
         let mut req = self.agent_for(url).get(url);
         if let Some(g) = self.grant_for(url) {
             req = req.header("x-scry-grant", g);
@@ -431,8 +446,32 @@ impl Fetcher for Net {
         let mut reader = response.into_body().into_reader();
         let mut file = std::fs::File::create(dest)
             .map_err(|e| DepotError::new(format!("{}: {e}", dest.display())))?;
-        std::io::copy(&mut reader, &mut file)
-            .map_err(|e| DepotError::new(format!("could not fetch {url}: {e}")))?;
+        let mut buf = vec![0u8; scry_depot::CHUNK];
+        let mut sofar: u64 = 0;
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|e| DepotError::new(format!("could not fetch {url}: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut file, &buf[..n])
+                .map_err(|e| DepotError::new(format!("{}: {e}", dest.display())))?;
+            sofar += n as u64;
+            tick(sofar);
+        }
         Ok(())
+    }
+}
+
+/// `scry_depot::Fetcher` over the real network — streamed to disk, never held
+/// in memory, because a depot file is a game asset and not a document.
+///
+/// [`Net::fetch_with`] with a tick nobody reads — one code path, so the
+/// progress a meter shows can never diverge from the download that is
+/// actually happening.
+impl Fetcher for Net {
+    fn fetch(&self, url: &str, dest: &Path) -> Result<(), DepotError> {
+        self.fetch_with(url, dest, &mut |_| {})
     }
 }

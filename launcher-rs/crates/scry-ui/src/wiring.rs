@@ -350,13 +350,20 @@ pub fn wire_signing(
 // their controls back now (`windows::GamesWindow`, `windows::StoreWindow`) and
 // these are what put behaviour on them.
 
+/// How an install says how far it is: `(done_bytes, total_bytes)` for the
+/// whole build, called from inside the blocking install as bytes land.
+pub type Meter<'a> = &'a mut dyn FnMut(i64, i64);
+
 /// What a shelf row needs done, decided here so the window stays free of I/O
 /// and the binary stays free of policy.
 pub trait Storefront {
     /// Fetch and hash-verify a title's published build. Long — the caller
-    /// blocks the UI thread on it, deliberately: an install with a spinner
-    /// this client cannot draw is worse than one that plainly holds still.
-    fn install(&self, slug: &str) -> Result<String, String>;
+    /// blocks the UI thread on it, deliberately, and `tick` is what keeps
+    /// that honest on screen: it is called with `(done, total)` bytes as they
+    /// land, from this same thread, so the row can repaint a meter mid-block.
+    /// Until 2026-08-16 there was no tick and the window plainly held still —
+    /// which read as a hang for exactly as long as a game takes to download.
+    fn install(&self, slug: &str, tick: Meter<'_>) -> Result<String, String>;
     /// Re-hash everything a build's depot names.
     fn verify(&self, slug: &str, build: &str) -> Result<String, String>;
     /// Start what is installed.
@@ -366,6 +373,67 @@ pub trait Storefront {
     fn open(&self, url: &str) -> Result<(), String>;
     /// The title's page on the origin — where a buy actually happens.
     fn page_url(&self, slug: &str) -> String;
+}
+
+/// Drive one row's meter from an install's byte counts.
+///
+/// On the first tick the meter takes the covered label's place; every tick
+/// after moves the fill and rewrites the byte count beside it. The install
+/// blocks the UI thread, so painting has to be asked for by hand —
+/// `app::flush()` draws the damage without dispatching events, which keeps
+/// this the same deliberate hold-still the install has always been, now with
+/// the one sentence a player is actually waiting on.
+///
+/// Throttled to whole-percent changes: ticks arrive per quarter-megabyte
+/// chunk, and a multi-gigabyte build repainting a 15px bar four thousand
+/// times would spend the UI thread narrating instead of downloading.
+///
+/// What this deliberately does NOT do is put the meter away — that is
+/// [`meter_rest`]'s, and the split is the point: how a download *ends* decides
+/// what the row shows next, and only the caller knows how it ended.
+fn drive_meter(bar: &fltk::misc::Progress, covers: &fltk::frame::Frame) -> impl FnMut(i64, i64) {
+    let (mut bar, mut covers) = (bar.clone(), covers.clone());
+    let mut last = -1i64;
+    move |done, total| {
+        if total <= 0 {
+            return;
+        }
+        let pct = done.clamp(0, total) * 100 / total;
+        if pct == last {
+            return;
+        }
+        last = pct;
+        if !bar.visible() {
+            covers.hide();
+            bar.show();
+        }
+        bar.set_value(pct as f64);
+        bar.set_label(&format!(
+            "{} of {}",
+            scry_depot::install::human(done),
+            scry_depot::install::human(total)
+        ));
+        app::flush();
+    }
+}
+
+/// Put a row's meter away after a download ends.
+///
+/// A FAILED download gives the covered label back — its sentence ("an update
+/// is published", the price) is still true. A LANDED one leaves the full
+/// meter standing, because the label's old sentence is now false and the
+/// window is about to be rebuilt with the new truth (`after_update` /
+/// `after_install`); a beat of full bar under the Done notice is honest,
+/// where a beat of *"an update is published"* would not be.
+fn meter_rest(bar: &fltk::misc::Progress, covers: &fltk::frame::Frame, landed: bool) {
+    if landed {
+        return;
+    }
+    let (mut bar, mut covers) = (bar.clone(), covers.clone());
+    bar.hide();
+    bar.set_value(0.0);
+    bar.set_label("");
+    covers.show();
 }
 
 /// Give the Games window's rows their behaviour.
@@ -402,6 +470,7 @@ pub fn wire_games(
         let updating = Rc::new(std::cell::Cell::new(row.act.label() == "Update"));
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
         let after = Rc::clone(&after_update);
+        let (meter, status) = (row.progress.clone(), row.status.clone());
         let mut act = row.act.clone();
         act.set_callback(move |b| {
             let is_update = updating.get();
@@ -410,7 +479,9 @@ pub fn wire_games(
             app::redraw();
             app::flush();
             let done = if is_update {
-                front_c.install(&slug)
+                let out = front_c.install(&slug, &mut drive_meter(&meter, &status));
+                meter_rest(&meter, &status, out.is_ok());
+                out
             } else {
                 front_c.play(&slug)
             };
@@ -492,6 +563,7 @@ pub fn wire_store(
         let act = row.act;
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
         let after = Rc::clone(&after_install);
+        let (meter, price) = (row.progress.clone(), row.price.clone());
         let mut button = row.button.clone();
         button.set_callback(move |b| match act {
             Act::Install => {
@@ -499,7 +571,9 @@ pub fn wire_store(
                 b.set_label("Installing…");
                 app::redraw();
                 app::flush();
-                match front_c.install(&slug) {
+                let out = front_c.install(&slug, &mut drive_meter(&meter, &price));
+                meter_rest(&meter, &price, out.is_ok());
+                match out {
                     Ok(said) => {
                         b.set_label("Installed");
                         tell_c(Told::Done, &said);
