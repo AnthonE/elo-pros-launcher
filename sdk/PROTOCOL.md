@@ -1,11 +1,11 @@
-# the scry overlay protocol — v1
+# the elo overlay protocol — v1
 
 What a game says to the running launcher. This is the whole wire; the
 reference clients in `sdk/python/` and `sdk/rust/` are each about two hundred
 lines and implement all of it.
 
 Design of record: `docs/client/SDK.md`. The server is
-`launcher-rs/crates/scry-broker`.
+`launcher-rs/crates/elo-broker`.
 
 ## The shape
 
@@ -15,7 +15,7 @@ length prefix, no handshake beyond `hello`.
 
 ```
 → {"op":"hello","game":"gates","protocol":1,"version":"0.1.0"}
-← {"ok":true,"protocol":1,"launcher":"scry-launcher","signer":"arca", …}
+← {"ok":true,"protocol":1,"launcher":"elo-launcher","signer":"arca", …}
 ```
 
 Every reply has `ok`. A reply with `ok:false` has `reason`, and the reason is
@@ -23,15 +23,15 @@ written to be shown to a player, not parsed.
 
 ## Finding the socket
 
-1. `$SCRY_LAUNCHER_SOCKET` — set by the launcher on every native build it
+1. `$ELO_LAUNCHER_SOCKET` — set by the launcher on every native build it
    starts. **This is the path a game should use**, and it is the same variable
    on every platform.
 2. The platform default, for a game started some other way:
 
    | | |
    |---|---|
-   | unix | `$XDG_RUNTIME_DIR/scry/launcher.sock`, else `~/.cache/scry/launcher/launcher.sock` |
-   | Windows | `\\.\pipe\scry-launcher-<USERNAME>` |
+   | unix | `$XDG_RUNTIME_DIR/elo/launcher.sock`, else `~/.cache/elo/launcher/launcher.sock` |
+   | Windows | `\\.\pipe\elo-launcher-<USERNAME>` |
 
 **If neither exists there is no launcher, and that is a normal state.** A game
 plays without one; what it must never do is fall back to asking the player for
@@ -63,8 +63,8 @@ of erroring, where on unix it would error. That is a launcher bug in both
 cases; on Windows the game feels it as a freeze. **Call the SDK off your main
 thread** — a consent prompt waits for a human, so that is right regardless.
 
-⚠ **The default MUST agree across three files** — `scry-broker`'s
-`transport.rs`, `sdk/rust/scry_overlay.rs`, and `sdk/python/scry_overlay.py`.
+⚠ **The default MUST agree across three files** — `elo-broker`'s
+`transport.rs`, `sdk/rust/elo_overlay.rs`, and `sdk/python/elo_overlay.py`.
 A mismatch is the worst shape of bug this protocol has: a game finds no
 launcher on a machine that is running one, reports the perfectly normal
 *"playing anonymously"*, and nothing anywhere goes red.
@@ -98,7 +98,7 @@ prompt with no name in it is not consent.
 
 ```json
 {"op": "identity"}
-→ {"ok": true, "address": "0x…", "host": "https://scry.moreright.xyz", "signer": "arca"}
+→ {"ok": true, "address": "0x…", "host": "https://elopros.com", "signer": "arca"}
 ```
 
 **An address, never a key, and never authentication.** It is what the player
@@ -109,13 +109,13 @@ without an address set is a normal player.
 ### `sign`
 
 ```json
-{"op": "sign", "text": "scry play\naction: duel\nwallet: 0xabc…\nday: 2026-08-04\ndetail: ETH up 5",
+{"op": "sign", "text": "elo play\naction: duel\nwallet: 0xabc…\nday: 2026-08-04\ndetail: ETH up 5",
  "why": "settling round 41"}
 → {"ok": true, "signature": "0x…", "address": "0x…", "family": "play", "backend": "arca"}
 ```
 
 The message must be an EIP-191 personal_sign text whose first line is
-`scry <family>`. Build it with the same rules the server uses
+`elo <family>`. Build it with the same rules the server uses
 (`meter/playauth.py` — the format is deterministic and rebuildable offline).
 
 > ⚠ **The subject is the `wallet` line, and it was `vow: <vow_id>` until
@@ -178,9 +178,9 @@ when nothing did.
 address is a claim any modified client can make. This returns a signature your
 server can check.
 
-#### It is Sign-In With Ethereum, EIP-4361 — nothing scry-specific
+#### It is Sign-In With Ethereum, EIP-4361 — nothing elo-specific
 
-The message is the standard one, so **your backend needs no scry code at all.**
+The message is the standard one, so **your backend needs no elo code at all.**
 `siwe` ships for JS, Python, Rust and Go; viem and ethers have it built in.
 
 ```js
@@ -357,7 +357,7 @@ serve.
 ### `open`
 
 ```json
-{"op": "open", "url": "https://scry.moreright.xyz/wallet.html"}
+{"op": "open", "url": "https://elopros.com/wallet.html"}
 ```
 
 https only. For sending a player to a page — their coins, a store page, the

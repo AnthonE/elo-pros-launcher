@@ -1,4 +1,5 @@
 # Elo Pros
+
 **A game platform: a curated storefront with a launchpad under it.** A game
 lists, its coin launches, players buy copies, and the copy money becomes the
 coin's liquidity.
@@ -13,38 +14,33 @@ read the source of:
 | [`contracts/`](contracts/) | the Solidity — tickets, pools, fees, settlement, the notary |
 | [`docs/`](docs/) | the designs of record for all three |
 
-Live at **[scry.moreright.xyz](https://scry.moreright.xyz)**.
+Live at **[elopros.com](https://elopros.com)**.
 
 ---
 
 ## The client
 
-Two binaries on purpose. `scry-gui` is the window; `scry` is the same client on
+Two binaries on purpose. `elo-gui` is the window; `elo` is the same client on
 the command line and does **not** link FLTK, because a headless box, a CI job
 and an RL harness have no use for one.
 
-**Download:** [scry.moreright.xyz/download.html](https://scry.moreright.xyz/download.html)
+**Download:** [elopros.com/download.html](https://elopros.com/download.html)
 — a `.deb`, a `.tar.gz` and a Windows `.zip`, with `SHA256SUMS` covering all of
 them. The published version and every artifact hash are served as JSON at
-[`/api/launcher`](https://scry.moreright.xyz/api/launcher), so you can check
+[`/api/launcher`](https://elopros.com/api/launcher), so you can check
 what you got against what we published without trusting this page.
-
-Already running it? **`scry self-update`** replaces it with the published
-build — checked against those same hashes before a byte lands, previous
-binaries kept beside it as `.old`, and a `.deb` install handed to `apt`
-rather than overwritten.
 
 ⚠ **The Windows build is cross-compiled and has never been started on a real
 Windows machine.** It builds, links, hash-verifies and installs, and that is
 all anyone has seen it do. Treat it as a first build rather than a tested one,
-and [tell us what it does](https://github.com/AnthonE/scryward/issues).
+and [tell us what it does](https://github.com/AnthonE/elo-pros-launcher/issues).
 
 **Build it yourself:**
 
 ```bash
-git clone https://github.com/AnthonE/scryward
-cd scryward/launcher-rs
-cargo build --release        # → target/release/{scry, scry-gui}
+git clone https://github.com/AnthonE/elo-pros-launcher
+cd elo-pros-launcher/launcher-rs
+cargo build --release        # → target/release/{elo, elo-gui}
 cargo test --workspace
 ```
 
@@ -57,12 +53,12 @@ the npm-style supply-chain attack.
 
 ### Three rules the client never breaks
 
-**1. scry never sees your key.** Read this one precisely, because the sweeping
+**1. Elo never sees your key.** Read this one precisely, because the sweeping
 version of it is false and the difference matters. The client *can* hold a key:
-`scry account new` generates a secret **on your machine** and writes it as an
+`elo account new` generates a secret **on your machine** and writes it as an
 encrypted V3 keystore, so while that account is unlocked the process is holding
 it. What is true without qualification is that the key is generated locally,
-encrypted with your passphrase, and **transmitted nowhere** — scry the service
+encrypted with your passphrase, and **transmitted nowhere** — Elo the service
 never receives it. Point the client at a browser wallet or a hardware signer
 and it holds nothing at all.
 
@@ -81,7 +77,7 @@ Design of record: [`docs/LAUNCHER.md`](docs/LAUNCHER.md).
 ## The SDK — for game developers
 
 A game does **not** wait on us to use the launcher. Vendor one file —
-[`sdk/rust/scry_overlay.rs`](sdk/rust/scry_overlay.rs), std only, no crates —
+[`sdk/rust/elo_overlay.rs`](sdk/rust/elo_overlay.rs), std only, no crates —
 and your game gets a player identity and EIP-191 signatures off the launcher's
 broker socket **with no key anywhere in the game process**.
 
@@ -93,7 +89,7 @@ the player for a private key.
 - [`docs/GAMEDEV.md`](docs/GAMEDEV.md) — listing a game, publishing a build
 - [`docs/SIGN-IN.md`](docs/SIGN-IN.md) — Sign-In With Ethereum, no account, no API key
 
-`scry://join/<title>/<host:port>` is owned by the client, so a friend's link
+`elo://join/<title>/<host:port>` is owned by the client, so a friend's link
 boots you into their server.
 
 ### Every multiplayer shape is welcome
@@ -144,16 +140,6 @@ A player pays once for a **copy of a game**. That payment mints the title's
 title's official servers. Resale royalty is **0 bps**, welded: sell your copy
 if you want to. The buyer also gets the game's coin at the sale price.
 
-**What a copy costs is the developer's to say, per title.** There is no
-platform price and nothing in the contracts holds one — no default, no floor,
-no ceiling. A title's ticket is born unpriced; its owner posts a dollar figure
-and the per-asset amounts with `setPrices`, reposts them whenever they like,
-and closes any rail by posting it at 0. A title with no ticket contract at all
-is simply free. So a copy costs whatever that title's dev decided this morning,
-and **the only place to read it is that title's own deployment** —
-`/api/ticket/{slug}` off chain, `priceUsdCents()` and `railInfo()` on chain.
-Any page quoting one number for the storefront is quoting a number nobody set.
-
 **Changed your mind? Sell the coin.** That is the whole refund mechanism —
 there is no refund window and no escrow, because the coin already is the
 refund. **You keep the copy either way**; selling the coin never takes the game
@@ -167,7 +153,7 @@ back.
 generated from the platform monorepo and pushed, so a commit made directly here
 is overwritten by the next publish.
 
-- **Found a defect?** [Open an issue](https://github.com/AnthonE/scryward/issues).
+- **Found a defect?** [Open an issue](https://github.com/AnthonE/elo-pros-launcher/issues).
   Fixes to games and to the platform are **paid work in SCRY, in public** — an
   accepted PR to [Gates](https://github.com/AnthonE/Gates), the first title,
   pays 100,000 SCRY flat and standing.

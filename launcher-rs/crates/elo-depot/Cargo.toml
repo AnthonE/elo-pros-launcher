@@ -1,0 +1,25 @@
+[package]
+name = "elo-depot"
+description = "the depot seam — manifests, builds, installs, and the notarized digest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# No network dependency, on purpose. Fetching is a trait the caller supplies
+# (`Fetcher`), exactly as the Python port injected `opener=`. That keeps every
+# rule in this crate testable offline and keeps a TLS stack out of the crate
+# that decides where a stranger's bytes land on your disk.
+[dependencies]
+# For the publisher signature only (`publisher.rs`). A path crate, so it adds
+# a dependency EDGE and no package — the k256 it brings was already in every
+# binary that links this one. No cycle: elo-broker depends on serde_json alone.
+elo-vault = { path = "../elo-vault" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = { workspace = true }

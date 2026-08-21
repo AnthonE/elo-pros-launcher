@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryGacha.sol";
+import "../src/EloGacha.sol";
 
 /// Deploy the NFT gacha (forked from FWA — see
-/// `contracts/reference/fwa/README.md` for the port table; `ScryGacha.sol`'s
+/// `contracts/reference/fwa/README.md` for the port table; `EloGacha.sol`'s
 /// header is the design).
 ///
 ///   export PRIVATE_KEY=0x...
@@ -64,7 +64,7 @@ import "../src/ScryGacha.sol";
 /// **THE FIRST COLLECTION IS DECIDED: StonkBrokers,**
 /// `0x539CdD042c2f3d93EbC5BE7DfFf0c79F3B4fAbF0` (operator, 2026-07-27 —
 /// `SENTENCES.md`). That is the address `GACHA_POOL`
-/// takes. It is not a taste: it is the collection `test/ScryGachaFork.t.sol`
+/// takes. It is not a taste: it is the collection `test/EloGachaFork.t.sol`
 /// already drives the whole loop against on a fork of 4663 — real bytecode, real
 /// holders, standard ERC-721, no operator filter, no pause hook — so the first
 /// pool is the one case proven end-to-end live rather than the first one tried.
@@ -88,7 +88,7 @@ contract DeployGacha is Script {
 
         address sink = vm.envAddress("GACHA_FEE_SINK");
         // ⚠ ONE address serves BOTH sweeps: `sweepHouse` sends native ETH and
-        // `sweepHouseToll` sends the toll coin. `ScryFeeSplitter` — the obvious
+        // `sweepHouseToll` sends the toll coin. `EloFeeSplitter` — the obvious
         // thing to point this at, and the reason the toll rail needed zero new
         // machinery — has NO `receive()` and NO `fallback()`, so a plain ETH
         // send to it reverts. Point `feeSink` there and the SCRY sweep works
@@ -114,14 +114,14 @@ contract DeployGacha is Script {
         console.log("draw delay   ", delay, "blocks (immutable)");
 
         vm.startBroadcast(pk);
-        ScryGacha gacha = new ScryGacha(delay, sink);
+        EloGacha gacha = new EloGacha(delay, sink);
         if (curator != address(0)) gacha.setCurator(curator);
         if (tollCoin != address(0)) gacha.setToll(tollCoin, tollRate);
         if (tollBurnBps != 0) gacha.setTollBurnBps(tollBurnBps);
         if (pool != address(0)) gacha.openPool(pool, minBacking, surchargeBps, bidBps);
         vm.stopBroadcast();
 
-        console.log("ScryGacha    ", address(gacha));
+        console.log("EloGacha    ", address(gacha));
         if (curator != address(0)) console.log("curator      ", curator);
         // Say which rail this pool is actually selling on. A deploy that posted a
         // coin and forgot the rate is on the ETH rail, and the log must not read

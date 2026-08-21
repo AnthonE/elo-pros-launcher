@@ -2,7 +2,7 @@
 status: live
 lane: [platform]
 updated: 2026-08-12
-about: "who a person is on Scryward and what their picture is — the wallet is the identity, a vow is a name you may add, and the face resolves seat → hive picture → mark → tile"
+about: "who a person is on Elo Pros and what their picture is — the wallet is the identity, a vow is a name you may add, and the face resolves seat → hive picture → mark → tile"
 ---
 
 # IDENTITY.md — the wallet is the identity
@@ -42,7 +42,7 @@ seat held  →  hive picture (self-declared)  →  mark (derived)  →  letter t
 
 | rung | what it is | who can check it |
 |---|---|---|
-| **seat** | the Scry Hive token's on-chain art — `GET /seat/{id}/face.svg` | **anyone**, with `ownerOf` |
+| **seat** | the Elo Pros token's on-chain art — `GET /seat/{id}/face.svg` | **anyone**, with `ownerOf` |
 | **hive picture** | set by its owner, wallet-signed — `POST /hive/face` | anyone can see *who said it*; nobody can check that it is theirs |
 | **mark** | an SVG derived from a vow id — `/api/vow/{id}/mark.svg` | anyone, but it is derived rather than held, and it needs a vow |
 | **tile** | the first letter of the name or address | — |
@@ -134,7 +134,7 @@ word priceable. The change makes it *optional*, not worthless.
 
 ## 5 · One word, two meanings — a live collision
 
-**`seat` means a Scry Hive token** (`meter/seat.py`, `ScrySeat.sol`) **and a
+**`seat` means an Elo Pros token** (`meter/seat.py`, `EloSeat.sol`) **and a
 relay role** (`meter/hive.py` — *"seated with the member role"*, *"the relay's
 write-seat source"*). They are unrelated, and both appear in the identity
 layer. Nothing is renamed here because the contract is welded and the relay's

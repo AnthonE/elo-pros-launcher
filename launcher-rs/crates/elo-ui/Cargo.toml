@@ -1,0 +1,45 @@
+[package]
+name = "elo-ui"
+description = "the elo desktop client's windows — the 2003/2004 Steam client's chrome, in FLTK"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# fltk and nothing else. Chosen on the dependency budget rather than on taste:
+# measured 2026-08-06, fltk adds 15 packages against eframe/egui's 402, iced's
+# 414 and slint's 531, and the budget in the workspace manifest is an operator
+# sentence about supply-chain attacks. `docs/LAUNCHER.md` §10b2 is the table.
+#
+# ⚠ What fltk costs INSTEAD is a C++ toolchain at build time: cmake, a C++
+# compiler, and the X11/Xft/pango/cairo development headers. That falls on
+# whoever cuts a release and never on a player.
+#
+# ⚠ What the PLAYER's binary links was measured 2026-08-06 and it is not the
+# short list this comment used to claim. `elo-gui` has ten direct DT_NEEDED
+# entries beyond libc — libX11, libXcursor, libXfixes, libXinerama, libcairo,
+# libpango, libpangocairo and libglib among them — because cmake enables
+# Pango whenever its headers are present, and text shaping is worth having.
+# They are on any desktop that has ever run a GTK program, so the cost is
+# real but small. It is DERIVED rather than trusted: `build_release.py` reads
+# the ELF and fails the build if a soname arrives that the .deb's Depends does
+# not declare, which is the only reason a claim like this stays true.
+# The launcher a player runs. The CLI stays its own binary and does NOT link
+# fltk: `elo.exe` is 1.9 MB precisely because a headless box, a CI job and an
+# RL harness have no use for a window, and a launcher that could only be
+# operated through one would be the wrong shape for half its users.
+[[bin]]
+name = "elo-gui"
+path = "src/bin/elo-gui.rs"
+
+[dependencies]
+fltk = { workspace = true }
+elo-broker = { path = "../elo-broker" }
+elo-depot = { path = "../elo-depot" }
+# The Store reads the origin's catalog with the same client the CLI uses, so
+# `reachable` means the same thing in the window as it does on the command
+# line. The window itself still does no I/O — the binary fetches and hands it
+# rows, which is what keeps `windows.rs` constructible with no network.
+elo-net = { path = "../elo-net" }
+elo-vault = { path = "../elo-vault" }
+serde_json = { workspace = true }

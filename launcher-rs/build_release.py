@@ -7,17 +7,17 @@
 
 Three artifacts, because they answer three different questions:
 
-  scry_<v>_amd64.deb              the Ubuntu/Debian answer. `sudo apt install
-                                  ./scry_<v>_amd64.deb` puts `scry` and
-                                  `scry-gui` on PATH, adds the menu entry with
+  elo_<v>_amd64.deb              the Ubuntu/Debian answer. `sudo apt install
+                                  ./elo_<v>_amd64.deb` puts `elo` and
+                                  `elo-gui` on PATH, adds the menu entry with
                                   the mark, furnishes the software-center page
                                   (AppStream metainfo: prose, links, shots),
                                   and — the reason it is a package and not a
                                   tarball — declares the X11/pango libraries
                                   the window links, so a missing one is apt's
                                   problem and never a player's.
-  scry-<v>-linux-x86_64.tar.gz    same two binaries, no root, any distro.
-  scry-<v>-windows-x86_64.zip     `scry.exe` and `scry-gui.exe`. No installer,
+  elo-<v>-linux-x86_64.tar.gz    same two binaries, no root, any distro.
+  elo-<v>-windows-x86_64.zip     `elo.exe` and `elo-gui.exe`. No installer,
                                   no redistributable, no runtime: unzip and run.
 
 WHY THIS EXISTS BESIDE `launcher/build_package.py`: that one packages the
@@ -25,7 +25,7 @@ PYTHON client, which is `Architecture: all` and has no Windows story at all
 (`docs/client/LAUNCHER.md` §12 row 4 — the `.deb` has no Windows analogue and the
 `.pyz` still needs a Python). This one packages the Rust client, which is the
 Windows client. The two coexist on purpose and the Debian package NAMES differ
-(`scry` vs `scry-launcher`) so neither can silently replace the other.
+(`elo` vs `elo-launcher`) so neither can silently replace the other.
 
 ⚠ **WHAT IS DETERMINISTIC HERE AND WHAT IS NOT — read before quoting a hash.**
 The CONTAINERS are deterministic exactly as the Python packager's are: tar
@@ -36,7 +36,7 @@ two runs an hour apart are byte-identical.
 The BINARIES are not a claim this file gets to make. They come out of `cargo`,
 and rustc embeds the build directory in panic paths unless it is remapped, so a
 different checkout path is a different binary. **So the published sha256 answers
-"did I download the bytes scry published", not "can I rebuild these bytes".**
+"did I download the bytes elo published", not "can I rebuild these bytes".**
 That is a weaker promise than the Python client's and it is written down rather
 than blurred, because a checksum sold as reproducibility that is not
 reproducible teaches a reader that checking is theatre.
@@ -65,10 +65,10 @@ WIN_BIN = HERE / "target" / WIN_TARGET / "release"
 
 # ── macOS, and why it is not in the default run ──────────────────────────────
 #
-# Apple builds need Apple's SDK to LINK — `scry-gui` binds Cocoa through FLTK,
-# and even the headless `scry` needs libSystem. There is no macOS SDK on the
+# Apple builds need Apple's SDK to LINK — `elo-gui` binds Cocoa through FLTK,
+# and even the headless `elo` needs libSystem. There is no macOS SDK on the
 # build box and osxcross is not installed, so `--macos` is a mode that runs ON
-# a Mac (the scryward CI job on a GitHub `macos-*` runner) and not a
+# a Mac (the launcher repo CI job on a GitHub `macos-*` runner) and not a
 # cross-target the Linux run can quietly skip. Trying it here fails at the
 # linker, which is the honest outcome — a "macOS build" produced without the
 # SDK would not be one.
@@ -78,7 +78,7 @@ WIN_BIN = HERE / "target" / WIN_TARGET / "release"
 # which is the Apple-idiomatic answer and keeps the site to one macOS row.
 MAC_TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 
-PKG = "scry"
+PKG = "elo"
 
 
 def version() -> str:
@@ -99,8 +99,8 @@ MAC_NAME = f"{PKG}-{VERSION}-macos-universal.tar.gz"
 
 # ── the Depends line, and why it is checked rather than trusted ──────────────
 #
-# `scry-gui` links FLTK, and FLTK on Linux links the X11 stack AND pango/cairo
-# for text shaping — which is more than a one-line comment in scry-ui's manifest
+# `elo-gui` links FLTK, and FLTK on Linux links the X11 stack AND pango/cairo
+# for text shaping — which is more than a one-line comment in elo-ui's manifest
 # used to claim. A `Depends:` typed from that claim would have been wrong, so
 # this table is CHECKED against the binary: `_needed()` reads DT_NEEDED straight
 # out of the ELF, and any soname not covered below fails the build. A new
@@ -194,14 +194,14 @@ def depends(binaries: list[bytes]) -> str:
 
 
 DESCRIPTION = """\
- The desktop client for scry: a curated, open-source-required game platform
+ The desktop client for Elo Pros: a curated, open-source-required game platform
  on its own chain. Opens the platform's games, browses the catalog, shows
  what a wallet holds, reads the hive, and installs hash-verified desktop
  builds when a title publishes one.
  .
- Two programs. "scry" is the command line — it installs, verifies, updates
+ Two programs. "elo" is the command line — it installs, verifies, updates
  and starts a build, and needs no desktop, which is what a server, a CI job
- or a training harness wants. "scry-gui" is the window.
+ or a training harness wants. "elo-gui" is the window.
  .
  It holds no keys unless you ask it to make you an account, and that account
  is yours: generated on this machine, encrypted with your passphrase, sent
@@ -214,30 +214,30 @@ DESCRIPTION = """\
 DESKTOP = """\
 [Desktop Entry]
 Type=Application
-Name=scry
+Name=Elo Pros
 GenericName=Game launcher
-Comment=The scry desktop client — games built by agents, owned by players
-Exec=scry-gui
-Icon=scry
+Comment=The Elo Pros desktop client — games built by agents, owned by players
+Exec=elo-gui
+Icon=elo
 Terminal=false
 Categories=Game;
 StartupNotify=true
-StartupWMClass=scry
-Keywords=scry;games;launcher;
+StartupWMClass=elo
+Keywords=elo;elopros;games;launcher;
 """
 
-# The url handler — `scry://join/<title>/host:port`, so a link a friend pastes
+# The url handler — `elo://join/<title>/host:port`, so a link a friend pastes
 # into a chat window starts the right game on the right shard.
 #
 # **A SECOND entry, hidden, rather than a MimeType line on the one above**, and
 # the split is deliberate on both halves:
 #
-#   - `Exec` differs. The visible entry opens the window (`scry-gui`); a join
-#     link has to reach `scry join %u`, which resolves the link and starts the
+#   - `Exec` differs. The visible entry opens the window (`elo-gui`); a join
+#     link has to reach `elo join %u`, which resolves the link and starts the
 #     game. One entry cannot do both, because a desktop passes `%u` to whatever
-#     Exec says and `scry-gui` takes no url.
+#     Exec says and `elo-gui` takes no url.
 #   - `NoDisplay=true` keeps it out of the applications menu. It is a handler,
-#     not a program anybody launches on purpose, and a second "scry" in the
+#     not a program anybody launches on purpose, and a second "elo" in the
 #     menu would be a bug report.
 #
 # `%u` is a SINGLE url. Never `%U`: a handler that accepts a list is one a
@@ -245,13 +245,13 @@ Keywords=scry;games;launcher;
 SCHEME_DESKTOP = """\
 [Desktop Entry]
 Type=Application
-Name=scry join link
-Comment=Open a scry:// link — a game, on the shard the link names
-Exec=scry join %u
-Icon=scry
+Name=Elo Pros join link
+Comment=Open an elo:// link — a game, on the shard the link names
+Exec=elo join %u
+Icon=elo
 Terminal=false
 NoDisplay=true
-MimeType=x-scheme-handler/scry;
+MimeType=x-scheme-handler/elo;
 """
 
 # Registering the scheme is a step BEYOND copying the file in.
@@ -281,16 +281,23 @@ exit 0
 
 # ── the mark ─────────────────────────────────────────────────────────────────
 #
-# The menu icon is the site's green orb, and it is READ, never retyped: the
-# client compiles the identical file into every window it opens
-# (`crates/scry-ui/assets/orb.svg`, `windows::mark`), so the icon in the dock
+# The menu icon is the site's mark, and it is READ, never retyped: the client
+# compiles the identical file into every window it opens
+# (`crates/elo-ui/assets/mark.svg`, `windows::mark`), so the icon in the dock
 # and the icon in the menu cannot disagree. In the forge the site's own copy
 # is `watchtower/favicon.svg` and the two must be byte-identical — checked on
 # every run INCLUDING `--check`, which is how the site suite inherits the weld
 # (the same law test_site.py holds the masthead CSS to). The public repo
 # carries `launcher-rs/` without the site, so the favicon half of the weld is
 # skipped where there is no favicon to weld to.
-ICON_PATH = HERE / "crates" / "scry-ui" / "assets" / "orb.svg"
+#
+# ⚠ The mark is a 32x32 PIXEL GRID now (the Elo Pros seat, `art/seat/sprites.py`
+# via `watchtower/art/make_logo.py`), not the green glass orb it was until
+# 2026-08-20. The asset was renamed `orb.svg` -> `mark.svg` with the picture.
+ICON_PATH = HERE / "crates" / "elo-ui" / "assets" / "mark.svg"
+
+# The two platform icons `build.rs` and the .app bundle read.
+ASSETS = HERE / "assets"
 
 
 def _icon() -> str:
@@ -305,6 +312,42 @@ def _icon() -> str:
 
 
 ICON = _icon()
+
+
+def _client_icons() -> None:
+    """The Windows .ico and the macOS .icns have to BE there and have to be
+    the containers they claim.
+
+    Neither is compiled in the way `mark.svg` is — one is linked in as a PE
+    resource by `build.rs`, the other is copied into the .app — so nothing
+    downstream fails loudly when they are absent. Windows falls back to the
+    system default icon and the Mac bundle gets a blank tile, both silently,
+    and the first report is a screenshot from a player. Check at the top of a
+    packaging run instead, where it costs nothing.
+
+    ⚠ This checks the SHAPE, never the picture. Whether these still match
+    `sprites.EMBLEM` is `watchtower/art/make_logo.py --check`'s question, and
+    it is asked where the renderer lives — the public repo carries
+    `launcher-rs/` without `art/seat/`, exactly as it carries it without the
+    favicon to weld `mark.svg` against.
+    """
+    ico, icns = ASSETS / "elo.ico", ASSETS / "elo.icns"
+    for f in (ico, icns):
+        if not f.is_file():
+            raise SystemExit(
+                f"{f.relative_to(REPO)} is missing — cut it with "
+                "`python3 watchtower/art/make_logo.py`.")
+    head = ico.read_bytes()[:6]
+    if len(head) < 6 or struct.unpack("<HH", head[:4]) != (0, 1):
+        raise SystemExit(f"{ico.relative_to(REPO)} is not an icon directory.")
+    body = icns.read_bytes()
+    if body[:4] != b"icns" or struct.unpack(">I", body[4:8])[0] != len(body):
+        raise SystemExit(
+            f"{icns.relative_to(REPO)} header disagrees with its own length — "
+            "a truncated .icns shows in Finder as a blank tile.")
+
+
+_client_icons()
 
 # ── the store listing the desktop reads ──────────────────────────────────────
 #
@@ -347,27 +390,27 @@ def metainfo() -> str:
     return f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>xyz.moreright.scry</id>
+  <id>xyz.moreright.elo</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
-  <name>scry</name>
+  <name>Elo Pros</name>
   <summary>Games built by agents, owned by players</summary>
   <description>
 {_desc_paragraphs()}
   </description>
-  <launchable type="desktop-id">scry.desktop</launchable>
+  <launchable type="desktop-id">elo.desktop</launchable>
   <provides>
-    <binary>scry</binary>
-    <binary>scry-gui</binary>
+    <binary>elo</binary>
+    <binary>elo-gui</binary>
   </provides>
   <developer id="xyz.moreright">
-    <name>scry</name>
+    <name>Elo Pros</name>
   </developer>
-  <url type="homepage">https://scry.moreright.xyz/</url>
-  <url type="help">https://scry.moreright.xyz/docs.html</url>
-  <url type="bugtracker">https://github.com/AnthonE/scryward/issues</url>
-  <url type="vcs-browser">https://github.com/AnthonE/scryward</url>
-  <update_contact>admin@scry.moreright.xyz</update_contact>
+  <url type="homepage">https://elopros.com/</url>
+  <url type="help">https://elopros.com/docs.html</url>
+  <url type="bugtracker">https://github.com/AnthonE/elo-pros-launcher/issues</url>
+  <url type="vcs-browser">https://github.com/AnthonE/elo-pros-launcher</url>
+  <update_contact>admin@elopros.com</update_contact>
   <branding>
     <color type="primary" scheme_preference="light">#dff5e2</color>
     <color type="primary" scheme_preference="dark">#0e1210</color>
@@ -386,15 +429,15 @@ def metainfo() -> str:
   <screenshots>
     <screenshot type="default">
       <caption>The store — the curated shelf: what each title costs, and what is already installed</caption>
-      <image>https://scry.moreright.xyz/art/client/store.png</image>
+      <image>https://elopros.com/art/client/store.png</image>
     </screenshot>
     <screenshot>
       <caption>The library — what is installed, what is stale, and what could not be checked</caption>
-      <image>https://scry.moreright.xyz/art/client/library.png</image>
+      <image>https://elopros.com/art/client/library.png</image>
     </screenshot>
     <screenshot>
       <caption>A title's public shards — live player counts, or an honest question mark</caption>
-      <image>https://scry.moreright.xyz/art/client/servers.png</image>
+      <image>https://elopros.com/art/client/servers.png</image>
     </screenshot>
   </screenshots>
   <releases>
@@ -405,8 +448,8 @@ def metainfo() -> str:
 
 COPYRIGHT = """\
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: scry
-Source: https://github.com/AnthonE/scryward
+Upstream-Name: elo
+Source: https://github.com/AnthonE/elo-pros-launcher
 
 Files: *
 Copyright: 2026 MoreRight
@@ -421,33 +464,33 @@ License: FLTK
 """
 
 README_WIN = f"""\
-scry launcher {VERSION} — Windows, x86-64
+elo launcher {VERSION} — Windows, x86-64
 =========================================
 
 Two programs, no installer and nothing to register:
 
-  scry-gui.exe    the window. Double-click it.
-  scry.exe        the command line. Run it from PowerShell or cmd:
+  elo-gui.exe    the window. Double-click it.
+  elo.exe        the command line. Run it from PowerShell or cmd:
 
-      scry check              what this machine can run
-      scry games              every title the origin serves a manifest for
-      scry install <title>    install the native build for this machine
-      scry play <title>       start the newest installed build
+      elo check              what this machine can run
+      elo games              every title the origin serves a manifest for
+      elo install <title>    install the native build for this machine
+      elo play <title>       start the newest installed build
 
 Nothing to install alongside these. They import the DLLs Windows already
 ships and no redistributable runtime.
 
 Where it keeps things
 ---------------------
-Games install under %LOCALAPPDATA%\\scry\\games and settings under
-%APPDATA%\\scry. Nothing is written outside your profile and nothing needs
+Games install under %LOCALAPPDATA%\\elo\\games and settings under
+%APPDATA%\\elo. Nothing is written outside your profile and nothing needs
 administrator rights.
 
 What it will not do
 -------------------
 Custody anything. It can make you an account, and that account is yours:
 generated on this machine, encrypted with your passphrase, sent nowhere, and
-restorable in any wallet from twelve BIP-39 words. scry never sees it.
+restorable in any wallet from twelve BIP-39 words. elo never sees it.
 
 Be required. Every surface it shows is a URL that works in a browser without
 it. There is no launcher-only anything.
@@ -455,8 +498,8 @@ it. There is no launcher-only anything.
 Invent. If it cannot reach the origin it says so — which is a different
 sentence from "there are none", and the difference is the point.
 
-The design of record is https://scry.moreright.xyz/read.html?doc=LAUNCHER
-The source is https://github.com/AnthonE/scryward
+The design of record is https://elopros.com/docs.html
+The source is https://github.com/AnthonE/elo-pros-launcher
 """
 
 
@@ -512,18 +555,18 @@ def _zip(members: list[tuple[str, bytes]]) -> bytes:
 
 def build_deb(cli: bytes, gui: bytes) -> bytes:
     dirs = ["./usr/", "./usr/bin/", "./usr/share/", "./usr/share/applications/",
-            "./usr/share/doc/", "./usr/share/doc/scry/", "./usr/share/icons/",
+            "./usr/share/doc/", "./usr/share/doc/elo/", "./usr/share/icons/",
             "./usr/share/icons/hicolor/", "./usr/share/icons/hicolor/scalable/",
             "./usr/share/icons/hicolor/scalable/apps/", "./usr/share/metainfo/"]
     files = [
-        ("./usr/bin/scry", cli, 0o755),
-        ("./usr/bin/scry-gui", gui, 0o755),
-        ("./usr/share/applications/scry.desktop", DESKTOP.encode(), 0o644),
-        ("./usr/share/applications/scry-join.desktop", SCHEME_DESKTOP.encode(), 0o644),
-        ("./usr/share/icons/hicolor/scalable/apps/scry.svg", ICON.encode(), 0o644),
-        ("./usr/share/metainfo/xyz.moreright.scry.metainfo.xml",
+        ("./usr/bin/elo", cli, 0o755),
+        ("./usr/bin/elo-gui", gui, 0o755),
+        ("./usr/share/applications/elo.desktop", DESKTOP.encode(), 0o644),
+        ("./usr/share/applications/elo-join.desktop", SCHEME_DESKTOP.encode(), 0o644),
+        ("./usr/share/icons/hicolor/scalable/apps/elo.svg", ICON.encode(), 0o644),
+        ("./usr/share/metainfo/xyz.moreright.elo.metainfo.xml",
          metainfo().encode(), 0o644),
-        ("./usr/share/doc/scry/copyright", COPYRIGHT.encode(), 0o644),
+        ("./usr/share/doc/elo/copyright", COPYRIGHT.encode(), 0o644),
     ]
     files.sort()
     data_tar = _tar_gz(files, dirs)
@@ -534,12 +577,12 @@ def build_deb(cli: bytes, gui: bytes) -> bytes:
         "Priority: optional\n"
         "Architecture: amd64\n"
         f"Depends: {depends([cli, gui])}\n"
-        "Maintainer: scry <admin@scry.moreright.xyz>\n"
-        "Homepage: https://scry.moreright.xyz/\n"
+        "Maintainer: Elo Pros <admin@elopros.com>\n"
+        "Homepage: https://elopros.com/\n"
         f"Installed-Size: {(len(cli) + len(gui)) // 1024}\n"
-        "Description: the scry desktop client\n"
+        "Description: the Elo Pros desktop client\n"
         f"{DESCRIPTION}")
-    # md5sums is not decoration: `dpkg -V scry` reads it, and that is how a
+    # md5sums is not decoration: `dpkg -V elo` reads it, and that is how a
     # user checks an install has not been edited under them.
     md5s = "".join(f"{hashlib.md5(d).hexdigest()}  {n[2:]}\n"
                    for n, d, _ in files).encode()
@@ -555,26 +598,78 @@ def build_deb(cli: bytes, gui: bytes) -> bytes:
 
 def build_tgz(cli: bytes, gui: bytes) -> bytes:
     root = f"{PKG}-{VERSION}-linux-x86_64"
-    return _tar_gz([(f"./{root}/scry", cli, 0o755),
-                    (f"./{root}/scry-gui", gui, 0o755),
+    return _tar_gz([(f"./{root}/elo", cli, 0o755),
+                    (f"./{root}/elo-gui", gui, 0o755),
                     (f"./{root}/COPYRIGHT", COPYRIGHT.encode(), 0o644)],
                    [f"./{root}/"])
+
+
+# The Dock's copy of the mark. `.icns` is the ONLY icon macOS reads for an
+# app — it does not look at the compiled-in SVG, and it does not look at a PNG
+# beside the binary — so this file is the whole of the Mac icon story.
+# Cut by `watchtower/art/make_logo.py` off the same seat as the favicon and the
+# Windows .ico (`--check` fails if it is missing).
+ICNS_PATH = ASSETS / "elo.icns"
+
+APP_NAME = "Elo Pros"           # what Finder and the Dock show under the icon
+
+INFO_PLIST = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>{APP_NAME}</string>
+  <key>CFBundleDisplayName</key><string>{APP_NAME}</string>
+  <key>CFBundleIdentifier</key><string>xyz.moreright.elo</string>
+  <key>CFBundleExecutable</key><string>elo-gui</string>
+  <key>CFBundleIconFile</key><string>elo</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{VERSION}</string>
+  <key>CFBundleVersion</key><string>{VERSION}</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>LSMinimumSystemVersion</key><string>10.13</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>xyz.moreright.elo.join</string>
+    <key>CFBundleURLSchemes</key><array><string>elo</string></array>
+  </dict></array>
+</dict>
+</plist>
+"""
 
 
 def build_mac_tgz(cli: bytes, gui: bytes) -> bytes:
-    """The same shape as the Linux tarball — two binaries and the copyright.
+    """A real `.app` beside the CLI, and the reason is the icon and the scheme.
 
-    No .app bundle and no .dmg on purpose: `scry-gui` is a plain executable, an
-    unsigned bundle buys nothing Gatekeeper will honour, and a .dmg would only
-    add a mount step in front of the same two files. Unsigned and unnotarized
-    is stated on the download page rather than papered over — first run needs
-    right-click ▸ Open, or `xattr -d com.apple.quarantine`.
+    ⚠ **This shipped as two bare binaries until 2026-08-21 and the docstring
+    argued for that** — an unsigned bundle "buys nothing Gatekeeper will
+    honour". That was true about GATEKEEPER and it answered the wrong question.
+    A bare Mach-O gets a generic executable icon in Finder and the Dock, shows
+    the process as `elo-gui`, and **cannot register a URL scheme at all**:
+    `CFBundleURLTypes` lives in `Info.plist`, so with no bundle there is nothing
+    for `elo://join/…` to open. The bundle is how the Mac gets the mark and the
+    join link; signing is a separate thing we still do not have.
+
+    So the trade is unchanged where it was real and stated on the download
+    page: unsigned and unnotarized, first run is right-click ▸ Open or
+    `xattr -d com.apple.quarantine`. A `.dmg` is still not here, because it
+    would only put a mount step in front of the same files.
+
+    The CLI stays OUTSIDE the bundle. `elo` is meant to go on a PATH — a
+    headless box, a CI job, a training harness — and a binary buried at
+    `Elo Pros.app/Contents/MacOS/` is not on anybody's PATH.
     """
     root = f"{PKG}-{VERSION}-macos-universal"
-    return _tar_gz([(f"./{root}/scry", cli, 0o755),
-                    (f"./{root}/scry-gui", gui, 0o755),
+    app = f"./{root}/{APP_NAME}.app"
+    return _tar_gz([(f"{app}/Contents/Info.plist", INFO_PLIST.encode(), 0o644),
+                    (f"{app}/Contents/MacOS/elo-gui", gui, 0o755),
+                    (f"{app}/Contents/Resources/elo.icns",
+                     ICNS_PATH.read_bytes(), 0o644),
+                    (f"./{root}/elo", cli, 0o755),
                     (f"./{root}/COPYRIGHT", COPYRIGHT.encode(), 0o644)],
-                   [f"./{root}/"])
+                   [f"./{root}/", app, f"{app}/Contents/",
+                    f"{app}/Contents/MacOS/", f"{app}/Contents/Resources/"])
 
 
 def lipo(name: str) -> bytes:
@@ -606,7 +701,7 @@ def write_sums() -> None:
 
 
 def build_zip(cli: bytes, gui: bytes) -> bytes:
-    return _zip([("scry.exe", cli), ("scry-gui.exe", gui),
+    return _zip([("elo.exe", cli), ("elo-gui.exe", gui),
                  ("README.txt", README_WIN.replace("\n", "\r\n").encode()),
                  ("COPYRIGHT.txt", COPYRIGHT.replace("\n", "\r\n").encode())])
 
@@ -653,13 +748,13 @@ def main(argv=None) -> int:
         if sys.platform != "darwin":
             print(f"--macos must run on a Mac; this is {sys.platform}. Apple's SDK is\n"
                   f"required to link, so there is no honest cross-build from here.\n"
-                  f"The scryward CI job builds it on a macos runner.", file=sys.stderr)
+                  f"The launcher repo CI job builds it on a macos runner.", file=sys.stderr)
             return 2
         if not args.no_cargo:
             for target in MAC_TARGETS:
                 print(f"building {target}")
                 cargo(target)
-        data = build_mac_tgz(lipo("scry"), lipo("scry-gui"))
+        data = build_mac_tgz(lipo("elo"), lipo("elo-gui"))
         OUT.mkdir(parents=True, exist_ok=True)
         (OUT / MAC_NAME).write_bytes(data)
         print(f"wrote {OUT / MAC_NAME}  {len(data):,}B  "
@@ -698,9 +793,9 @@ def main(argv=None) -> int:
         cargo(WIN_TARGET)
 
     built = {
-        DEB_NAME: build_deb(read(LINUX_BIN / "scry"), read(LINUX_BIN / "scry-gui")),
-        TGZ_NAME: build_tgz(read(LINUX_BIN / "scry"), read(LINUX_BIN / "scry-gui")),
-        ZIP_NAME: build_zip(read(WIN_BIN / "scry.exe"), read(WIN_BIN / "scry-gui.exe")),
+        DEB_NAME: build_deb(read(LINUX_BIN / "elo"), read(LINUX_BIN / "elo-gui")),
+        TGZ_NAME: build_tgz(read(LINUX_BIN / "elo"), read(LINUX_BIN / "elo-gui")),
+        ZIP_NAME: build_zip(read(WIN_BIN / "elo.exe"), read(WIN_BIN / "elo-gui.exe")),
     }
 
     OUT.mkdir(parents=True, exist_ok=True)

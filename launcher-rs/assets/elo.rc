@@ -1,0 +1,10 @@
+/* The Windows resource: the icon Explorer, the taskbar and Alt-Tab read.
+ *
+ * `IDI_ICON1` is not magic, but its VALUE is: Windows shows the LOWEST-numbered
+ * RT_GROUP_ICON as the executable's own icon, so the app icon has to be the
+ * first one declared. There is only one here, which keeps that true by
+ * construction.
+ *
+ * Compiled by `build.rs` with whatever resource compiler the target has —
+ * `windres` for the mingw/GNU target, `rc.exe` or `llvm-rc` for MSVC. */
+1 ICON "elo.ico"

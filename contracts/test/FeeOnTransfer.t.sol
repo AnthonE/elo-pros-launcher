@@ -3,11 +3,11 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "./MockToken.sol";
-import "../src/ScryGarden.sol";
-import "../src/ScryBurrow.sol";
-import "../src/ScryBank.sol";
-import "../src/ScryGardener.sol";
-import "../src/ScryGranary.sol";
+import "../src/EloGarden.sol";
+import "../src/EloBurrow.sol";
+import "../src/EloBank.sol";
+import "../src/EloGardener.sol";
+import "../src/EloGranary.sol";
 import "../src/SpoilsToken.sol";
 import "../src/SafeERC20.sol";
 
@@ -22,15 +22,15 @@ import "../src/SafeERC20.sol";
 ///         mainnet, 2026-07-28), which carries an `IncorrectAmountReceived()`
 ///         error at the same position. We had no equivalent.
 ///
-///         The sharp one is `ScryGarden.swap`: `out` is priced off the STATED
+///         The sharp one is `EloGarden.swap`: `out` is priced off the STATED
 ///         `amountIn` and paid before anything checks what landed, so a short
 ///         input buys a full output. `test_swap_was_a_drain_and_now_reverts`
 ///         puts a number on it.
 contract FeeOnTransferTest is Test {
     FeeToken fee; // skims on every move
     MockToken plain; // honest control
-    ScryGarden garden;
-    ScryBurrow burrow;
+    EloGarden garden;
+    EloBurrow burrow;
 
     address alice = address(0xA11CE);
     address whale = address(0x5A1E);
@@ -38,8 +38,8 @@ contract FeeOnTransferTest is Test {
     function setUp() public {
         fee = new FeeToken("fee token", "FEE", 100); // 1%
         plain = new MockToken("plain", "PLN");
-        garden = new ScryGarden(IERC20(address(fee)), IERC20(address(plain)));
-        burrow = new ScryBurrow(IERC20(address(fee)), IERC20(address(plain)), IGardenOracle(address(garden)));
+        garden = new EloGarden(IERC20(address(fee)), IERC20(address(plain)));
+        burrow = new EloBurrow(IERC20(address(fee)), IERC20(address(plain)), IGardenOracle(address(garden)));
 
         fee.mint(whale, 10_000e18);
         plain.mint(whale, 10_000e18);
@@ -124,17 +124,17 @@ contract FeeOnTransferTest is Test {
 
     // ── the three books that priced BEFORE pulling (2026-07-28) ─────────────
     //
-    // The original sweep caught `ScryGarden` and `ScryBurrow`, both of which
+    // The original sweep caught `EloGarden` and `EloBurrow`, both of which
     // pull and then act. These three credit a STATED amount to their own books
     // and pull afterwards, so a short delivery mints unbacked accounting rather
     // than buying a free output — no extractable drain, but permanently wrong
     // books that dilute whoever withdraws last. Same guard, same message.
 
-    /// `ScryBank.enter` prices shares off the stated `amount` two lines before
+    /// `EloBank.enter` prices shares off the stated `amount` two lines before
     /// the pull, so a 1% skim would credit the depositor a claim on tokens that
     /// never arrived and dilute every existing xSCRY holder.
     function test_bank_enter_refuses_short_deposit() public {
-        ScryBank bank = new ScryBank(IERC20(address(fee)));
+        EloBank bank = new EloBank(IERC20(address(fee)));
         vm.startPrank(alice);
         fee.approve(address(bank), type(uint256).max);
         vm.expectRevert(bytes("inexact transfer"));
@@ -145,7 +145,7 @@ contract FeeOnTransferTest is Test {
     /// And it must still work for the honest token — the bank is deployed
     /// against canonical SCRY, which does not skim.
     function test_bank_enter_unaffected_by_an_honest_token() public {
-        ScryBank bank = new ScryBank(IERC20(address(plain)));
+        EloBank bank = new EloBank(IERC20(address(plain)));
         vm.startPrank(alice);
         plain.approve(address(bank), type(uint256).max);
         uint256 shares = bank.enter(100e18);
@@ -154,14 +154,14 @@ contract FeeOnTransferTest is Test {
         assertEq(plain.balanceOf(address(bank)), 100e18, "and the pool holds it");
     }
 
-    /// `ScryGardener.deposit` credits `u.amount` and `stakedSupply` the stated
+    /// `EloGardener.deposit` credits `u.amount` and `stakedSupply` the stated
     /// amount, so a short LP delivery farms a real emission stream against
     /// weight nothing backs.
     function test_gardener_deposit_refuses_short_lp() public {
         SpoilsToken reward = new SpoilsToken("reward", "RWD", 0, address(this));
-        ScryGranary granary = new ScryGranary(reward);
+        EloGranary granary = new EloGranary(reward);
         reward.setMinter(address(granary));
-        ScryGardener gardener = new ScryGardener(granary, 1e18, 0, block.timestamp + 365 days);
+        EloGardener gardener = new EloGardener(granary, 1e18, 0, block.timestamp + 365 days);
         granary.setGrant(address(gardener), 1_000e18);
         gardener.addPool(IERC20(address(fee)), 100);
 
@@ -179,15 +179,15 @@ contract FeeOnTransferTest is Test {
     /// raw address nothing else validates.
     function test_gardener_addPool_refuses_a_codeless_lp() public {
         SpoilsToken reward = new SpoilsToken("reward", "RWD", 0, address(this));
-        ScryGranary granary = new ScryGranary(reward);
-        ScryGardener gardener = new ScryGardener(granary, 1e18, 0, block.timestamp + 365 days);
+        EloGranary granary = new EloGranary(reward);
+        EloGardener gardener = new EloGardener(granary, 1e18, 0, block.timestamp + 365 days);
         vm.expectRevert(bytes("lp has no code"));
         gardener.addPool(IERC20(address(0xDEADBEEF)), 100);
     }
 
-    // `ScrySilo.seal` is deliberately NOT in this list. Its bins are typed
+    // `EloSilo.seal` is deliberately NOT in this list. Its bins are typed
     // `SpoilsToken`, whose `_move` cannot skim, so the type is the guard —
-    // the same call ScryOrchard makes and states in its own comment. A test
+    // the same call EloOrchard makes and states in its own comment. A test
     // cannot even be written for it: `addBin` takes `SpoilsToken`, so a lying
     // token is unrepresentable at the type level. That is the point.
 
@@ -198,7 +198,7 @@ contract FeeOnTransferTest is Test {
     function test_plain_tokens_are_untouched() public {
         MockToken a = new MockToken("a", "A");
         MockToken b = new MockToken("b", "B");
-        ScryGarden g = new ScryGarden(IERC20(address(a)), IERC20(address(b)));
+        EloGarden g = new EloGarden(IERC20(address(a)), IERC20(address(b)));
         a.mint(alice, 1000e18);
         b.mint(alice, 1000e18);
 
@@ -217,7 +217,7 @@ contract FeeOnTransferTest is Test {
     function test_over_delivery_is_refused() public {
         BonusToken bonus = new BonusToken();
         MockToken other = new MockToken("other", "OTH");
-        ScryGarden g = new ScryGarden(IERC20(address(bonus)), IERC20(address(other)));
+        EloGarden g = new EloGarden(IERC20(address(bonus)), IERC20(address(other)));
         bonus.mint(alice, 1000e18);
         other.mint(alice, 1000e18);
 
@@ -234,7 +234,7 @@ contract FeeOnTransferTest is Test {
     function test_unmeasurable_token_is_refused() public {
         MuteToken mute = new MuteToken();
         MockToken other = new MockToken("other", "OTH");
-        ScryGarden g = new ScryGarden(IERC20(address(mute)), IERC20(address(other)));
+        EloGarden g = new EloGarden(IERC20(address(mute)), IERC20(address(other)));
         other.mint(alice, 1000e18);
 
         vm.startPrank(alice);

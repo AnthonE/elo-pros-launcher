@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../src/Math.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScryGardener.sol";
-import "../src/ScrySilo.sol";
+import "../src/EloGranary.sol";
+import "../src/EloGardener.sol";
+import "../src/EloSilo.sol";
 import "./MockToken.sol";
 
 /// Regression for the 2026-07-29 review finding: `(a * b) / c` in the two
@@ -23,10 +23,10 @@ contract MulDivOverflowTest is Test {
     SpoilsToken obol;
     SpoilsToken myrrh;
     MockToken lp;
-    ScryGranary granaryM;
-    ScryGranary granaryO;
-    ScryGardener gardener;
-    ScrySilo silo;
+    EloGranary granaryM;
+    EloGranary granaryO;
+    EloGardener gardener;
+    EloSilo silo;
 
     address op = address(0xC0FFEE);
     address alice = address(0xA11CE);
@@ -36,14 +36,14 @@ contract MulDivOverflowTest is Test {
         myrrh = new SpoilsToken("myrrh", "MYRRH", 0, op);
         lp = new MockToken("lp", "LP");
 
-        granaryM = new ScryGranary(myrrh);
-        gardener = new ScryGardener(granaryM, 1e18, 6700, vm.getBlockTimestamp() + 90 days);
+        granaryM = new EloGranary(myrrh);
+        gardener = new EloGardener(granaryM, 1e18, 6700, vm.getBlockTimestamp() + 90 days);
         granaryM.setGrant(address(gardener), type(uint128).max);
         vm.prank(op);
         myrrh.setMinter(address(granaryM));
 
-        granaryO = new ScryGranary(obol);
-        silo = new ScrySilo(granaryO, 1e18, 5000);
+        granaryO = new EloGranary(obol);
+        silo = new EloSilo(granaryO, 1e18, 5000);
         granaryO.setGrant(address(silo), type(uint128).max);
         // mint alice her principal while `op` is still the minter - handing the
         // role to the granary first is what made this revert "minter only"

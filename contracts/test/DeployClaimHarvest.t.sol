@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../src/ScryHarvest.sol";
+import "../src/EloHarvest.sol";
 import "../src/SpoilsToken.sol";
 import "../src/IERC20.sol";
 import {DeployHarvest} from "../script/DeployHarvest.s.sol";
@@ -44,8 +44,8 @@ abstract contract ClaimHarvestBase is Test {
     }
 
     /// The shipped merkle dialect: leaf = keccak(wallet ‖ cumulative), sorted
-    /// pairs up the tree — identical to `ScryHarvest._verify` and
-    /// `ScryVowRegistry.verifyProof`.
+    /// pairs up the tree — identical to `EloHarvest._verify` and
+    /// `EloVowRegistry.verifyProof`.
     function leafOf(address w, uint256 cumulative) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(w, cumulative));
     }
@@ -71,17 +71,17 @@ contract DeployHarvestScriptTest is ClaimHarvestBase {
     }
 
     function test_the_script_deploys_a_harvest_wired_to_the_token_and_the_deployer() public {
-        ScryHarvest h = script.runWith(PK, IERC20(address(obol)));
+        EloHarvest h = script.runWith(PK, IERC20(address(obol)));
 
         assertGt(address(h).code.length, 0, "deployed");
-        assertEq(address(h.scry()), address(obol), "token is the one passed in");
+        assertEq(address(h.reserve()), address(obol), "token is the one passed in");
         assertEq(h.operator(), deployer(), "operator is the broadcasting key, not the script");
         assertEq(h.root(), bytes32(0), "no root posted by the deploy itself");
         assertEq(h.rootCount(), 0);
         assertEq(h.owedUnderRoot(), 0);
     }
 
-    /// `vm.envAddress` hands back address(0) happily, `scry` is immutable, and
+    /// `vm.envAddress` hands back address(0) happily, `reserve` is immutable, and
     /// the failure would only surface after a root had been posted and
     /// published. RED before the guard: this deployed a permanent brick.
     function test_the_script_refuses_a_zero_token_address() public {
@@ -93,7 +93,7 @@ contract DeployHarvestScriptTest is ClaimHarvestBase {
     /// enforced — `postRoot` never reads the balance. This pins what that
     /// actually costs, so nobody upgrades the rule to a belief.
     function test_a_root_posted_before_funding_is_a_promise_that_cannot_pay_yet() public {
-        ScryHarvest h = script.runWith(PK, IERC20(address(obol)));
+        EloHarvest h = script.runWith(PK, IERC20(address(obol)));
         bytes32 root = leafOf(alice, 500e18);
 
         vm.prank(deployer());
@@ -118,13 +118,13 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
     DeployClaim script;
     SpoilsToken obol;
     SpoilsToken myrrh;
-    SpoilsToken scry;
+    SpoilsToken reserve;
 
     function setUp() public {
         script = new DeployClaim();
         obol = newCoin("OBOL");
         myrrh = newCoin("MYRRH");
-        scry = newCoin("SCRY");
+        reserve = newCoin("SCRY");
     }
 
     function inputs() internal view returns (DeployClaim.ClaimInputs memory inp) {
@@ -132,13 +132,13 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
         inp.ref = "founders-2026-07-25-b19231505";
         inp.obol = address(obol);
         inp.myrrh = address(myrrh);
-        inp.scry = address(scry);
+        inp.reserve = address(reserve);
         inp.obolRoot = leafOf(alice, 1_500e18);
         inp.myrrhRoot = leafOf(alice, 25e18);
-        inp.scryRoot = leafOf(alice, 10_000e18);
+        inp.reserveRoot = leafOf(alice, 10_000e18);
         inp.obolTotal = 1_500e18;
         inp.myrrhTotal = 25e18;
-        inp.scryTotal = 10_000e18;
+        inp.reserveTotal = 10_000e18;
     }
 
     function test_one_harvest_per_token_each_carrying_its_own_root_and_total() public {
@@ -147,18 +147,18 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
         assertTrue(o != address(0) && m != address(0) && s != address(0), "all three deployed");
         assertTrue(o != m && m != s && o != s, "and they are three distinct contracts");
 
-        assertEq(address(ScryHarvest(o).scry()), address(obol));
-        assertEq(address(ScryHarvest(m).scry()), address(myrrh));
-        assertEq(address(ScryHarvest(s).scry()), address(scry));
+        assertEq(address(EloHarvest(o).reserve()), address(obol));
+        assertEq(address(EloHarvest(m).reserve()), address(myrrh));
+        assertEq(address(EloHarvest(s).reserve()), address(reserve));
 
-        assertEq(ScryHarvest(o).root(), leafOf(alice, 1_500e18), "OBOL root posted at deploy");
-        assertEq(ScryHarvest(o).totalCommitted(), 1_500e18);
-        assertEq(ScryHarvest(m).totalCommitted(), 25e18);
-        assertEq(ScryHarvest(s).totalCommitted(), 10_000e18);
+        assertEq(EloHarvest(o).root(), leafOf(alice, 1_500e18), "OBOL root posted at deploy");
+        assertEq(EloHarvest(o).totalCommitted(), 1_500e18);
+        assertEq(EloHarvest(m).totalCommitted(), 25e18);
+        assertEq(EloHarvest(s).totalCommitted(), 10_000e18);
 
         // the sweep floor is armed the moment the root lands, before funding
-        assertEq(ScryHarvest(o).sweepFloor(), 1_500e18);
-        assertEq(ScryHarvest(o).operator(), deployer(), "operator is the deploying key");
+        assertEq(EloHarvest(o).sweepFloor(), 1_500e18);
+        assertEq(EloHarvest(o).operator(), deployer(), "operator is the deploying key");
     }
 
     function test_a_token_with_no_root_is_skipped_and_the_others_still_deploy() public {
@@ -213,14 +213,14 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
         (address o,,) = script.runWith(inputs());
         obol.mint(o, 1_500e18); // the arming cast: mint the total INTO the claim
 
-        uint256 paid = ScryHarvest(o).claim(alice, 1_500e18, soloProof());
+        uint256 paid = EloHarvest(o).claim(alice, 1_500e18, soloProof());
         assertEq(paid, 1_500e18);
         assertEq(obol.balanceOf(alice), 1_500e18);
-        assertEq(ScryHarvest(o).totalClaimed(), 1_500e18);
+        assertEq(EloHarvest(o).totalClaimed(), 1_500e18);
 
         // and it is spent — a second claim on the same cumulative pays nothing
         vm.expectRevert(bytes("nothing to claim"));
-        ScryHarvest(o).claim(alice, 1_500e18, soloProof());
+        EloHarvest(o).claim(alice, 1_500e18, soloProof());
     }
 
     /// A two-leaf tree, so the proof path is exercised and not just the
@@ -240,17 +240,17 @@ contract DeployClaimScriptTest is ClaimHarvestBase {
         bytes32[] memory pb = new bytes32[](1);
         pb[0] = la;
 
-        ScryHarvest(o).claim(alice, 1_500e18, pa);
-        ScryHarvest(o).claim(bob, 900e18, pb);
+        EloHarvest(o).claim(alice, 1_500e18, pa);
+        EloHarvest(o).claim(bob, 900e18, pb);
         assertEq(obol.balanceOf(alice), 1_500e18);
         assertEq(obol.balanceOf(bob), 900e18);
-        assertEq(ScryHarvest(o).owedUnderRoot(), 0, "the whole stated obligation is discharged");
+        assertEq(EloHarvest(o).owedUnderRoot(), 0, "the whole stated obligation is discharged");
 
         // a wallet not in the tree cannot invent one
         bytes32[] memory junk = new bytes32[](1);
         junk[0] = la;
         vm.expectRevert(bytes("bad proof"));
-        ScryHarvest(o).claim(treasury, 1e18, junk);
+        EloHarvest(o).claim(treasury, 1e18, junk);
     }
 }
 
@@ -265,8 +265,8 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
         obol = newCoin("OBOL");
     }
 
-    function _harvest() internal returns (ScryHarvest h) {
-        h = new ScryHarvest(IERC20(address(obol)));
+    function _harvest() internal returns (EloHarvest h) {
+        h = new EloHarvest(IERC20(address(obol)));
         obol.mint(address(h), 100_000e18);
     }
 
@@ -274,7 +274,7 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// `cumulative − claimed`, so per-drop absolute roots cannot share an
     /// instance: drop two zeroes anyone who was paid by drop one.
     function test_reusing_one_instance_for_two_drops_zeroes_a_claimant() public {
-        ScryHarvest shared = _harvest();
+        EloHarvest shared = _harvest();
 
         shared.postRoot(leafOf(alice, 1_500e18), 1_500e18, "drop-one");
         assertEq(shared.claim(alice, 1_500e18, soloProof()), 1_500e18);
@@ -290,8 +290,8 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// The same two drops on their OWN instances pay both, which is what the
     /// rule buys and why it is a rule rather than a preference.
     function test_separate_instances_pay_both_drops_in_full() public {
-        ScryHarvest one = _harvest();
-        ScryHarvest two = _harvest();
+        EloHarvest one = _harvest();
+        EloHarvest two = _harvest();
 
         one.postRoot(leafOf(alice, 1_500e18), 1_500e18, "drop-one");
         two.postRoot(leafOf(alice, 900e18), 900e18, "drop-two");
@@ -306,7 +306,7 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// where `priorOwed` is still 0. This is why `DeployClaim` refuses a zero
     /// total rather than trusting the window to catch it.
     function test_M4_the_sweep_delay_does_not_cover_a_first_root() public {
-        ScryHarvest h = _harvest();
+        EloHarvest h = _harvest();
         h.postRoot(leafOf(alice, 1_500e18), 0, "first-root-zero-total");
 
         assertEq(h.priorOwed(), 0, "nothing came before it");
@@ -322,7 +322,7 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// And the half that DOES hold: an obligation already stated cannot be
     /// retracted and drained in the same breath.
     function test_M4_a_lowered_obligation_is_held_for_the_full_sweep_delay() public {
-        ScryHarvest h = _harvest();
+        EloHarvest h = _harvest();
         h.postRoot(leafOf(alice, 1_500e18), 1_500e18, "drop-one");
 
         // the operator re-posts, now stating it owes nothing
@@ -365,7 +365,7 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// the fix: `sweepFloor()` returned 0 on the third post and the sweep below
     /// emptied a contract alice was still owed 1,500 OBOL from.
     function test_M4_the_window_survives_repeated_retractions() public {
-        ScryHarvest h = _harvest();
+        EloHarvest h = _harvest();
         h.postRoot(leafOf(alice, 1_500e18), 1_500e18, "honest");
 
         // one retraction — the case the older test pinned
@@ -396,7 +396,7 @@ contract HarvestDropIsolationTest is ClaimHarvestBase {
     /// floor for the window's length and then it lapses like any other, so
     /// genuine surplus is never stranded by the guard.
     function test_M4_a_carried_obligation_still_expires() public {
-        ScryHarvest h = _harvest();
+        EloHarvest h = _harvest();
         h.postRoot(leafOf(alice, 1_500e18), 1_500e18, "honest");
         h.postRoot(leafOf(bob, 1e18), 0, "retraction");
         h.postRoot(leafOf(bob, 1e18), 0, "retraction-again");

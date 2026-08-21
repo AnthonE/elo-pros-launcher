@@ -1,0 +1,12 @@
+[package]
+name = "elo-net"
+description = "reads that distinguish 'nothing there' from 'we could not look'"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+elo-depot = { path = "../elo-depot" }
+serde_json = { workspace = true }
+ureq = { workspace = true }

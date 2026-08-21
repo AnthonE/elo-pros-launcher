@@ -52,10 +52,13 @@ PUBLIC_RPC = "https://rpc.mainnet.chain.robinhood.com"
 
 
 def default_rpc() -> str:
-    """First entry of the keyed pool (`SCRY_RH_RPC_POOL`), else the public one."""
+    """First entry of the keyed pool, else the public one.
+
+    Either spelling — keys.env carries `ELO_RH_RPC_POOL`, older boxes and the
+    pm2 env still carry `SCRY_RH_RPC_POOL`."""
     try:
         for line in Path(KEYS_ENV).read_text(encoding="utf-8").splitlines():
-            if line.startswith("SCRY_RH_RPC_POOL="):
+            if line.startswith(("ELO_RH_RPC_POOL=", "SCRY_RH_RPC_POOL=")):
                 first = line.split("=", 1)[1].strip().strip('"').split(",")[0]
                 if first:
                     return first

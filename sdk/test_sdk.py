@@ -3,7 +3,7 @@
 
     python3 sdk/test_sdk.py
 
-There is **one broker** and it is Rust (`launcher-rs/crates/scry-broker`). This
+There is **one broker** and it is Rust (`launcher-rs/crates/elo-broker`). This
 suite drives the **Python SDK client** against it over a real UNIX socket, which
 is the only cross-language surface left in the protocol and therefore the only
 place the two halves can drift.
@@ -21,8 +21,8 @@ worse than a class of bug that cannot exist.
 So most of what used to be here was testing a broker that is gone. What remains
 is what still has two sides: **this client and that server.**
 
-The Rust half of the client is covered by `crates/scry-broker/tests/sdk_parity.rs`,
-which compiles the vendored `sdk/rust/scry_overlay.rs` and drives it against the
+The Rust half of the client is covered by `crates/elo-broker/tests/sdk_parity.rs`,
+which compiles the vendored `sdk/rust/elo_overlay.rs` and drives it against the
 same server. Neither suite replaces the other.
 
 ⚠ **This needs `cargo`.** If the broker cannot be built the suite prints NOT RUN
@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 sys.path.insert(0, str(HERE / "python"))
 
-import scry_overlay  # noqa: E402
+import elo_overlay  # noqa: E402
 
 passed = failed = 0
 skipped: list[str] = []
@@ -75,7 +75,7 @@ def build_broker() -> str:
     to prevent."""
     try:
         out = subprocess.run(
-            ["cargo", "build", "--example", "headless", "-p", "scry-broker"],
+            ["cargo", "build", "--example", "headless", "-p", "elo-broker"],
             cwd=RS, capture_output=True, text=True, timeout=900)
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         return f"cargo could not run ({type(exc).__name__})"
@@ -110,7 +110,7 @@ class Broker:
         return self
 
     def client(self, game="gates", version="1.0.0"):
-        ov = scry_overlay.Overlay(game, version, path=self.path)
+        ov = elo_overlay.Overlay(game, version, path=self.path)
         ov.connect()
         return ov
 
@@ -136,7 +136,7 @@ else:
         check("the client connects to the Rust broker", ov.connected)
         check("hello names which signer is configured", ov.signer == "local", ov.signer)
         check("a game that never says hello gets nothing",
-              scry_overlay.Overlay("x", path=br.path)._call({"op": "identity"})
+              elo_overlay.Overlay("x", path=br.path)._call({"op": "identity"})
               .get("ok") is False)
         # The vocabulary is the whole of a game's authority.
         caps = ov._call({"op": "hello", "game": "gates", "protocol": 1}).get("capabilities")
@@ -209,7 +209,7 @@ else:
     with Broker(refuse_consent=True) as br:
         ov = br.client()
         check("sign is refused by this server",
-              ov.sign(scry_overlay.play_message("duel", "v", "x"), "why").ok is False)
+              ov.sign(elo_overlay.play_message("duel", "v", "x"), "why").ok is False)
         check("prove still works — it asks nobody",
               ov.prove("s.example", "8f14e45fceea167a").ok)
         ov.close()
@@ -263,7 +263,7 @@ else:
 
     # ═══ the client's own care ══════════════════════════════════════════════
     section("the client's own care")
-    P = scry_overlay.Profile
+    P = elo_overlay.Profile
     check("a sworn handle draws bare",
           P(raw={"handle": "moss", "sworn": True}).label == "moss")
     check("⚠ a self-declared name is marked, never drawn as a checked one",
@@ -282,15 +282,15 @@ else:
     # has handed that server the ability to change what it is signing.
     # ⚠ Keyed to the WALLET since 2026-08-12, and the address is lowercased for
     # you — a checksummed one is different bytes and would verify differently.
-    m = scry_overlay.play_message("duel", "0xAbC0000000000000000000000000000000000001",
+    m = elo_overlay.play_message("duel", "0xAbC0000000000000000000000000000000000001",
                                   "ETH up 5", day="2026-08-07")
     check("play_message is deterministic and rebuildable offline",
-          m == ("scry play\naction: duel\n"
+          m == ("elo play\naction: duel\n"
                 "wallet: 0xabc0000000000000000000000000000000000001\n"
                 "day: 2026-08-07\ndetail: ETH up 5"),
           repr(m))
     check("…and it names its family on the first line, which is what consent counts",
-          m.split("\n")[0] == "scry play")
+          m.split("\n")[0] == "elo play")
 
     # ═══ the spec is what a third party reads ═══════════════════════════════
     section("the spec is what a third party reads")
@@ -307,8 +307,8 @@ else:
         if verb == "hello":
             continue
         check(f"PROTOCOL.md documents {verb!r}", f"`{verb}`" in proto)
-    pysrc = (HERE / "python" / "scry_overlay.py").read_text()
-    rssrc = (HERE / "rust" / "scry_overlay.rs").read_text()
+    pysrc = (HERE / "python" / "elo_overlay.py").read_text()
+    rssrc = (HERE / "rust" / "elo_overlay.rs").read_text()
     for verb in caps:
         if verb == "hello":
             continue
@@ -317,7 +317,7 @@ else:
 
     # The golden SIWE bytes. There is one implementation now (Rust), so this is
     # a frozen regression pin rather than a parity check — but it is pinned on
-    # BOTH sides on purpose: `crates/scry-broker/tests/cross_language.rs` asserts
+    # BOTH sides on purpose: `crates/elo-broker/tests/cross_language.rs` asserts
     # the composer, and this asserts what actually came off the wire.
     fx = json.loads((HERE / "testdata" / "prove_fixture.json").read_text())
     with Broker() as br:
@@ -343,11 +343,11 @@ else:
 # is skipped — which is deliberate, because the defect they guard is one a
 # vendoring repo discovers and this one cannot.
 #
-# The story: Gates vendors `rust/scry_overlay.rs` byte-for-byte and pins it
+# The story: Gates vendors `rust/elo_overlay.rs` byte-for-byte and pins it
 # with a sha256. That pin catches a LOCAL EDIT and is blind to upstream moving,
 # so on 2026-08-09 its copy was found 326 lines behind this one — no Windows
 # transport, no `prove`, no `profile` — with every gate in both repos green.
-# `crates/scry-broker/tests/sdk_parity.rs` even calls this file "what Gates has
+# `crates/elo-broker/tests/sdk_parity.rs` even calls this file "what Gates has
 # compiled into its binary byte-for-byte", which was a claim about another
 # repo that nothing checked.
 #
@@ -368,20 +368,20 @@ if sums_path.is_file():
         if line.strip():
             digest, name = line.split(None, 1)
             published[name.strip()] = digest
-    for rel in ("rust/scry_overlay.rs", "python/scry_overlay.py"):
+    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py"):
         actual = hashlib.sha256((HERE / rel).read_bytes()).hexdigest()
         check(f"SHA256SUMS names {rel}", rel in published)
         check(f"…and matches the bytes we ship for {rel}",
               published.get(rel) == actual,
               f"published {published.get(rel)!r} vs actual {actual!r} — "
-              f"regenerate: cd sdk && sha256sum rust/scry_overlay.rs "
-              f"python/scry_overlay.py > SHA256SUMS")
+              f"regenerate: cd sdk && sha256sum rust/elo_overlay.rs "
+              f"python/elo_overlay.py > SHA256SUMS")
 
 # A vendoring project runs its own fmt gate over everything in its tree,
 # including this file. It has happened twice that an unformatted SDK reddened
 # a consumer's CI, and nothing upstream was watching for it — `launcher-rs` has
 # no fmt gate of its own, so this is the only place the property lives.
-rs_path = HERE / "rust" / "scry_overlay.rs"
+rs_path = HERE / "rust" / "elo_overlay.rs"
 try:
     fmt = subprocess.run(["rustfmt", "--edition", "2021", "--check", str(rs_path)],
                          capture_output=True, text=True, timeout=60)

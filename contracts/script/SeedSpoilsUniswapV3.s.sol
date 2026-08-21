@@ -11,7 +11,7 @@ import {
 
 /// @title SeedSpoilsUniswapV3 — put the spoils on canonical Uniswap v3 (three pools)
 /// @notice The earned, elastic-but-budgeted spoils (OBOL/MYRRH, `SpoilsToken.sol`) get a REAL market on
-///         RH-Chain's canonical Uniswap — not the playground `ScryGarden` (a toy
+///         RH-Chain's canonical Uniswap — not the playground `EloGarden` (a toy
 ///         AMM with a manipulable spot price; "never point real value at it").
 ///         This is POOLS.md §3 step 4, run under the exact Pool-1 discipline
 ///         (§2): v3, 1% tier, full-range, small first mint, initialize + mint in
@@ -20,7 +20,7 @@ import {
 ///         Two hard lines this script keeps in code:
 ///           1. The LP position NFT is minted to the OPERATOR wallet (default:
 ///              the broadcaster; override with LP_RECIPIENT). NEVER the meter,
-///              the agency, or the facilitator gas key (POOLS.md §2.5). scry
+///              the agency, or the facilitator gas key (POOLS.md §2.5). reserve
 ///              holds no keys; a pool doesn't change that.
 ///           2. Nothing here prices a measurement. A pool gives the spoils a
 ///              price; it never moves a meter number, a mint, odds, or a payout
@@ -106,7 +106,7 @@ contract SeedSpoilsUniswapV3 is Script {
         uint256 pk;
         address factory;
         address npm;
-        address scry;
+        address reserve;
         uint24 fee;
         uint256 slipBps;
         uint256 deadlineSecs;
@@ -130,7 +130,7 @@ contract SeedSpoilsUniswapV3 is Script {
         inp.pk = vm.envUint("PRIVATE_KEY");
         inp.factory = vm.envOr("V3_FACTORY", DEFAULT_FACTORY);
         inp.npm = vm.envOr("V3_NPM", DEFAULT_NPM);
-        inp.scry = vm.envOr("SCRY_TOKEN", DEFAULT_SCRY);
+        inp.reserve = vm.envOr("SCRY_TOKEN", DEFAULT_SCRY);
         inp.fee = uint24(vm.envOr("FEE", uint256(DEFAULT_FEE)));
         inp.slipBps = vm.envOr("SLIP_BPS", uint256(100)); // 1% default
         inp.deadlineSecs = vm.envOr("DEADLINE_SECS", uint256(900));
@@ -197,7 +197,7 @@ contract SeedSpoilsUniswapV3 is Script {
             factory,
             "OBOL",
             inp.obol,
-            inp.scry,
+            inp.reserve,
             inp.fee,
             tickLower,
             tickUpper,
@@ -210,7 +210,7 @@ contract SeedSpoilsUniswapV3 is Script {
             factory,
             "MYRRH",
             inp.myrrh,
-            inp.scry,
+            inp.reserve,
             inp.fee,
             tickLower,
             tickUpper,

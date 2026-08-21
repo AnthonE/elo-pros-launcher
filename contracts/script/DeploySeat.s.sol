@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScrySeat.sol";
-import "../src/ScrySeatArt.sol";
+import "../src/EloSeat.sol";
+import "../src/EloSeatArt.sol";
 
-/// Deploy the founder mint — the Scry Hive as a broadcast.
+/// Deploy the founder mint — the Elo Pros as a broadcast.
 ///
 /// ⚠ EVERY OPEN KNOB IN THE DESIGN IS AN ENV VAR HERE, and that is the point
 /// of the file: the operator's sentence becomes a deploy value, never a code
@@ -13,12 +13,14 @@ import "../src/ScrySeatArt.sol";
 /// figures that are genuinely welded (supply, the reserved caps, the ladder,
 /// the burn) must be typed, and the run aborts rather than guess.
 ///
-/// ⚠ THE NAME IS SETTLED: **Scry Hive** (operator, 2026-08-09). It is a
+/// ⚠ THE NAME IS SETTLED: **Elo Pros** (operator, 2026-08-20, superseding
+/// "Scry Hive" of 2026-08-09 — it interlocks with the ELO ticker and
+/// elopros.com). It is a
 /// constructor argument on both contracts and the site reads `name()` off the
 /// deployed collection, so changing it later is a redeploy rather than an edit
 /// — no page hard-codes it.
 ///
-/// ⚠ THIS SCRIPT ALSO DEPLOYS THE RENDERER AND WIRES IT. `ScrySeatArt` holds
+/// ⚠ THIS SCRIPT ALSO DEPLOYS THE RENDERER AND WIRES IT. `EloSeatArt` holds
 /// the art as bytecode and has NO owner and NO setters, so there is nothing to
 /// upload and nothing to seal. What it does NOT do is call
 /// `freezeMetadata()` — that is one-way and belongs after the salt is revealed
@@ -26,11 +28,15 @@ import "../src/ScrySeatArt.sol";
 ///
 ///   export PRIVATE_KEY=0x...
 ///   # the collection is NAMED (operator, 2026-08-09) — these are the defaults:
-///   # export SEAT_NAME="Scry Hive"
-///   # export SEAT_SYMBOL="HIVE"
+///   # export SEAT_NAME="Elo Pros"
+///   # export SEAT_SYMBOL="PROS"
 ///   # addresses — read the real ones out of deployments.json, never retype:
-///   export SEAT_SCRY=0x...                # chains.4663.contracts.SCRY
-///   export SEAT_SPLITTER=0x...            # chains.4663.contracts.ScryFeeSplitter
+///   export SEAT_SCRY=0x...                # chains.4663.contracts.ELO -- NOT .SCRY,
+///                                         #   which is the RETIRED reserve. IMMUTABLE:
+///                                         #   welding it strands the whole ladder
+///                                         #   (ONE-SHOT.md 1). No ELO key exists until
+///                                         #   the pons launch is recorded.
+///   export SEAT_SPLITTER=0x...            # chains.4663.contracts.EloFeeSplitter
 ///   # THE WELDED FIGURES — no defaults, and the run aborts naming the one you
 ///   # missed. A cap of 0 is a real answer (it collapses the scheduling knob to
 ///   # "wait for a playable title"); it just has to be typed, because an
@@ -61,7 +67,7 @@ import "../src/ScrySeatArt.sol";
 ///   # optional:
 ///   # export SEAT_PROCEEDS=0x...          # where swept ETH lands; default dev wallet
 ///   # export SEAT_ROYALTY_BPS=500         # ERC-2981, to the splitter. Max 1000
-///   # export SEAT_BASE_URI=https://scry.moreright.xyz/api
+///   # export SEAT_BASE_URI=https://elopros.com/api
 ///   # THE LADDER — comma-separated, ascending, same length, SUBLINEAR.
 ///   # ⚠ THE WEIGHTS BELOW ARE THE OPERATOR'S, CLOSED 2026-08-11 (SENTENCES.md):
 ///   # five tiers, "100,125,160,200,333" until then — the pre-sentence draft —
@@ -97,7 +103,7 @@ import "../src/ScrySeatArt.sol";
 /// and the price is derived off the tape that day.
 ///
 /// After the broadcast, in order:
-///   1. record the address in `contracts/deployments.json` as `ScrySeat`
+///   1. record the address in `contracts/deployments.json` as `EloSeat`
 ///      (`broadcast/` is gitignored, so that file is the durable record)
 ///   2. `python3 meter/seat_roots.py build --allowlist <cohort> --door 1 --cap <n>`
 ///   3. `cast send $SEAT 'setDoorRoot(uint8,bytes32)' 1 <root>`
@@ -180,9 +186,9 @@ contract DeploySeat is Script {
     }
 
     function run() external {
-        string memory name_ = vm.envOr("SEAT_NAME", string("Scry Hive"));
-        string memory symbol_ = vm.envOr("SEAT_SYMBOL", string("HIVE"));
-        address scry = vm.envAddress("SEAT_SCRY");
+        string memory name_ = vm.envOr("SEAT_NAME", string("Elo Pros"));
+        string memory symbol_ = vm.envOr("SEAT_SYMBOL", string("PROS"));
+        address reserve = vm.envAddress("SEAT_SCRY");
         address splitter = vm.envAddress("SEAT_SPLITTER");
         address proceeds = vm.envOr("SEAT_PROCEEDS", DEV_WALLET);
 
@@ -236,8 +242,13 @@ contract DeploySeat is Script {
             console2.log("");
         }
 
-        // The royalty is not in the welded set: it is a request marketplaces may
-        // ignore, and 500 is the posted figure rather than a guess at one.
+        // ⚠ THE ROYALTY *IS* WELDED -- `EloSeat.royaltyBps` is `immutable` with no
+        // setter, and hive.env.example marks it [WELDED]. This comment read "not
+        // in the welded set" until 2026-08-18, which is literally false and made
+        // the default below look free. What is true is the softer thing it meant:
+        // ERC-2981 is a REQUEST a marketplace may ignore, so being wrong here is
+        // cheap in a way the reserve address and the caps are not. 500 is the
+        // posted figure rather than a guess -- but it is welded at 500.
         uint256 royaltyRaw = vm.envOr("SEAT_ROYALTY_BPS", uint256(500));
         uint256 burnRaw = _mustUint("SEAT_BURN_BPS");
         // ⚠ RANGE-CHECK BEFORE THE CAST, because a narrowing cast in Solidity is
@@ -256,7 +267,7 @@ contract DeploySeat is Script {
         // unbalances its walk (the DeployGardener.envAddrOr lesson).
         string memory base = vm.envOr("SEAT_BASE_URI", string(""));
         if (bytes(base).length == 0) {
-            base = "https://scry.moreright.xyz/api";
+            base = "https://elopros.com/api";
         }
 
         string memory costCsv = vm.envOr("SEAT_TIER_COSTS", string(""));
@@ -292,8 +303,8 @@ contract DeploySeat is Script {
         console2.log("  tiers", costs.length);
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        ScrySeat s = new ScrySeat(
-            name_, symbol_, caps, IERC20(scry), splitter, proceeds,
+        EloSeat s = new EloSeat(
+            name_, symbol_, caps, IERC20(reserve), splitter, proceeds,
             royaltyBps, burnBps, commitment, costs, weights, base
         );
         // ⚠ THIS STRING IS WELDED AND IT IS WHAT A MARKETPLACE PRINTS. The
@@ -311,27 +322,27 @@ contract DeploySeat is Script {
         // is not here because the renderer draws it. Weld "" and the document
         // simply carries no banner, which is the honest shape for a fork that
         // has not drawn one.
-        ScrySeatArt artc = new ScrySeatArt(
+        EloSeatArt artc = new EloSeatArt(
             name_,
             "A capped run of characters. The seat transfers; the record never does.",
-            vm.envOr("SEAT_ART_BASE", string("https://scry.moreright.xyz/art/hive"))
+            vm.envOr("SEAT_ART_BASE", string("https://elopros.com/art/hive"))
         );
         require(artc.layerSumsAreExact(), "renderer: a weight row does not sum to 10000 bps");
         s.setRenderer(address(artc));
         vm.stopBroadcast();
 
-        console2.log("ScrySeat", address(s));
-        console2.log("ScrySeatArt (no owner, no setters)", address(artc));
+        console2.log("EloSeat", address(s));
+        console2.log("EloSeatArt (no owner, no setters)", address(artc));
         console2.log("  name", name_);
-        console2.log("  scry", scry);
+        console2.log("  reserve", reserve);
         console2.log("  splitter (royalties + the activation remainder)", splitter);
         console2.log("  proceeds (swept ETH only)", proceeds);
         console2.log("");
         console2.log("DEPLOYED SHUT. No root is posted and no price is set, so nothing");
         console2.log("can be minted by anyone yet. Next:");
-        console2.log("  1. record the address in contracts/deployments.json as ScrySeat");
+        console2.log("  1. record the address in contracts/deployments.json as EloSeat");
         console2.log("  2. meter/seat_roots.py build --allowlist <cohort> --door 1");
-        console2.log("  3. setDoorRoot(1, <root>)   then setPaidDoor(wei, scry) when priced");
+        console2.log("  3. setDoorRoot(1, <root>)   then setPaidDoor(wei, reserve) when priced");
         console2.log("  4. KEEP THE SALT OFFLINE until the run closes - it cannot be changed");
         console2.log("  5. AFTER revealSalt + eyeballing the art: freezeMetadata() (one way)");
     }

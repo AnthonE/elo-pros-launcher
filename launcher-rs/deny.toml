@@ -2,7 +2,7 @@
 #
 #   cargo install cargo-deny && cargo deny check
 #
-# `crates/scry-launcher/tests/supply_chain.rs` enforces what is readable from
+# `crates/elo-launcher/tests/supply_chain.rs` enforces what is readable from
 # `Cargo.lock`: checksums, duplicates, the tree budget, exact pins. This file
 # covers what needs an external database — published advisories — plus licences.
 

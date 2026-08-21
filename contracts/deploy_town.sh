@@ -72,7 +72,7 @@
 #                                    and reds on drift - never retype these
 #   SCRY_BPS_BURN/_BANK/_PRIZES/_OPS the posted fee split, spoken 2026-07-27:
 #                                    5000 / 4000 / 0 / 1000. DERIVED - `bank`
-#                                    reads them out of DeployScryEconomy.s.sol
+#                                    reads them out of DeployEloEconomy.s.sol
 #                                    rather than keeping a copy. Export one to
 #                                    override and the phase names both values
 #   SCRY_OPS                         the ops fee sink. DEFAULTS TO $DEV_WALLET
@@ -654,7 +654,7 @@ EON
 fork_mandates_green() {
     say "fork mandates against live RH-Chain (the testnet-replacement suite)"
     local out
-    if ! out=$(RH_FORK_URL="$RPC" forge test --match-contract 'OrchardFork|SeedSpoilsFork|ScryGachaFork' -vv 2>&1); then
+    if ! out=$(RH_FORK_URL="$RPC" forge test --match-contract 'OrchardFork|SeedSpoilsFork|EloGachaFork' -vv 2>&1); then
         printf '%s\n' "$out"
         die "fork mandates are red - nothing broadcasts on red. Ever."
     fi
@@ -943,7 +943,7 @@ EOF
                 # ONE Garden now, MYRRH/OBOL, both sides house-minted
                 # (operator 2026-07-25): a ScryGarden never holds canonical
                 # $SCRY. Real depth is the canonical v3 pool, POOLS.md 3.
-                ScryGarden)
+                EloGarden)
                     town_set GARDEN_MYRRH_OBOL "$addr"
                     garden_i=1 ;;
                 esac
@@ -983,8 +983,8 @@ gardener)
         say "recording addresses"
         creates_from_broadcast DeployGardener.s.sol | while read -r name addr; do
             case "$name" in
-            ScryGranary)  town_set GRANARY_MYRRH "$addr"; town_set GRANARY "$addr" ;;
-            ScryGardener) town_set GARDENER "$addr" ;;
+            EloGranary)  town_set GRANARY_MYRRH "$addr"; town_set GRANARY "$addr" ;;
+            EloGardener) town_set GARDENER "$addr" ;;
             esac
         done
         remind_ledger
@@ -1007,7 +1007,7 @@ granary)
         say "recording addresses"
         creates_from_broadcast DeployGranary.s.sol | while read -r name addr; do
             case "$name" in
-            ScryGranary) town_set GRANARY_OBOL "$addr" ;;
+            EloGranary) town_set GRANARY_OBOL "$addr" ;;
             esac
         done
         remind_ledger
@@ -1092,7 +1092,7 @@ silo)
             # aborting every phase after it. Dormant today (one CREATE, it
             # matches); fires the moment a script gains a second deploy, or when
             # foundry writes a CREATE with a null contractName.
-            case "$name" in ScrySilo) town_set SILO "$addr" ;; esac
+            case "$name" in EloSilo) town_set SILO "$addr" ;; esac
         done
         remind_ledger
     fi
@@ -1107,7 +1107,7 @@ shrine)
     if [ "$(armed "${1:-}")" = yes ]; then
         say "recording addresses"
         creates_from_broadcast DeployShrine.s.sol | while read -r name addr; do
-            case "$name" in ScryShrine) town_set SHRINE "$addr" ;; esac
+            case "$name" in EloShrine) town_set SHRINE "$addr" ;; esac
         done
         remind_ledger
     fi
@@ -1138,7 +1138,7 @@ orchard)
     if [ "$(armed "${1:-}")" = yes ]; then
         say "recording addresses"
         creates_from_broadcast DeployOrchard.s.sol | while read -r name addr; do
-            case "$name" in ScryOrchard) town_set ORCHARD "$addr" ;; esac
+            case "$name" in EloOrchard) town_set ORCHARD "$addr" ;; esac
         done
         remind_ledger
     fi
@@ -1160,21 +1160,21 @@ bank|economy)
     # is retired: demanding four exports for a decided number is friction with
     # no safety left in it. What replaces it is the habit the powder rule
     # earned - DERIVE, NEVER RETYPE. The numbers live in exactly one place,
-    # DeployScryEconomy.s.sol's own defaults, and are read back OUT of it here,
+    # DeployEloEconomy.s.sol's own defaults, and are read back OUT of it here,
     # so this file cannot drift from the thing it is about to broadcast.
     need forge; need python3
     bank_armed="$(armed "${1:-}")"
     export SCRY_TOKEN="${SCRY_TOKEN:-$SCRY_CANON}"
     bank_posted() { # $1 = BURN|BANK|PRIZES|OPS -> the posted default, from the script
         sed -n "s/.*SCRY_BPS_$1\", uint256(\([0-9]\+\)).*/\1/p" \
-            script/DeployScryEconomy.s.sol | head -1
+            script/DeployEloEconomy.s.sol | head -1
     }
     if [ "$bank_armed" = yes ]; then
         overridden=""
         for v in BURN BANK PRIZES OPS; do
             posted="$(bank_posted "$v")"
             [ -n "$posted" ] || die "could not read the posted SCRY_BPS_$v out of
-   script/DeployScryEconomy.s.sol - the literal must keep the form
+   script/DeployEloEconomy.s.sol - the literal must keep the form
    \`SCRY_BPS_$v\", uint256(N)\` for this phase to derive it."
             cur="SCRY_BPS_$v"
             if [ -z "${!cur:-}" ]; then
@@ -1190,13 +1190,13 @@ bank|economy)
 
    !! YOU ARE OVERRIDING THE POSTED SPLIT (SENTENCES.md 2026-07-27):$overridden
       That is fine, and it is a new sentence - append it to the ledger and fix
-      the defaults in DeployScryEconomy.s.sol, or the next run silently differs.
+      the defaults in DeployEloEconomy.s.sol, or the next run silently differs.
 EOF
         # Their sum is the constructor's own require; check it HERE so a wrong
         # total costs a shell exit instead of a reverted broadcast's gas.
         sum=$(( SCRY_BPS_BURN + SCRY_BPS_BANK + SCRY_BPS_PRIZES + SCRY_BPS_OPS ))
         [ "$sum" = 10000 ] || die "the four bps sum to $sum, not 10000 (the constructor reverts on this)"
-        # POSTED DEFAULT, not a silent one. `DeployScryEconomy.s.sol` falls back
+        # POSTED DEFAULT, not a silent one. `DeployEloEconomy.s.sol` falls back
         # to `vm.addr(pk)` — the deployer — which would post a hot key that
         # exists to be retired as a permanent public fee recipient. The operator
         # named the dev wallet for exactly this class of field (2026-07-29), so
@@ -1242,13 +1242,13 @@ EOF
         printf '   ops              %5s bps  %s\n' "$SCRY_BPS_OPS" "$SCRY_OPS"
         [ "${SCRY_BPS_BURN}" -eq 0 ] && echo "   (no burn line: do not advertise a burn on any surface)"
     fi
-    run_script script/DeployScryEconomy.s.sol "$bank_armed"
+    run_script script/DeployEloEconomy.s.sol "$bank_armed"
     if [ "$bank_armed" = yes ]; then
         say "recording addresses"
-        creates_from_broadcast DeployScryEconomy.s.sol | while read -r name addr; do
+        creates_from_broadcast DeployEloEconomy.s.sol | while read -r name addr; do
             case "$name" in
-                ScryBank) town_set BANK "$addr" ;;
-                ScryFeeSplitter) town_set FEE_SPLITTER "$addr" ;;
+                EloBank) town_set BANK "$addr" ;;
+                EloFeeSplitter) town_set FEE_SPLITTER "$addr" ;;
             esac
         done
         cat <<'EOF'
@@ -1525,7 +1525,7 @@ harvest)
     run_script script/DeployHarvest.s.sol "$(armed "${1:-}")"
     if [ "$(armed "${1:-}")" = yes ]; then
         creates_from_broadcast DeployHarvest.s.sol | while read -r name addr; do
-            case "$name" in ScryHarvest) town_set HARVEST "$addr" ;; esac
+            case "$name" in EloHarvest) town_set HARVEST "$addr" ;; esac
         done
         cat <<'EON'
 

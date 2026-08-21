@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @title Math - full-precision muldiv, for the one shape that keeps recurring
-/// @notice `ScryGardener.updatePool` and `ScrySilo.updateBin` both compute a
+/// @notice `EloGardener.updatePool` and `EloSilo.updateBin` both compute a
 ///         pro-rata share as `(emitted * allocPoint) / totalAllocPoint`. The
 ///         RESULT is always bounded — `allocPoint <= totalAllocPoint`, so it can
 ///         never exceed `emitted` — but the INTERMEDIATE product is not, and a

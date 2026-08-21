@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryGranary.sol";
+import "../src/EloGranary.sol";
 import "../src/SpoilsToken.sol";
 
-/// Deploy ONE ScryGranary bound to one SpoilsToken, and (if the deployer still
+/// Deploy ONE EloGranary bound to one SpoilsToken, and (if the deployer still
 /// holds it) hand that token's minter role over.
 ///
 /// WHY THIS EXISTS — the short version: `SpoilsToken` has exactly ONE `minter`
@@ -47,7 +47,7 @@ contract DeployGranary is Script {
         uint256 grantCap = vm.envOr("GRANT_DAILY_CAP", uint256(250e18));
 
         vm.startBroadcast(pk);
-        ScryGranary granary = new ScryGranary(token);
+        EloGranary granary = new EloGranary(token);
         if (grantTo != address(0)) {
             granary.setGrant(grantTo, grantCap);
         }
@@ -56,7 +56,7 @@ contract DeployGranary is Script {
         }
         vm.stopBroadcast();
 
-        console2.log("ScryGranary ", address(granary));
+        console2.log("EloGranary ", address(granary));
         console2.log("bound token ", address(token));
         console2.log("token symbol", token.symbol());
         if (grantTo != address(0)) console2.log("granted     ", grantTo);

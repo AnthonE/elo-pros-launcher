@@ -23,7 +23,7 @@
     "sworn": false,
     "vow_id": "1a434221c5333fa7"
   },
-  "note": "A real /api/who body and the flattening BOTH brokers must produce from it. Captured 2026-08-07. Python asserts this in sdk/test_sdk.py; Rust asserts it in scry-broker protocol.rs tests. Two implementations of one reshape is a drift risk, and this file is the answer.",
+  "note": "A real /api/who body and the flattening BOTH brokers must produce from it. Captured 2026-08-07. Python asserts this in sdk/test_sdk.py; Rust asserts it in elo-broker protocol.rs tests. Two implementations of one reshape is a drift risk, and this file is the answer.",
   "who": {
     "authoritative": true,
     "found": {

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
+import "../src/EloGranary.sol";
 
 /// WHO CAN STILL MINT WHEN THE LAUNCH IS OVER — the one question the launch
 /// exists to answer, made executable.
@@ -19,7 +19,7 @@ import "../src/ScryGranary.sol";
 ///   `if (token.minter() == deployer) token.setMinter(granary)`. So on a
 ///   depth-first launch the deployer holds NEITHER minter role, `rotate --arm`
 ///   reverts on `minter only`, and what the deployer holds instead is
-///   `ScryGranary.steward` — whose `stewardMint` is UNCAPPED. The unlimited
+///   `EloGranary.steward` — whose `stewardMint` is UNCAPPED. The unlimited
 ///   mint did not retire. It changed doors.
 ///
 /// That is the good ordering, not a bug: `minter()` ends up reading as a
@@ -32,11 +32,11 @@ import "../src/ScryGranary.sol";
 /// a per-function test cannot see it.
 contract AuthorityRetirementTest is Test {
     SpoilsToken myrrh;
-    ScryGranary granary;
+    EloGranary granary;
 
     address deployer; // the launch key — this contract, since it deploys
     address constant OFFLINE = address(0xC01D); // where a seat retires to
-    address constant FARM = address(0xFA24); // stands in for ScryGardener
+    address constant FARM = address(0xFA24); // stands in for EloGardener
     address constant SILO = address(0x5170); // the organ that is granted LATER
     address constant ALICE = address(0xA11CE);
 
@@ -52,7 +52,7 @@ contract AuthorityRetirementTest is Test {
 
     /// The handoff `gardener` / `granary` perform in passing.
     function _depthPhase() internal {
-        granary = new ScryGranary(myrrh); // constructor: steward = msg.sender
+        granary = new EloGranary(myrrh); // constructor: steward = msg.sender
         granary.setGrant(FARM, DAILY);
         if (myrrh.minter() == deployer) myrrh.setMinter(address(granary));
     }
@@ -79,7 +79,7 @@ contract AuthorityRetirementTest is Test {
 
         // ...and can still mint an arbitrary amount through the seat it kept.
         // No cap, no daily budget, no ceiling to hit: `stewardMint` is
-        // `onlySteward` and nothing else (ScryGranary.sol:87).
+        // `onlySteward` and nothing else (EloGranary.sol:87).
         granary.stewardMint(ALICE, 1e30);
         granary.stewardMint(ALICE, 1e30);
         assertEq(myrrh.balanceOf(ALICE), 2e30, "steward mint is uncapped");
@@ -196,7 +196,7 @@ contract AuthorityRetirementTest is Test {
 
         // the farm's later handoff is now the NEW holder's act, not ours —
         // exactly what deploy_town.sh's rotate block warns about
-        ScryGranary late = new ScryGranary(myrrh);
+        EloGranary late = new EloGranary(myrrh);
         vm.prank(OFFLINE);
         myrrh.setMinter(address(late));
         assertEq(myrrh.minter(), address(late));

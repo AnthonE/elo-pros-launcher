@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScryGardener.sol";
+import "../src/EloGranary.sol";
+import "../src/EloGardener.sol";
 import "../src/IERC20.sol";
 
 /// Deploy the Gardener farm stack (FARMING.md, final tokenomics):
@@ -19,7 +19,7 @@ import "../src/IERC20.sol";
 /// burn. Cut the source and the farm becomes the only tap, at a rate we own:
 /// `setRewardPerSecond` is onlyOwner, so the era-0 BASE is a dial. The SHAPE is
 /// not: since 2026-07-28 the farm halves every 4 years and stops at 40, welded
-/// as constants in `ScryGardener` (operator: "farm MYRRH like bitcoin ... max
+/// as constants in `EloGardener` (operator: "farm MYRRH like bitcoin ... max
 /// 40 year run"). The owner rescales that curve; it cannot extend or reschedule
 /// it. Superseded 07-25 reasoning follows.
 ///
@@ -28,7 +28,7 @@ import "../src/IERC20.sol";
 /// to keep valuable — now points at MYRRH exactly as it always pointed at
 /// SCRY. OBOL is the base coin with seven sinks and no store-of-value job, so
 /// it is the right thing to emit. Nothing in the CONTRACTS changed: the
-/// granary binds one SpoilsToken (ScryGranary.sol:24) and the gardener takes
+/// granary binds one SpoilsToken (EloGranary.sol:24) and the gardener takes
 /// the granary, so which coin is farmed is purely a deploy-time choice.
 ///
 /// And the farmed POOL is the **MYRRH/OBOL** Garden SEED (operator,
@@ -40,7 +40,7 @@ import "../src/IERC20.sol";
 ///     pool, and the purse's SCRY walks out) — NOT in "the pool contains the
 ///     reward coin," which is true of every farm ever built and is the reading
 ///     that made this comment forbid its own configuration;
-///   - a `ScryGarden` never holds canonical SCRY (AUDIT-2026-07-25.md F5) —
+///   - a `EloGarden` never holds canonical SCRY (AUDIT-2026-07-25.md F5) —
 ///     it has no deadline and no minimum-out, so it is sandwichable within a
 ///     block, and standing one beside the deeper canonical v3 pool for the
 ///     same pair makes it the permanent weak side of an arb.
@@ -57,7 +57,7 @@ import "../src/IERC20.sol";
 ///   export REWARD_TOKEN=0x...         # the coin the farm emits — MYRRH since
 ///                                     # 2026-07-26 (MYRRH_TOKEN is the fallback,
 ///                                     # and it names the REWARD, not the coin)
-///   export SEED_MYRRH_OBOL=0x...      # pid 0 — the MYRRH/OBOL ScryGarden SEED
+///   export SEED_MYRRH_OBOL=0x...      # pid 0 — the MYRRH/OBOL EloGarden SEED
 ///                                     # (printed by DeploySpoils.s.sol)
 ///   # optional overrides of the FINAL posted numbers (FARMING.md section 3):
 ///   # export REWARD_PER_SECOND=6944444444444444   # 600 MYRRH/day, ERA 0
@@ -133,7 +133,7 @@ contract DeployGardener is Script {
         // literals (pools + Garden seed + drop + powder) and preflight prints
         // them on every run; a typed copy has already gone stale three times.
         // ERA-0 rate. 600 MYRRH/day, halving every 4 years, stopping dead at 40
-        // (the schedule is welded into ScryGardener as constants).
+        // (the schedule is welded into EloGardener as constants).
         //
         // LOWERED 6,000 -> 600, operator 2026-07-30: "MYRRH needs that BTC
         // vibes, you have to really earn it. but i can add more sources in the
@@ -159,7 +159,7 @@ contract DeployGardener is Script {
         // was calibrated for 1,000 DAU against a town that has 0.
         //
         // NOT WELDED, and that is why this is a cheap decision:
-        // `ScryGardener.setRewardPerSecond` is onlyOwner, so the rate is a dial
+        // `EloGardener.setRewardPerSecond` is onlyOwner, so the rate is a dial
         // and raising it when DAU justifies costs one transaction. What IS
         // welded is the SHAPE — HALVING_PERIOD and HALVINGS are constants — and
         // the cap, which is why the run's total is the thing to be careful with.
@@ -173,7 +173,7 @@ contract DeployGardener is Script {
         uint256 lockBps = vm.envOr("LOCK_BPS", uint256(6700)); // 67% locked
         uint256 unlockAt = vm.envOr("UNLOCK_AT", block.timestamp + 90 days); // the cliff
         // The cap tracks the ERA-0 rate at the SAME ~2.08x it always had. It is
-        // a throttle, not a ceiling: `ScryGranary.mint` CLAMPS instead of
+        // a throttle, not a ceiling: `EloGranary.mint` CLAMPS instead of
         // reverting, so a cap near the rate silently turns multi-day harvests
         // into stash IOUs rather than payments — which is exactly what the OLD
         // 500/day cap would have done to a 6,000/day era-0 farm: clamp it to
@@ -210,8 +210,8 @@ contract DeployGardener is Script {
         require(seedSecondary != address(reward), "pid 1 LP is the reward token itself");
 
         vm.startBroadcast(pk);
-        ScryGranary granary = new ScryGranary(reward);
-        ScryGardener gardener = new ScryGardener(granary, rps, lockBps, unlockAt);
+        EloGranary granary = new EloGranary(reward);
+        EloGardener gardener = new EloGardener(granary, rps, lockBps, unlockAt);
         granary.setGrant(address(gardener), dailyCap);
         gardener.addPool(seedPrimary, allocPrimary); // pid 0: MYRRH/OBOL SEED, the launch pool
         if (seedSecondary != address(0)) {
@@ -222,8 +222,8 @@ contract DeployGardener is Script {
         }
         vm.stopBroadcast();
 
-        console2.log("ScryGranary ", address(granary));
-        console2.log("ScryGardener", address(gardener));
+        console2.log("EloGranary ", address(granary));
+        console2.log("EloGardener", address(gardener));
         console2.log("reward token", address(reward));
         console2.log("pid 0 LP    ", address(seedPrimary));
         if (seedSecondary != address(0)) console2.log("pid 1 LP    ", seedSecondary);

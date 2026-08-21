@@ -2,17 +2,17 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryHarvest.sol";
+import "../src/EloHarvest.sol";
 import "../src/IERC20.sol";
 
-/// Deploy the launch-airdrop claim contracts — one `ScryHarvest` merkle claim
+/// Deploy the launch-airdrop claim contracts — one `EloHarvest` merkle claim
 /// per token (OBOL, MYRRH, SCRY), each posting the root that
 /// `meter/claim_plan.py merkle` produced. Holders then claim on-chain from
 /// watchtower/claim.html with their own wallet (no key held), and get baited
 /// into the pools.
 ///
 /// ONE INSTANCE, ONE ROOT PRODUCER — RUN THIS AGAIN FOR EVERY DROP (§0.4).
-/// `ScryHarvest` stores `claimed[wallet]` as a LIFETIME total and pays
+/// `EloHarvest` stores `claimed[wallet]` as a LIFETIME total and pays
 /// `cumulative - claimed`, so its roots are CUMULATIVE. `claim_plan.py` emits
 /// PER-DROP ABSOLUTE amounts from one snapshot and knows nothing about earlier
 /// drops. Point drop two at drop one's contracts and a wallet in both is
@@ -22,7 +22,7 @@ import "../src/IERC20.sol";
 ///     drop two root:  alice ->   900     alice claims 900 - 1,500 = NOTHING
 ///
 /// So each drop gets a FRESH set from this script, and neither set may be the
-/// bridge's `ScryHarvest` (DeployHarvest.s.sol), which is the third producer
+/// bridge's `EloHarvest` (DeployHarvest.s.sol), which is the third producer
 /// and the only cumulative one. Record the addresses under
 /// `chains.4663.claims["<drop_id>"]` in contracts/deployments.json in the same
 /// commit as the broadcast — `contracts/preflight.py` gates on exactly that
@@ -58,7 +58,7 @@ import "../src/IERC20.sol";
 ///   MYRRH after the `gardener` phase the MYRRH granary holds the slot:
 ///           cast send $GRANARY_MYRRH 'stewardMint(address,uint256)' <myrrh-claim> <total>
 ///   SCRY  never minted — transferred from the treasury wallet:
-///           cast send $SCRY_TOKEN 'transfer(address,uint256)' <scry-claim> <total>
+///           cast send $SCRY_TOKEN 'transfer(address,uint256)' <reserve-claim> <total>
 ///
 /// The addresses are the ones this script prints; town.env records the granaries
 /// as GRANARY_MYRRH and GRANARY_OBOL, and neither $OBOL nor $SCRY is a name
@@ -67,7 +67,7 @@ import "../src/IERC20.sol";
 /// publish the merkle JSON into SCRY_CLAIM_DIR, and the website arms itself.
 ///
 /// `forge test -vv` green (the Python<->Solidity merkle parity test in
-/// ScryEconomy.t.sol is the load-bearing check) before any broadcast. Always.
+/// EloEconomy.t.sol is the load-bearing check) before any broadcast. Always.
 contract DeployClaim is Script {
     address constant SCRY_CANON = 0xDa2a4b23459e9ca88183e990802be644AcA7C4B0;
     uint256 constant RH_CHAIN_ID = 4663;
@@ -81,13 +81,13 @@ contract DeployClaim is Script {
         string ref;
         address obol;
         address myrrh;
-        address scry;
+        address reserve;
         bytes32 obolRoot;
         bytes32 myrrhRoot;
-        bytes32 scryRoot;
+        bytes32 reserveRoot;
         uint256 obolTotal;
         uint256 myrrhTotal;
-        uint256 scryTotal;
+        uint256 reserveTotal;
     }
 
     function run() external {
@@ -97,42 +97,42 @@ contract DeployClaim is Script {
 
         inp.obol = vm.envOr("OBOL_TOKEN", address(0));
         inp.myrrh = vm.envOr("MYRRH_TOKEN", address(0));
-        inp.scry = vm.envOr("SCRY_TOKEN", block.chainid == RH_CHAIN_ID ? SCRY_CANON : address(0));
+        inp.reserve = vm.envOr("SCRY_TOKEN", block.chainid == RH_CHAIN_ID ? SCRY_CANON : address(0));
 
         inp.obolRoot = vm.envOr("CLAIM_OBOL_ROOT", bytes32(0));
         inp.myrrhRoot = vm.envOr("CLAIM_MYRRH_ROOT", bytes32(0));
-        inp.scryRoot = vm.envOr("CLAIM_SCRY_ROOT", bytes32(0));
+        inp.reserveRoot = vm.envOr("CLAIM_SCRY_ROOT", bytes32(0));
         inp.obolTotal = vm.envOr("CLAIM_OBOL_TOTAL", uint256(0));
         inp.myrrhTotal = vm.envOr("CLAIM_MYRRH_TOTAL", uint256(0));
-        inp.scryTotal = vm.envOr("CLAIM_SCRY_TOTAL", uint256(0));
+        inp.reserveTotal = vm.envOr("CLAIM_SCRY_TOTAL", uint256(0));
 
         runWith(inp);
     }
 
-    /// @return obolClaim  the OBOL ScryHarvest, or address(0) if it was skipped
-    /// @return myrrhClaim the MYRRH ScryHarvest, or address(0)
-    /// @return scryClaim  the SCRY ScryHarvest, or address(0)
+    /// @return obolClaim  the OBOL EloHarvest, or address(0) if it was skipped
+    /// @return myrrhClaim the MYRRH EloHarvest, or address(0)
+    /// @return reserveClaim  the SCRY EloHarvest, or address(0)
     function runWith(ClaimInputs memory inp)
         public
-        returns (address obolClaim, address myrrhClaim, address scryClaim)
+        returns (address obolClaim, address myrrhClaim, address reserveClaim)
     {
         // A paste error that points two roots at ONE token deploys two claim
         // contracts over the same balance, each believing it owns the whole
         // stated obligation. Cheap to catch here; expensive after funding.
         _distinct("OBOL/MYRRH", inp.obol, inp.obolRoot, inp.myrrh, inp.myrrhRoot);
-        _distinct("OBOL/SCRY", inp.obol, inp.obolRoot, inp.scry, inp.scryRoot);
-        _distinct("MYRRH/SCRY", inp.myrrh, inp.myrrhRoot, inp.scry, inp.scryRoot);
+        _distinct("OBOL/SCRY", inp.obol, inp.obolRoot, inp.reserve, inp.reserveRoot);
+        _distinct("MYRRH/SCRY", inp.myrrh, inp.myrrhRoot, inp.reserve, inp.reserveRoot);
 
         vm.startBroadcast(inp.pk);
         obolClaim = _one("OBOL", inp.obol, inp.obolRoot, inp.obolTotal, inp.ref);
         myrrhClaim = _one("MYRRH", inp.myrrh, inp.myrrhRoot, inp.myrrhTotal, inp.ref);
-        scryClaim = _one("SCRY", inp.scry, inp.scryRoot, inp.scryTotal, inp.ref);
+        reserveClaim = _one("SCRY", inp.reserve, inp.reserveRoot, inp.reserveTotal, inp.ref);
         vm.stopBroadcast();
 
         console2.log("---- launch claim contracts (fund each before opening) ----");
         console2.log("OBOL  claim", obolClaim);
         console2.log("MYRRH claim", myrrhClaim);
-        console2.log("SCRY  claim", scryClaim);
+        console2.log("SCRY  claim", reserveClaim);
         console2.log("set on the meter: SCRY_CLAIM_DROP + SCRY_CLAIM_{OBOL,MYRRH,SCRY}");
     }
 
@@ -144,7 +144,7 @@ contract DeployClaim is Script {
         require(a != b, string.concat(pair, ": both roots point at the SAME token address"));
     }
 
-    /// Deploy one ScryHarvest for `token` and post its root, or skip (address 0)
+    /// Deploy one EloHarvest for `token` and post its root, or skip (address 0)
     /// when the root is zero — a token can be armed later on its own.
     function _one(string memory name, address token, bytes32 root, uint256 total, string memory ref)
         internal
@@ -162,7 +162,7 @@ contract DeployClaim is Script {
         // floor is `priorOwed`, which is 0 on a contract whose first root this
         // is. A zero total here is always a typo; refuse it before broadcast.
         require(total > 0, string.concat(name, ": root is set but the total is 0 - the sweep floor would be zero"));
-        ScryHarvest h = new ScryHarvest(IERC20(token));
+        EloHarvest h = new EloHarvest(IERC20(token));
         h.postRoot(root, total, ref);
         console2.log(string.concat(name, " claim deployed + root posted"), address(h));
         return address(h);

@@ -9,11 +9,11 @@ reintroduce one. The half of it that had to survive is `meter/depot_doc.py`,
 which the origin still imports for the depot digest.
 
 ```bash
-cargo build --release          # → target/release/{scry, scry-gui}
+cargo build --release          # → target/release/{elo, elo-gui}
 cargo test --workspace
 ```
 
-Two binaries on purpose. `scry-gui` is the window; `scry` is the same client on
+Two binaries on purpose. `elo-gui` is the window; `elo` is the same client on
 the command line and does **not** link FLTK, because a headless box, a CI job
 and an RL harness have no use for a window.
 
@@ -49,24 +49,23 @@ is why `/download.html` says so on the download button's own panel.
 ## What it does today
 
 ```
-scry check                     what this machine can run
-scry games                     every title the origin serves a manifest for
-scry list                      every installed build, read off its receipt
-scry status  <title>           is a newer build published?
-scry install <title>           install the native build for this machine
-scry update  <title>           install it only if it is newer
-scry self-update               replace this client with the published one
-scry verify  <slug> [build]    re-hash an install against its receipt
-scry prune   <slug>            remove builds superseded by the newest
-scry uninstall <slug> <build>  remove one build
-scry play    <title>           start the newest installed build (and watch it)
-scry digest  <depot>           the bytes32 a notary would commit
-scry hive [rooms|read|voice]   the town's talk annex, read
-scry hive whoami               the voice this machine speaks with
-scry hive voice-new            make one (schnorr, kept here, never sent)
-scry hive say <text>           speak — town stream, or --room
-scry sessions                  what has been played, and what is running
-scry mcp                       serve these reads over MCP on stdio
+elo check                     what this machine can run
+elo games                     every title the origin serves a manifest for
+elo list                      every installed build, read off its receipt
+elo status  <title>           is a newer build published?
+elo install <title>           install the native build for this machine
+elo update  <title>           install it only if it is newer
+elo verify  <slug> [build]    re-hash an install against its receipt
+elo prune   <slug>            remove builds superseded by the newest
+elo uninstall <slug> <build>  remove one build
+elo play    <title>           start the newest installed build (and watch it)
+elo digest  <depot>           the bytes32 a notary would commit
+elo hive [rooms|read|voice]   the town's talk annex, read
+elo hive whoami               the voice this machine speaks with
+elo hive voice-new            make one (schnorr, kept here, never sent)
+elo hive say <text>           speak — town stream, or --room
+elo sessions                  what has been played, and what is running
+elo mcp                       serve these reads over MCP on stdio
 ```
 
 `--games PATH · --host URL · --platform TAG · --server ADDR · --wallet ADDR ·
@@ -80,7 +79,7 @@ by an agent — and this platform has agents as first-class players
 
 ## `<title>` is a name, not a url
 
-`scry install gates`. Until the origin served manifests (`LAUNCHER.md` §11)
+`elo install gates`. Until the origin served manifests (`LAUNCHER.md` §11)
 the only accepted shape was a full url to a JSON file, which meant this client
 could install a game **only if you already knew where that game's manifest was
 published** — a storefront you cannot shop in. Three shapes now resolve, local
@@ -105,7 +104,7 @@ prefixing a scheme would point the download at another host while the manifest
 still read as same-origin. A blanked row becomes a slot: losing a build row is
 recoverable, fetching from the wrong host is not.
 
-`crates/scry-launcher/tests/origin.rs` drives the real binary against a stub of
+`crates/elo-launcher/tests/origin.rs` drives the real binary against a stub of
 those routes — slug resolution, rebasing, a tampered install caught by
 `verify`, and the exit codes.
 
@@ -129,27 +128,8 @@ properties, and the last is the one this repo has to be careful about:
   separate `Unknown` arm and nothing collapses it into `Current`. This is the
   repo's own trap (`CLAUDE.md` §traps) with a patch schedule attached:
   a reader that returns `[]` for both *nothing there* and *we could not look*.
-  `scry status` exits **3** for unknown and **10** for stale, so a script can
+  `elo status` exits **3** for unknown and **10** for stale, so a script can
   tell them apart too.
-
-### And the client updates the client
-
-*"this downloader needs to update itself or have an updater it can run"*
-(operator, 2026-08-15 — reversing a 2026-08-09 ruling; `docs/LAUNCHER.md`
-§12b keeps both and the reasoning). `scry self-update` asks the origin's
-`/api/launcher` card, and only ever proceeds through this gate, in this
-order: a **strictly newer published version** (a dev build ahead of the shelf
-is left alone) → the artifact for this platform found **by the filename
-`build_release.py` writes** → its **sha256 matched** against what the card
-publishes off `SHA256SUMS` — no hash, no bytes → staged whole beside the
-install, smoke-run, then renamed in, both binaries together, with the old
-pair kept as `.old` (rollback = one rename). An install under `/usr/bin`
-belongs to dpkg and is not scribbled on: the verified `.deb` is downloaded
-and the one `sudo apt install` line is printed instead — exit **12**, so a
-script can tell "a privileged step remains" from done. Exit **3** is *could
-not look*, and it is never worn as current. `scry-gui` performs no swap
-itself; the CLI beside it is the updater it can run, and the update dialog
-says exactly that.
 
 ## The hive, ripped
 
@@ -228,7 +208,7 @@ claimed name in the clothes of a checked one.
 The Python client starts a process and forgets it. Steam's whole in-game
 presence layer sits on not doing that.
 
-**Playtime is only real if something watched the process**, so `scry play`
+**Playtime is only real if something watched the process**, so `elo play`
 supervises by default and `--detach` is the exception. Three shapes, and they
 are not interchangeable:
 
@@ -246,7 +226,7 @@ convention.
 
 ## The MCP face
 
-`scry mcp` serves the launcher's reads as MCP over stdio, which is the other
+`elo mcp` serves the launcher's reads as MCP over stdio, which is the other
 half of *no plugin loader*: **the user's own harness is the mod.** Three rules,
 each a refusal:
 
@@ -267,7 +247,7 @@ carries a line saying it is untrusted stranger-written input.
 
 Steam injects a library and hooks the graphics API because Steam does not own
 the games. This platform does, so the overlay is **the game drawing its own
-HUD** from a broker read — which is why `sdk/rust/scry_overlay.rs` has carried
+HUD** from a broker read — which is why `sdk/rust/elo_overlay.rs` has carried
 the name since before the feature existed. No injection, nothing to break on a
 driver update, nothing that reads as malware to an anti-cheat.
 
@@ -294,7 +274,7 @@ produced by the Python one (unicode, escapes, key ordering, big integers, the
 notary/signature exclusion, the shipped Gates example). Regenerate them with:
 
 ```bash
-python3 crates/scry-depot/tests/parity_gen.py
+python3 crates/elo-depot/tests/parity_gen.py
 ```
 
 ⚠ **If that test is deleted or allowed to skip, this crate becomes the bug the
@@ -313,23 +293,19 @@ chain attacks recently."*
 |---|---|
 | `Cargo.lock` committed — the whole transitive tree pinned with a checksum each | repo root of this workspace |
 | every direct dependency pinned `=x.y.z` | `Cargo.toml` `[workspace.dependencies]` |
-| tree budget, checksum and duplicate checks | `crates/scry-launcher/tests/supply_chain.rs` |
+| tree budget, checksum and duplicate checks | `crates/elo-launcher/tests/supply_chain.rs` |
 | advisories, licences, registry allowlist | `deny.toml` → `cargo deny check` |
 
-Direct: `serde`, `serde_json`, `sha2`, `tempfile`, `ureq` (rustls), and
-`miniz_oxide` — the inflate for `self-update`'s own tar.gz/zip artifacts,
-taken at +2 packages instead of `flate2`'s +4 because it *is* flate2's
-backend, with the gzip/tar/zip envelope walks written here in ~150 lines
-(the `clock.rs` trade again). No async runtime, no web framework, no
-argument-parsing crate — the tree is a budget, and `clap` alone would have
-been the largest thing in it.
+Direct: `serde`, `serde_json`, `sha2`, `tempfile`, `ureq` (rustls). No async
+runtime, no web framework, no argument-parsing crate — the tree is a budget,
+and `clap` alone would have been the largest thing in it.
 
 **One trade worth recording, because it went the other way.** Asked to *"really
 utilize rust and any nice trusted rust packages"*, the obvious candidate was
 `jiff` for time. It is excellent and its author is about as trusted as Rust
 gets — and it pulls **14 packages**, including `defmt` (an embedded logging
 framework) and a second major `syn`, which would have tripped the duplicate
-check, to render *"3m ago"*. `crates/scry-hive/src/clock.rs` is 60 lines
+check, to render *"3m ago"*. `crates/elo-hive/src/clock.rs` is 60 lines
 instead. That is the budget working as intended: it forces the trade to be
 made deliberately rather than by reflex. When something here needs real civil
 calendars, time zones or parsing, `jiff` is the right answer and the cap
@@ -343,13 +319,13 @@ under you. It does not make the bytes good.
 
 | | |
 |---|---|
-| `scry-depot` | manifests, depots, the digest, path safety, install/verify/update, launch. **No network dependency** — fetching is a `Fetcher` trait the caller supplies, exactly as the Python port injected `opener=`, so every rule is testable offline and a TLS stack stays out of the crate that decides where a stranger's bytes land on your disk |
-| `scry-net` | `ureq` behind `Fetched { ok, reachable, why }`, plus the `NO_PROXY` handling `ureq` does not do (below) |
-| `scry-hive` | the hive read, terminal-safe rendering, and a small UTC clock |
-| `scry-launcher` | the `scry` binary |
-| `scry-ui` | every window, and the only crate that links FLTK. It **draws and dispatches; it computes nothing** — a caller hands it what `scry-depot` already measured, which is what keeps `windows.rs` constructible in a test with no display, no disk and no origin. `wiring.rs` is what the controls do, kept out of the `scry-gui` binary because an integration test cannot reach into a `[[bin]]` |
-| `scry-broker` | the game door: the socket a title asks the launcher through, its wire format and its signer trait |
-| `scry-vault` | the keystore — scrypt + AES-CTR at rest, and the one place a private key is held |
+| `elo-depot` | manifests, depots, the digest, path safety, install/verify/update, launch. **No network dependency** — fetching is a `Fetcher` trait the caller supplies, exactly as the Python port injected `opener=`, so every rule is testable offline and a TLS stack stays out of the crate that decides where a stranger's bytes land on your disk |
+| `elo-net` | `ureq` behind `Fetched { ok, reachable, why }`, plus the `NO_PROXY` handling `ureq` does not do (below) |
+| `elo-hive` | the hive read, terminal-safe rendering, and a small UTC clock |
+| `elo-launcher` | the `elo` binary |
+| `elo-ui` | every window, and the only crate that links FLTK. It **draws and dispatches; it computes nothing** — a caller hands it what `elo-depot` already measured, which is what keeps `windows.rs` constructible in a test with no display, no disk and no origin. `wiring.rs` is what the controls do, kept out of the `elo-gui` binary because an integration test cannot reach into a `[[bin]]` |
+| `elo-broker` | the game door: the socket a title asks the launcher through, its wire format and its signer trait |
+| `elo-vault` | the keystore — scrypt + AES-CTR at rest, and the one place a private key is held |
 
 ## Two things found by writing this
 
@@ -359,8 +335,8 @@ Both are in the product, not the port:
   `HTTP_PROXY` and applies them to everything, so a launcher on a proxied
   network would tunnel `--host http://127.0.0.1:3600` (a local uvicorn), a LAN
   depot mirror, and its own test server. Worse, the proxy *answers* for a dead
-  port — which defeats `Fetched.reachable` one layer below us. `scry-net`
-  picks the agent per request; `crates/scry-net/src/proxy.rs` is the rule.
+  port — which defeats `Fetched.reachable` one layer below us. `elo-net`
+  picks the agent per request; `crates/elo-net/src/proxy.rs` is the rule.
 - **`play` started the oldest installed build.** Builds sort by name and a
   title can have several installed, so `find` took `0.1.0` right after an
   update to `0.2.0` — a patch that reads as having done nothing. Caught by the
@@ -378,15 +354,12 @@ the thing in front of them does not exist. What is actually missing:
   Games, Store, Servers, Account, Signing, About — and every entry names a
   window that exists, because the menu renders an unbuilt one as deactivated
   and says so. `Library`, `Friends`, `Monitor` and `Settings` are not built.
-- **An install cannot be cancelled, and still blocks the UI thread.** The row
-  grew a real download meter on 2026-08-16 — `chrome::meter`, fed per chunk
-  from `Net::fetch_with`, repainted from inside the block — so the hold now
-  reads as the download it is rather than as a crash. But the hold is real:
-  the thread is held for the whole length, and the only way out of a download
-  is to let it finish or quit the program.
+- **A progress row for an install.** The download blocks the UI thread for its
+  whole length; the button says `Installing…` first so the freeze reads as the
+  install rather than as a crash, but that is a mitigation and not the fix.
 - **A resized shelf forgets its height on Refresh.** The position carries over,
   the size does not (`docs/client/LAUNCHER.md` §10p).
 
-Porting `scry-depot` first was the point: 500 lines of pure logic, no UI, the
+Porting `elo-depot` first was the point: 500 lines of pure logic, no UI, the
 highest-risk code in the client, and the piece a game's own updater may want to
 link. The rules survived the move before any pixels did.

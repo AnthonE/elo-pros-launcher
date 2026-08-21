@@ -162,7 +162,7 @@ Two separate, compatible lanes:
   prizes 0 / ops 1000** (2026-07-27, `SENTENCES.md`)
   — prizes take no line at open, because that cut needs an escrow wallet and the
   purse already funds prizes directly. The phase derives the four numbers from
-  `DeployScryEconomy.s.sol` rather than keeping a copy; an override is printed
+  `DeployEloEconomy.s.sol` rather than keeping a copy; an override is printed
   as *posted X → you set Y*.
 
 Both lanes require their own pre-broadcast review, funding decisions, and
@@ -214,7 +214,7 @@ reach any properly deposited position (`deposits[id].owner` must be zero).
 
 ## Held outside this sequence
 
-- **The gacha** (`ScryGacha.sol` + `DeployGacha.s.sol`) deploys on its own,
+- **The gacha** (`EloGacha.sol` + `DeployGacha.s.sol`) deploys on its own,
   independent of every phase above: it is native-ETH between depositors and
   buyers, touches no game coin, and its `SCRY` toll rail ships in the
   contract **disarmed** (`tollRate`/`tollBurnBps` = 0). First collection is

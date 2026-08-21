@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryOrchard.sol";
+import "../src/EloOrchard.sol";
 import {INonfungiblePositionManagerOrchard, IUniswapV3FactoryOrchard} from "../src/interfaces/IUniswapV3Orchard.sol";
 
 /// Deploy the Orchard (FARMING.md section 9) - the v3-staker farm for the
@@ -66,8 +66,8 @@ contract DeployOrchard is Script {
         uint256 pot = vm.envOr("SEASON_POT", uint256(0));
 
         vm.startBroadcast(pk);
-        ScryOrchard orchard =
-            new ScryOrchard(rewardToken, INonfungiblePositionManagerOrchard(npm), IUniswapV3FactoryOrchard(v3factory));
+        EloOrchard orchard =
+            new EloOrchard(rewardToken, INonfungiblePositionManagerOrchard(npm), IUniswapV3FactoryOrchard(v3factory));
         if (pot > 0) {
             address pool = vm.envAddress("SEASON_POOL");
             uint256 startAt = vm.envOr("SEASON_START", block.timestamp + 1 hours);
@@ -80,7 +80,7 @@ contract DeployOrchard is Script {
         }
         vm.stopBroadcast();
 
-        console2.log("ScryOrchard", address(orchard));
+        console2.log("EloOrchard", address(orchard));
         if (pot == 0) {
             console2.log("NOTE: no season posted; fund one with stewardMint ->");
             console2.log("      approve -> createIncentive when ready.");

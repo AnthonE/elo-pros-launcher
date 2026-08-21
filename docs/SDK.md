@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-09
+updated: 2026-08-10
 about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), and the reference clients Gates links"
 ---
 
@@ -52,7 +52,7 @@ Ripped, it maps onto our invariants exactly:
   └──────────────┘ sock  └───────────────┘       │ none               │
                                                  └────────────────────┘
                                                     the key lives HERE,
-                                                    and scry never sees it
+                                                    and we never see it
 ```
 
 Three properties fall out, and none of them cost anything:
@@ -62,7 +62,7 @@ Three properties fall out, and none of them cost anything:
   journaled, with a daily count — instead of "paste your seed phrase".
 - **The launcher routes rather than custodies.** Four of the five backends
   hold nothing at all; the fifth is an account you made on your own machine
-  (§2a), and scry the service sees none of them. `crates/scry-broker/tests/signer.rs`
+  (§2a), and the service sees none of them. `crates/scry-broker/tests/signer.rs`
   pins the claim against the source per-backend rather than as one sweeping
   scan, because a sweeping claim that stopped being true is worse than a
   narrow one that is.
@@ -111,7 +111,7 @@ binary on your own disk is not, which is why MetaMask is an extension.
 
 What the launcher does (`launcher-rs/crates/scry-vault`):
 
-- **generates from the OS entropy pool on your machine.** scry never sees it.
+- **generates from the OS entropy pool on your machine.** We never see it.
   Invariant 7 is untouched — *we* hold no user keys, and this is not ours.
 - **BIP-39, 12 words, standard path `m/44'/60'/0'/0/0`**, and a **standard V3
   keystore** (scrypt n=262144). Both chosen for the exit: the account imports
@@ -510,7 +510,7 @@ verb, its own prompt, and its own row here.
 - **`CLAUDE.md` invariant 7 — we hold no user keys.** Nothing here holds one.
   Reaching a signer somebody else runs is what "no custody" has always meant;
   §2's table is that sentence made operable.
-- **scry is not a wallet and never routes funds between parties**
+- **Elo is not a wallet and never routes funds between parties**
   (`SENTENCES.md`, NEVER). No backend here moves money on anyone's behalf.
 - **Untrusted text can never mint authority** (invariant 8). A game's request
   is untrusted text. It cannot name a family, choose a signer, set a cap, or

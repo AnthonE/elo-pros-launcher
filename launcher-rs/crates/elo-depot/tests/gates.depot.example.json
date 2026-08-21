@@ -1,0 +1,56 @@
+{
+  "_what": "A worked example of what Gates' desktop build publishes when it exists. This file is an EXAMPLE and its hashes are not of anything \u2014 do not point a manifest at it. It is here so the shape is reviewable before the first build, and so `test_launcher.py` has something with every field set to check the parser against.",
+  "depot_version": 1,
+  "slug": "gates",
+  "build": "0.1.0-alpha.1",
+  "platform": "linux-x86_64",
+  "root": "https://elopros.com/depot/gates/0.1.0-alpha.1",
+  "total_bytes": 48234512,
+  "files": [
+    {
+      "path": "gates",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 24117256,
+      "executable": true
+    },
+    {
+      "path": "lib/libgates_sim.so",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "bytes": 18874368,
+      "executable": false
+    },
+    {
+      "path": "assets/world.pak",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "bytes": 5242880,
+      "executable": false
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "bytes": 8,
+      "executable": false
+    }
+  ],
+  "launch": {
+    "exec": "gates",
+    "args": [
+      "--server",
+      "{server}",
+      "--identity",
+      "{wallet}",
+      "--servers",
+      "{servers}"
+    ],
+    "cwd": ".",
+    "env": {
+      "LD_LIBRARY_PATH": "lib"
+    }
+  },
+  "notary": {
+    "digest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "tx": null,
+    "seq": null,
+    "_note": "Excluded from the digest, because it is written about it. Recompute with `elo digest <this file>` and compare against ScryNotary's event log on 4663."
+  }
+}

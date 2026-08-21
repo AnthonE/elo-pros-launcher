@@ -55,7 +55,7 @@ contract MockNft {
 }
 
 /// @notice A collection with a pause switch — the single most common way a
-///         transfer acquires the ability to revert. `ScryTrove.wrap` must refuse
+///         transfer acquires the ability to revert. `EloTrove.wrap` must refuse
 ///         it while paused, and that refusal is the point: better to fail at the
 ///         wrap than to strand a position mid-draw and jam the whole pool.
 contract PausableNft is MockNft {
@@ -79,8 +79,8 @@ contract SoulboundNft is MockNft {
     }
 }
 
-/// @notice `ScryGacha.deposit`'s pull, isolated: plain `transferFrom`, then
-///         assert `ownerOf == address(this)`. Same harness `ScryItem.t.sol`
+/// @notice `EloGacha.deposit`'s pull, isolated: plain `transferFrom`, then
+///         assert `ownerOf == address(this)`. Same harness `EloItem.t.sol`
 ///         uses, and it is the test that fails first if anything clever ever
 ///         enters a transfer path.
 contract GachaLike {

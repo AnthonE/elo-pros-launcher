@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {ScryCistern, IScrySeat, ISwapRouter} from "../src/ScryCistern.sol";
+import {EloCistern, IEloSeat, ISwapRouter} from "../src/EloCistern.sol";
 import {IERC20} from "../src/IERC20.sol";
 
 /// @title DeployCistern — the drop bar, broadcast
@@ -10,8 +10,13 @@ import {IERC20} from "../src/IERC20.sol";
 ///         was written, documented and tested with no way to deploy it.
 ///
 ///   export RPC=...  PRIVATE_KEY=0x...
-///   export CISTERN_SCRY=0xDa2a4b23459e9ca88183e990802be644AcA7C4B0
-///   export CISTERN_SEAT=0x...              # the deployed ScrySeat. MUST exist first
+///   export CISTERN_SCRY=0x...    # ELO's address, from chains.4663.contracts.ELO.
+///                                #   THIS LINE HARD-CODED 0xDa2a...C4B0 UNTIL 2026-08-18 --
+///                                #   the RETIRED reserve, copy-pasteable, while
+///                                #   hive.env.example had already blanked the same field.
+///                                #   IMMUTABLE: a cistern welded to the dead coin pays a
+///                                #   roster in a coin nobody wants (ONE-SHOT.md 1).
+///   export CISTERN_SEAT=0x...              # the deployed EloSeat. MUST exist first
 ///   export CISTERN_THRESHOLD=...           # whole SCRY. The posted bar
 ///   export CISTERN_TIP_BPS=...             # the crank's cut. Max 500
 ///   export CISTERN_ROUND_WINDOW=...        # seconds a round stays claimable
@@ -53,7 +58,7 @@ contract DeployCistern is Script {
     }
 
     function run() external {
-        address scry = vm.envAddress("CISTERN_SCRY");
+        address reserve = vm.envAddress("CISTERN_SCRY");
         address seat = vm.envAddress("CISTERN_SEAT");
         // address(0) is MEANINGFUL here and is not "unset": it makes every claim
         // pay SCRY with no swap, which is the honest opening state before any
@@ -89,8 +94,8 @@ contract DeployCistern is Script {
             console2.log("  frees it. A short window just churns shares away from stragglers.");
         }
 
-        console2.log("ScryCistern - the drop bar");
-        console2.log("  scry", scry);
+        console2.log("EloCistern - the drop bar");
+        console2.log("  reserve", reserve);
         console2.log("  seat", seat);
         console2.log("  threshold (whole SCRY)", thresholdWhole);
         console2.log("  tip bps", tipRaw);
@@ -103,14 +108,14 @@ contract DeployCistern is Script {
         }
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        ScryCistern cis = new ScryCistern(
-            IERC20(scry), IScrySeat(seat), ISwapRouter(router),
+        EloCistern cis = new EloCistern(
+            IERC20(reserve), IEloSeat(seat), ISwapRouter(router),
             threshold, uint16(tipRaw), uint32(windowRaw)
         );
         vm.stopBroadcast();
 
         console2.log("");
-        console2.log("ScryCistern", address(cis));
+        console2.log("EloCistern", address(cis));
         console2.log("");
         console2.log("DEPLOYED EMPTY, which is the correct opening state.");
         console2.log("Two things must be true before a round can open, and neither is yet:");
@@ -122,6 +127,6 @@ contract DeployCistern is Script {
         console2.log("Then ANY wallet calls open() and keeps the tip. Not ours to time,");
         console2.log("which is the whole invariant-9 argument and not a courtesy.");
         console2.log("");
-        console2.log("Next: record the address in contracts/deployments.json as ScryCistern.");
+        console2.log("Next: record the address in contracts/deployments.json as EloCistern.");
     }
 }

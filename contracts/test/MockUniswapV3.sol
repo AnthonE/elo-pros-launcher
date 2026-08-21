@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "../src/ScryLaunchpad.sol";
+import "../src/EloLaunchpad.sol";
 import "./MockToken.sol";
 
-/// Stand-ins for the canonical v3 pieces, for `ScryLaunchpad.t.sol`.
+/// Stand-ins for the canonical v3 pieces, for `EloLaunchpad.t.sol`.
 ///
-/// ⚠ WHAT THESE CAN AND CANNOT PROVE. They pin `ScryLaunchpad`'s OWN logic — who
+/// ⚠ WHAT THESE CAN AND CANNOT PROVE. They pin `EloLaunchpad`'s OWN logic — who
 /// may call what, that the TWAP guard bites, that fees go to an address nobody
 /// can aim, that no exit exists. They prove NOTHING about real Uniswap
 /// behaviour: tick math, the ratio a mint actually consumes, router pathing.
@@ -41,7 +41,7 @@ contract MockV3Factory {
     }
 }
 
-/// A pool whose spot and TWAP are settable, because the only thing `ScryLaunchpad`
+/// A pool whose spot and TWAP are settable, because the only thing `EloLaunchpad`
 /// asks a pool is "how far is spot from the mean".
 contract MockV3Pool {
     int24 public spotTick;

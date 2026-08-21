@@ -1,4 +1,4 @@
-// build_artifacts.js — compile ScryTrove + its mocks to /tmp/artifacts.json
+// build_artifacts.js — compile EloTrove + its mocks to /tmp/artifacts.json
 //
 //   cd contracts && npm i solc@0.8.26 && node build_artifacts.js
 //
@@ -12,7 +12,7 @@
 // via_ir) so the sizes it prints are the sizes forge would print. It is NOT a
 // replacement for `forge build --sizes && forge test`, which stays the gate.
 const fs=require('fs'), path=require('path'), solc=require('/tmp/node_modules/solc');
-const roots=[['src','ScryTrove.sol'],['src','ScryItem.sol'],['test','TroveMocks.sol']];
+const roots=[['src','EloTrove.sol'],['src','EloItem.sol'],['test','TroveMocks.sol']];
 const OUT=process.env.OUT||'/tmp/artifacts.json';
 const sources={};
 function add(dir,f){ const key=(dir==='src'?'':'test/')+f; if(sources[key])return;

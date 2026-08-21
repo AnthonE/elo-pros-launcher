@@ -3,19 +3,19 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScryGardener.sol";
-import "../src/ScrySilo.sol";
-import "../src/ScryGarden.sol";
-import "../src/ScryHarvest.sol";
-import "../src/ScryJobBoard.sol";
-import "../src/ScryReputation.sol";
-import "../src/ScryInsurancePool.sol";
-import "../src/ScryFeeSplitter.sol";
-import "../src/IScryArbiter.sol";
+import "../src/EloGranary.sol";
+import "../src/EloGardener.sol";
+import "../src/EloSilo.sol";
+import "../src/EloGarden.sol";
+import "../src/EloHarvest.sol";
+import "../src/EloJobBoard.sol";
+import "../src/EloReputation.sol";
+import "../src/EloInsurancePool.sol";
+import "../src/EloFeeSplitter.sol";
+import "../src/IEloArbiter.sol";
 import "../src/IERC20.sol";
 import "../script/DeployGardener.s.sol";
-import "../src/ScryGacha.sol";
+import "../src/EloGacha.sol";
 import {MockArbSys} from "./MockArbSys.sol";
 
 /// @title AuditFindings — the 2026-07-25 audit's findings, now as regressions
@@ -28,23 +28,23 @@ import {MockArbSys} from "./MockArbSys.sol";
 ///         aren't. Full write-up: contracts/AUDIT-2026-07-25.md.
 contract AuditFindingsTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
-    // F1 · ScrySilo.updateBin USED TO lose emission permanently — the
-    //      ScryGardener `carryScaled` fix (2026-07-22) was never ported to the
+    // F1 · EloSilo.updateBin USED TO lose emission permanently — the
+    //      EloGardener `carryScaled` fix (2026-07-22) was never ported to the
     //      Silo, and updateBin() is public, so ANY address could drive the loss.
     //      FIXED 2026-07-25: carryScaled ported verbatim.
     // ─────────────────────────────────────────────────────────────────────────
-    function _silo() internal returns (SpoilsToken obol, ScryGranary gran, ScrySilo silo) {
+    function _silo() internal returns (SpoilsToken obol, EloGranary gran, EloSilo silo) {
         obol = new SpoilsToken("obol", "OBOL", 0, address(this));
-        gran = new ScryGranary(obol);
+        gran = new EloGranary(obol);
         obol.setMinter(address(gran));
         // production numbers: era-0 emission (DeployGardener.s.sol default)
-        silo = new ScrySilo(gran, 2_777_777_777_777_777, 2500);
+        silo = new EloSilo(gran, 2_777_777_777_777_777, 2500);
         gran.setGrant(address(silo), type(uint256).max);
         silo.addTier(30 days, 10_000); // 1x
         silo.addBin(obol, 100);
     }
 
-    function _sealBig(SpoilsToken obol, ScryGranary gran, ScrySilo silo, address who, uint256 amt) internal {
+    function _sealBig(SpoilsToken obol, EloGranary gran, EloSilo silo, address who, uint256 amt) internal {
         gran.stewardMint(who, amt);
         vm.startPrank(who);
         obol.approve(address(silo), amt);
@@ -52,7 +52,7 @@ contract AuditFindingsTest is Test {
         vm.stopPrank();
     }
 
-    /// The whole point of `carryScaled` in ScryGardener, absent here: when
+    /// The whole point of `carryScaled` in EloGardener, absent here: when
     /// (reward * 1e12) / totalWeighted floors to zero, `lastRewardTime` still
     /// advances, so that second's emission is gone forever.
     function test_F1_silo_carry_makes_per_second_and_patient_updateBin_agree() public {
@@ -62,14 +62,14 @@ contract AuditFindingsTest is Test {
         address alice = address(0xA11CE);
 
         // ── arm A: one patient update after 1000 seconds ────────────────────
-        (SpoilsToken obolA, ScryGranary granA, ScrySilo siloA) = _silo();
+        (SpoilsToken obolA, EloGranary granA, EloSilo siloA) = _silo();
         _sealBig(obolA, granA, siloA, alice, sealAmt);
         vm.warp(vm.getBlockTimestamp() + 1000);
         siloA.updateBin(0);
         uint256 patient = siloA.pendingReward(alice, 0);
 
         // ── arm B: same 1000 seconds, but someone calls updateBin every second ──
-        (SpoilsToken obolB, ScryGranary granB, ScrySilo siloB) = _silo();
+        (SpoilsToken obolB, EloGranary granB, EloSilo siloB) = _silo();
         _sealBig(obolB, granB, siloB, alice, sealAmt);
         address griefer = address(0x6217);
         for (uint256 i = 0; i < 1000; i++) {
@@ -88,13 +88,13 @@ contract AuditFindingsTest is Test {
         assertEq(griefed, patient, "F1: per-second and patient callers must agree");
     }
 
-    /// Control: the same shape in ScryGardener is already fixed by carryScaled,
+    /// Control: the same shape in EloGardener is already fixed by carryScaled,
     /// which is what makes F1 an un-ported fix rather than an accepted design.
     function test_F1_control_gardener_carry_survives_the_same_grief() public {
         SpoilsToken obol = new SpoilsToken("obol", "OBOL", 0, address(this));
-        ScryGranary gran = new ScryGranary(obol);
+        EloGranary gran = new EloGranary(obol);
         obol.setMinter(address(gran));
-        ScryGardener farm = new ScryGardener(gran, 2_777_777_777_777_777, 6700, block.timestamp + 90 days);
+        EloGardener farm = new EloGardener(gran, 2_777_777_777_777_777, 6700, block.timestamp + 90 days);
         gran.setGrant(address(farm), type(uint256).max);
 
         SpoilsToken lp = new SpoilsToken("lp", "LP", 0, address(this));
@@ -118,16 +118,16 @@ contract AuditFindingsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // F2 · ScryGardener USED TO treat `lp.balanceOf(address(this))` as the
+    // F2 · EloGardener USED TO treat `lp.balanceOf(address(this))` as the
     //      staked supply, so an unsolicited LP donation permanently diluted
     //      every staker and stranded the donated share's emission.
     //      FIXED 2026-07-25: an internal `stakedSupply` is the denominator.
     // ─────────────────────────────────────────────────────────────────────────
     function test_F2_gardener_lp_donation_cannot_touch_the_stream() public {
         SpoilsToken obol = new SpoilsToken("obol", "OBOL", 0, address(this));
-        ScryGranary gran = new ScryGranary(obol);
+        EloGranary gran = new EloGranary(obol);
         obol.setMinter(address(gran));
-        ScryGardener farm = new ScryGardener(gran, 1e18, 0, block.timestamp + 90 days);
+        EloGardener farm = new EloGardener(gran, 1e18, 0, block.timestamp + 90 days);
         gran.setGrant(address(farm), type(uint256).max);
         SpoilsToken lp = new SpoilsToken("lp", "LP", 0, address(this));
         farm.addPool(IERC20(address(lp)), 100);
@@ -161,7 +161,7 @@ contract AuditFindingsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // F3 · ScryHarvest.sweep's solvency check USED TO derive the obligation as
+    // F3 · EloHarvest.sweep's solvency check USED TO derive the obligation as
     //      the GLOBAL totalClaimed against the CURRENT root's totalCommitted.
     //      Drop a wallet that had already claimed and the operator could sweep
     //      funds a live claimant was still owed under the posted root.
@@ -169,7 +169,7 @@ contract AuditFindingsTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
     function test_F3_harvest_sweep_cannot_take_a_live_claimants_money() public {
         SpoilsToken obol = new SpoilsToken("obol", "OBOL", 0, address(this));
-        ScryHarvest h = new ScryHarvest(IERC20(address(obol)));
+        EloHarvest h = new EloHarvest(IERC20(address(obol)));
         obol.mint(address(h), 150e18);
 
         address a = address(0xA);
@@ -223,7 +223,7 @@ contract AuditFindingsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // F4 · ScryJobBoard.dispute() USED TO call the arbiter BEFORE closing the
+    // F4 · EloJobBoard.dispute() USED TO call the arbiter BEFORE closing the
     //      job. The arbiter is an operator-swappable address CALLed (not
     //      staticcall), so it could reenter close() and make one job pay out
     //      twice — taking a different buyer's escrow out of the pooled balance.
@@ -231,13 +231,13 @@ contract AuditFindingsTest is Test {
     //      arbitration-fee ceiling for F4b.
     // ─────────────────────────────────────────────────────────────────────────
     function test_F4_jobboard_dispute_reentrancy_cannot_pay_one_job_twice() public {
-        MockERC20 scry = new MockERC20();
-        ScryReputation rep = new ScryReputation(0);
-        ScryInsurancePool pool = new ScryInsurancePool(IERC20(address(scry)), 0);
+        MockERC20 reserve = new MockERC20();
+        EloReputation rep = new EloReputation(0);
+        EloInsurancePool pool = new EloInsurancePool(IERC20(address(reserve)), 0);
         address splitter = address(0x5719);
         EvilArbiter evil = new EvilArbiter();
-        ScryJobBoard board = new ScryJobBoard(
-            IERC20(address(scry)), IReputation(address(rep)), IInsurancePool(address(pool)), splitter, evil, 10e18
+        EloJobBoard board = new EloJobBoard(
+            IERC20(address(reserve)), IReputation(address(rep)), IInsurancePool(address(pool)), splitter, evil, 10e18
         );
         rep.setAuthority(address(board), true);
         evil.point(board);
@@ -245,20 +245,20 @@ contract AuditFindingsTest is Test {
         address buyer1 = address(0xB1);
         address buyer2 = address(0xB2);
         address seller = address(0x5E11E);
-        scry.mint(buyer1, 100e18);
-        scry.mint(buyer2, 100e18);
+        reserve.mint(buyer1, 100e18);
+        reserve.mint(buyer2, 100e18);
 
         vm.startPrank(buyer1);
-        scry.approve(address(board), 100e18);
-        uint256 jobA = board.post(seller, 100e18, ScryJobBoard.Mode.Escrow, "specA", uint64(block.timestamp + 1 days), 0);
+        reserve.approve(address(board), 100e18);
+        uint256 jobA = board.post(seller, 100e18, EloJobBoard.Mode.Escrow, "specA", uint64(block.timestamp + 1 days), 0);
         vm.stopPrank();
 
         vm.startPrank(buyer2);
-        scry.approve(address(board), 100e18);
-        board.post(seller, 100e18, ScryJobBoard.Mode.Escrow, "specB", uint64(block.timestamp + 30 days), 0);
+        reserve.approve(address(board), 100e18);
+        board.post(seller, 100e18, EloJobBoard.Mode.Escrow, "specB", uint64(block.timestamp + 30 days), 0);
         vm.stopPrank();
 
-        assertEq(scry.balanceOf(address(board)), 200e18, "both escrows held in one pot");
+        assertEq(reserve.balanceOf(address(board)), 200e18, "both escrows held in one pot");
 
         vm.prank(seller);
         board.deliver(jobA, "delivered");
@@ -282,16 +282,16 @@ contract AuditFindingsTest is Test {
         board.dispute(jobA);
 
         // nothing moved, and buyer2's escrow is untouched.
-        assertEq(scry.balanceOf(seller), 0, "F4: no double payout");
-        assertEq(scry.balanceOf(address(board)), 200e18, "F4: both escrows intact");
+        assertEq(reserve.balanceOf(seller), 0, "F4: no double payout");
+        assertEq(reserve.balanceOf(address(board)), 200e18, "F4: both escrows intact");
 
         // with a well-behaved arbiter the same dispute settles exactly once.
         evil.disarm();
         vm.prank(seller);
         board.dispute(jobA);
-        assertEq(scry.balanceOf(seller), 95e18, "F4: one net payout");
-        assertEq(scry.balanceOf(splitter), 5e18, "F4: one fee");
-        assertEq(scry.balanceOf(address(board)), 100e18, "F4: buyer2's escrow still held");
+        assertEq(reserve.balanceOf(seller), 95e18, "F4: one net payout");
+        assertEq(reserve.balanceOf(splitter), 5e18, "F4: one fee");
+        assertEq(reserve.balanceOf(address(board)), 100e18, "F4: buyer2's escrow still held");
 
         // the SECOND bound, on its own: a settled job is closed state, so a
         // plain (non-reentrant) second settlement is refused by the ordering
@@ -299,19 +299,19 @@ contract AuditFindingsTest is Test {
         // holds — which is what "two independent bounds" has to mean.
         vm.expectRevert(bytes("closed"));
         board.close(jobA);
-        assertEq(scry.balanceOf(seller), 95e18, "F4: still one net payout");
+        assertEq(reserve.balanceOf(seller), 95e18, "F4: still one net payout");
     }
 
     /// Even without reentrancy, an operator-set arbiter names its own fee and
     /// its own recipient, and the board pulls it from the disputing party's
     /// allowance with no ceiling.
     function test_F4b_jobboard_arbiter_fee_is_bounded_by_the_immutable_ceiling() public {
-        MockERC20 scry = new MockERC20();
-        ScryReputation rep = new ScryReputation(0);
-        ScryInsurancePool pool = new ScryInsurancePool(IERC20(address(scry)), 0);
+        MockERC20 reserve = new MockERC20();
+        EloReputation rep = new EloReputation(0);
+        EloInsurancePool pool = new EloInsurancePool(IERC20(address(reserve)), 0);
         GreedyArbiter greedy = new GreedyArbiter();
-        ScryJobBoard board = new ScryJobBoard(
-            IERC20(address(scry)),
+        EloJobBoard board = new EloJobBoard(
+            IERC20(address(reserve)),
             IReputation(address(rep)),
             IInsurancePool(address(pool)),
             address(0x5719),
@@ -323,22 +323,22 @@ contract AuditFindingsTest is Test {
 
         address buyer = address(0xB1);
         address seller = address(0x5E11E);
-        scry.mint(buyer, 1_000e18);
+        reserve.mint(buyer, 1_000e18);
         vm.startPrank(buyer);
-        scry.approve(address(board), type(uint256).max); // the Insured / RepOnly flow asks for exactly this
-        uint256 id = board.post(seller, 1e18, ScryJobBoard.Mode.Insured, "spec", uint64(block.timestamp + 1 days), 1e18);
+        reserve.approve(address(board), type(uint256).max); // the Insured / RepOnly flow asks for exactly this
+        uint256 id = board.post(seller, 1e18, EloJobBoard.Mode.Insured, "spec", uint64(block.timestamp + 1 days), 1e18);
         // WAS: the arbiter's self-declared 998e18 "flat fee" was pulled straight
         // out of the standing approval. NOW: it is refused against maxArbFee.
         vm.expectRevert(bytes("arb fee over the posted ceiling"));
         board.dispute(id);
         vm.stopPrank();
 
-        assertEq(scry.balanceOf(greedy.pocket()), 0, "F4b: an arbiter cannot name its own price");
+        assertEq(reserve.balanceOf(greedy.pocket()), 0, "F4b: an arbiter cannot name its own price");
         assertEq(board.maxArbFee(), 10e18, "the ceiling is immutable state, not a knob");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // F5 · ScryGarden.addLiquidity USED TO silently keep the over-supplied
+    // F5 · EloGarden.addLiquidity USED TO silently keep the over-supplied
     //      side: no router, no refund, so a mis-ratioed add was an
     //      uncompensated donation to existing LPs — and DeploySpoils.s.sol
     //      points this pair at real SCRY. FIXED 2026-07-25: the amounts are
@@ -347,7 +347,7 @@ contract AuditFindingsTest is Test {
     function test_F5_garden_addLiquidity_never_pulls_the_excess() public {
         MockERC20 t0 = new MockERC20();
         MockERC20 t1 = new MockERC20();
-        ScryGarden g = new ScryGarden(IERC20(address(t0)), IERC20(address(t1)));
+        EloGarden g = new EloGarden(IERC20(address(t0)), IERC20(address(t1)));
 
         t0.mint(address(this), 1_000e18);
         t1.mint(address(this), 1_000e18);
@@ -410,7 +410,7 @@ contract AuditFindingsTest is Test {
     function test_F5b_garden_calls_all_honour_a_deadline() public {
         MockERC20 t0 = new MockERC20();
         MockERC20 t1 = new MockERC20();
-        ScryGarden g = new ScryGarden(IERC20(address(t0)), IERC20(address(t1)));
+        EloGarden g = new EloGarden(IERC20(address(t0)), IERC20(address(t1)));
         t0.mint(address(this), 1_000e18);
         t1.mint(address(this), 1_000e18);
         t0.approve(address(g), type(uint256).max);
@@ -433,7 +433,7 @@ contract AuditFindingsTest is Test {
     function test_F5b_garden_add_and_remove_honour_their_minimums() public {
         MockERC20 t0 = new MockERC20();
         MockERC20 t1 = new MockERC20();
-        ScryGarden g = new ScryGarden(IERC20(address(t0)), IERC20(address(t1)));
+        EloGarden g = new EloGarden(IERC20(address(t0)), IERC20(address(t1)));
         t0.mint(address(this), 1_000e18);
         t1.mint(address(this), 1_000e18);
         t0.approve(address(g), type(uint256).max);
@@ -564,12 +564,12 @@ contract MockERC20 {
 }
 
 /// An arbiter that reenters the board while the job it is ruling on is still open.
-contract EvilArbiter is IScryArbiter {
-    ScryJobBoard public board;
+contract EvilArbiter is IEloArbiter {
+    EloJobBoard public board;
     uint256 public target;
     bool public armed;
 
-    function point(ScryJobBoard b) external {
+    function point(EloJobBoard b) external {
         board = b;
     }
 
@@ -600,7 +600,7 @@ contract EvilArbiter is IScryArbiter {
 }
 
 /// An arbiter that names its own fee and its own recipient.
-contract GreedyArbiter is IScryArbiter {
+contract GreedyArbiter is IEloArbiter {
     address public pocket = address(0xF00D);
 
     function feeRecipient() external view returns (address) {
@@ -617,7 +617,7 @@ contract GreedyArbiter is IScryArbiter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// The 2026-07-27 review of ScryGacha — three findings, same discipline.
+// The 2026-07-27 review of EloGacha — three findings, same discipline.
 //
 // Written as DEFECT REPRODUCTIONS first (each passed by asserting the broken
 // behaviour), then inverted in place once the fixes landed. The contract had
@@ -654,8 +654,8 @@ contract AuditNft {
     }
 }
 
-contract ScryGachaAuditTest is Test {
-    ScryGacha internal g;
+contract EloGachaAuditTest is Test {
+    EloGacha internal g;
     AuditNft internal nft;
     MockArbSys internal arb;
 
@@ -671,7 +671,7 @@ contract ScryGachaAuditTest is Test {
         arb.setL2Block(20_000_000);
         arb.setWindow(256);
 
-        g = new ScryGacha(100, sink);
+        g = new EloGacha(100, sink);
         nft = new AuditNft();
         g.openPool(address(nft), 0.01 ether, 1_000, 8_500);
         vm.deal(alice, 100 ether);
@@ -723,7 +723,7 @@ contract ScryGachaAuditTest is Test {
 
         nft.setPaused(false);
         // The owner must not be able to take it out from under her.
-        vm.expectRevert(ScryGacha.TokenIsEscrowed.selector);
+        vm.expectRevert(EloGacha.TokenIsEscrowed.selector);
         g.rescueStray(address(nft), 1, attacker);
 
         // And she can still collect it — after which it really is loose.
@@ -749,11 +749,11 @@ contract ScryGachaAuditTest is Test {
 
         // Inside the buyer's window, the depositor cannot resolve.
         vm.prank(alice);
-        vm.expectRevert(ScryGacha.BuyersWindow.selector);
+        vm.expectRevert(EloGacha.BuyersWindow.selector);
         g.depositorReclaimNft(posId);
 
         // Zero is now refused outright — a window of nothing is not a window.
-        vm.expectRevert(ScryGacha.ChoiceWindowTooShort.selector);
+        vm.expectRevert(EloGacha.ChoiceWindowTooShort.selector);
         g.setWindows(0, 0);
 
         // And shortening as far as the knob legally allows still must not reach a
@@ -763,10 +763,10 @@ contract ScryGachaAuditTest is Test {
         skip(11 minutes);
 
         vm.prank(alice);
-        vm.expectRevert(ScryGacha.BuyersWindow.selector);
+        vm.expectRevert(EloGacha.BuyersWindow.selector);
         g.depositorReclaimBacking(posId);
         vm.prank(attacker);
-        vm.expectRevert(ScryGacha.TooEarlyToFinalize.selector);
+        vm.expectRevert(EloGacha.TooEarlyToFinalize.selector);
         g.finalize(posId);
 
         // The buyer's paid-for choice survives.
@@ -789,9 +789,9 @@ contract ScryGachaAuditTest is Test {
         g.blockCollection(address(nft));
 
         vm.prank(attacker);
-        vm.expectRevert(ScryGacha.CollectionIsBlocked.selector);
+        vm.expectRevert(EloGacha.CollectionIsBlocked.selector);
         g.setPoolOpen(address(nft), true);
-        vm.expectRevert(ScryGacha.CollectionIsBlocked.selector);
+        vm.expectRevert(EloGacha.CollectionIsBlocked.selector);
         g.setPoolOpen(address(nft), true); // not even the owner
 
         // Closing a pool must still always be possible.
@@ -801,7 +801,7 @@ contract ScryGachaAuditTest is Test {
         // And the block still holds against deposits.
         nft.mint(alice, 2);
         vm.prank(alice);
-        vm.expectRevert(ScryGacha.PoolNotOpen.selector);
+        vm.expectRevert(EloGacha.PoolNotOpen.selector);
         g.deposit{value: 1 ether}(address(nft), 2);
     }
 
@@ -892,7 +892,7 @@ contract ScryGachaAuditTest is Test {
         (,,,,,,,,,, top,,,) = g.poolCard(address(nft));
         assertEq(top, 0, "a dust position took a whale's vacant seat");
         vm.prank(alice);
-        vm.expectRevert(ScryGacha.TopNotBeaten.selector);
+        vm.expectRevert(EloGacha.TopNotBeaten.selector);
         g.claimTop(small);
 
         // Clearing the bar does take it.

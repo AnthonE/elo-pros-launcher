@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @title MockArbSys — ArbOS's clock, at its real address, for tests
-/// @notice `ScryGacha` reads the L2 height and L2 block hashes from the ArbOS
+/// @notice `EloGacha` reads the L2 height and L2 block hashes from the ArbOS
 ///         precompile at `0x64`, because on Arbitrum Nitro **Solidity's
 ///         `block.number` is the parent chain's** — measured on 4663 at
 ///         25,620,709 against an L2 height of 20,319,770, advancing 0.08

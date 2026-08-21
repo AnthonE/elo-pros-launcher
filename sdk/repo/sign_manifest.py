@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""sign_manifest.py — sign a game's `scry.json` so scry will read it.
+"""sign_manifest.py — sign a game's `elo.json` so elo will read it.
 
 Copy this into your game's repo. It has one dependency (`eth-account`) and it
-talks to nothing: it hashes a file, builds the exact text scry checks, signs it
-with a key **you** hold, and writes `scry.sig.json` beside the manifest.
+talks to nothing: it hashes a file, builds the exact text elo checks, signs it
+with a key **you** hold, and writes `elo.sig.json` beside the manifest.
 
     pip install eth-account
     python3 sign_manifest.py --game gates                 # bump seq, sign, write
@@ -14,24 +14,24 @@ Where the key comes from, in the order tried:
 
     --key 0x…              a hex private key on the command line (fine in CI
                            from a secret; it is in your shell history otherwise)
-    SCRY_DEV_KEY           the same, from the environment. This is the CI shape.
+    ELO_DEV_KEY           the same, from the environment. This is the CI shape.
     --keystore <file>      an encrypted V3 keystore; the passphrase is prompted
-                           for, or read from SCRY_DEV_PASSPHRASE
+                           for, or read from ELO_DEV_PASSPHRASE
     --print                no key at all. Prints the message; paste the
                            signature back with --signature. This is the path for
-                           a hardware wallet, and it is the one scry itself
+                           a hardware wallet, and it is the one elo itself
                            would take — the service that reads this file holds
                            no key either.
 
 The seq is the anti-replay counter and it only goes up. With no `--seq` this
-reads the existing `scry.sig.json` and adds one, which is right unless the last
+reads the existing `elo.sig.json` and adds one, which is right unless the last
 signature was never applied — ask the origin what it will accept:
 
-    curl -s https://scry.moreright.xyz/api/store/repo/<slug> | grep next_seq
+    curl -s https://elopros.com/api/store/repo/<slug> | grep next_seq
 
-Unlike `scry_overlay.rs`, this file carries NO checksum pin and is not part of
+Unlike `elo_overlay.rs`, this file carries NO checksum pin and is not part of
 any protocol. Edit it, rewrite it in another language, fold it into your release
-job — the only things scry checks are the two files it produces.
+job — the only things elo checks are the two files it produces.
 """
 from __future__ import annotations
 
@@ -43,15 +43,15 @@ import os
 import sys
 from pathlib import Path
 
-MANIFEST_NAME = "scry.json"
-SIG_NAME = "scry.sig.json"
+MANIFEST_NAME = "elo.json"
+SIG_NAME = "elo.sig.json"
 
 
 def message(game: str, digest: str, seq: int) -> str:
-    """The exact text scry recovers a signer from. Byte-for-byte — a stray
+    """The exact text elo recovers a signer from. Byte-for-byte — a stray
     space makes a signature that verifies to a different address."""
-    return (f"scry repo\ngame: {game}\nmanifest: {digest}\nseq: {seq}\n"
-            f"by signing, this wallet publishes this manifest as '{game}' on scry, "
+    return (f"elo repo\ngame: {game}\nmanifest: {digest}\nseq: {seq}\n"
+            f"by signing, this wallet publishes this manifest as '{game}' on elo, "
             f"under its own address, in public.")
 
 
@@ -67,11 +67,11 @@ def load_account(args):
     except ImportError:
         die("eth-account is not installed — `pip install eth-account`, or use "
             "--print and sign the text with whatever holds your key")
-    if args.key or os.getenv("SCRY_DEV_KEY"):
-        return Account.from_key(args.key or os.environ["SCRY_DEV_KEY"])
+    if args.key or os.getenv("ELO_DEV_KEY"):
+        return Account.from_key(args.key or os.environ["ELO_DEV_KEY"])
     if args.keystore:
         blob = json.loads(Path(args.keystore).read_text(encoding="utf-8"))
-        pw = os.getenv("SCRY_DEV_PASSPHRASE") or getpass.getpass("keystore passphrase: ")
+        pw = os.getenv("ELO_DEV_PASSPHRASE") or getpass.getpass("keystore passphrase: ")
         return Account.from_key(Account.decrypt(blob, pw))
     return None
 
@@ -89,8 +89,8 @@ def recover(text: str, signature: str) -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="sign a scry game manifest")
-    ap.add_argument("--game", help="the slug, as scry already lists it. "
+    ap = argparse.ArgumentParser(description="sign an Elo Pros game manifest")
+    ap.add_argument("--game", help="the slug, as elo already lists it. "
                                    "Defaults to the manifest's own \"game\" field.")
     ap.add_argument("--manifest", default=MANIFEST_NAME)
     ap.add_argument("--out", default=SIG_NAME)
@@ -108,7 +108,7 @@ def main() -> int:
 
     path = Path(args.manifest)
     if not path.is_file():
-        die(f"{path} is not here. Start from the template in scry's "
+        die(f"{path} is not here. Start from the template in elo's "
             f"sdk/repo/{MANIFEST_NAME}.")
     raw = path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
@@ -116,13 +116,13 @@ def main() -> int:
     try:
         parsed = json.loads(raw.decode("utf-8"))
     except Exception as e:  # noqa: BLE001
-        die(f"{path} is not readable JSON: {e}. scry will refuse it for the same reason.")
+        die(f"{path} is not readable JSON: {e}. elo will refuse it for the same reason.")
     game = args.game or str(parsed.get("game") or "")
     if not game:
         die("no slug — pass --game, or set \"game\" in the manifest")
     if parsed.get("game") and parsed["game"] != game:
         die(f"the manifest says \"game\": {parsed['game']!r} and you passed {game!r}. "
-            f"scry refuses a manifest that names a title other than the one it was "
+            f"elo refuses a manifest that names a title other than the one it was "
             f"fetched from, so fix one of the two.")
 
     out = Path(args.out)
@@ -154,7 +154,7 @@ def main() -> int:
         print(f"recovers : {got}")
         if got.lower() != want.lower():
             die(f"it recovers {got}, and the file claims {want}")
-        print("OK — this pair verifies. scry will accept it if that wallet has "
+        print("OK — this pair verifies. elo will accept it if that wallet has "
               "standing on the slug and the seq has not been used.")
         return 0
 
@@ -181,7 +181,7 @@ def main() -> int:
     else:
         account = load_account(args)
         if account is None:
-            die("no key. Pass --key, set SCRY_DEV_KEY, use --keystore, or use "
+            die("no key. Pass --key, set ELO_DEV_KEY, use --keystore, or use "
                 "--print and sign the text with whatever holds your key.")
         wallet, signature = account.address, sign(account, text)
 
@@ -195,7 +195,7 @@ def main() -> int:
     print(f"  sha256    {digest}")
     print(f"  wallet    {wallet}")
     print(f"\ncommit {path} and {out} together — the signature covers those exact bytes.")
-    print(f"then:  curl -s https://scry.moreright.xyz/api/store/repo/{game}")
+    print(f"then:  curl -s https://elopros.com/api/store/repo/{game}")
     return 0
 
 

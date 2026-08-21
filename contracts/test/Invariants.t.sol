@@ -3,12 +3,12 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryHarvest.sol";
-import "../src/ScryGardener.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScrySilo.sol";
+import "../src/EloHarvest.sol";
+import "../src/EloGardener.sol";
+import "../src/EloGranary.sol";
+import "../src/EloSilo.sol";
 import "../src/IERC20.sol";
-import "../src/ScryGacha.sol";
+import "../src/EloGacha.sol";
 import {MockArbSys} from "./MockArbSys.sol";
 import {MockToken} from "./MockToken.sol";
 
@@ -129,7 +129,7 @@ contract SpoilsTokenInvariants is Test {
 
 contract HarvestHandler is Test {
     SpoilsToken public coin;
-    ScryHarvest public harvest;
+    EloHarvest public harvest;
     address public minter;
     address public sink = address(0x5153);
     address[3] public actors = [address(0xC1), address(0xC2), address(0xC3)];
@@ -161,7 +161,7 @@ contract HarvestHandler is Test {
     uint256 public ghostWindowFloor;
     uint256 public ghostWindowOpenedAt;
 
-    constructor(SpoilsToken c, ScryHarvest h, address m) {
+    constructor(SpoilsToken c, EloHarvest h, address m) {
         coin = c;
         harvest = h;
         minter = m;
@@ -222,13 +222,13 @@ contract HarvestHandler is Test {
 
 contract HarvestInvariants is Test {
     SpoilsToken coin;
-    ScryHarvest harvest;
+    EloHarvest harvest;
     HarvestHandler handler;
     address minter = address(0xD157);
 
     function setUp() public {
         coin = new SpoilsToken("obol", "OBOL", 0, minter);
-        harvest = new ScryHarvest(IERC20(address(coin)));
+        harvest = new EloHarvest(IERC20(address(coin)));
         handler = new HarvestHandler(coin, harvest, minter);
         harvest.transferOperator(address(handler));
         targetContract(address(handler));
@@ -303,13 +303,13 @@ contract HarvestInvariants is Test {
 
 contract GardenerHandler is Test {
     SpoilsToken public lp;
-    ScryGardener public gardener;
+    EloGardener public gardener;
     address public minter;
     address[3] public actors = [address(0xB1), address(0xB2), address(0xB3)];
 
     uint256 public ghostDonated;
 
-    constructor(SpoilsToken l, ScryGardener g, address m) {
+    constructor(SpoilsToken l, EloGardener g, address m) {
         lp = l;
         gardener = g;
         minter = m;
@@ -366,16 +366,16 @@ contract GardenerHandler is Test {
 contract GardenerInvariants is Test {
     SpoilsToken lp;
     SpoilsToken reward;
-    ScryGranary granary;
-    ScryGardener gardener;
+    EloGranary granary;
+    EloGardener gardener;
     GardenerHandler handler;
     address minter = address(0xD157);
 
     function setUp() public {
         lp = new SpoilsToken("seed", "SEED", 0, minter);
         reward = new SpoilsToken("obol", "OBOL", 0, minter);
-        granary = new ScryGranary(reward);
-        gardener = new ScryGardener(granary, 1e18, 6_700, block.timestamp + 90 days);
+        granary = new EloGranary(reward);
+        gardener = new EloGardener(granary, 1e18, 6_700, block.timestamp + 90 days);
         granary.setGrant(address(gardener), 1_000_000e18);
         vm.prank(minter);
         reward.setMinter(address(granary));
@@ -429,12 +429,12 @@ contract GardenerInvariants is Test {
 /// genuinely cumulative — then let the fuzzer donate and poke at will.
 contract GardenerDonationHandler is Test {
     SpoilsToken public lp;
-    ScryGardener public gardener;
+    EloGardener public gardener;
     address public donor = address(0xD00);
 
     uint256 public ghostDonated;
 
-    constructor(SpoilsToken l, ScryGardener g) {
+    constructor(SpoilsToken l, EloGardener g) {
         lp = l;
         gardener = g;
     }
@@ -459,8 +459,8 @@ contract GardenerDonationHandler is Test {
 contract GardenerDonationInvariants is Test {
     SpoilsToken lp;
     SpoilsToken reward;
-    ScryGranary granary;
-    ScryGardener gardener;
+    EloGranary granary;
+    EloGardener gardener;
     GardenerDonationHandler handler;
     address minter = address(0xD157);
     address staker = address(0x57A);
@@ -474,8 +474,8 @@ contract GardenerDonationInvariants is Test {
     function setUp() public {
         lp = new SpoilsToken("seed", "SEED", 0, minter);
         reward = new SpoilsToken("obol", "OBOL", 0, minter);
-        granary = new ScryGranary(reward);
-        gardener = new ScryGardener(granary, RPS, 6_700, block.timestamp + 90 days);
+        granary = new EloGranary(reward);
+        gardener = new EloGardener(granary, RPS, 6_700, block.timestamp + 90 days);
         granary.setGrant(address(gardener), type(uint128).max);
         vm.prank(minter);
         reward.setMinter(address(granary));
@@ -539,9 +539,9 @@ contract GardenerDonationInvariants is Test {
 // ═══════════════════════════════════════════════════════════════════════════
 
 contract SiloHandler is Test {
-    ScrySilo public silo;
+    EloSilo public silo;
 
-    constructor(ScrySilo s) {
+    constructor(EloSilo s) {
         silo = s;
     }
 
@@ -569,8 +569,8 @@ contract SiloHandler is Test {
 contract SiloEmissionInvariants is Test {
     SpoilsToken obol;
     SpoilsToken reward;
-    ScryGranary granary;
-    ScrySilo silo;
+    EloGranary granary;
+    EloSilo silo;
     SiloHandler handler;
     address minter = address(0xD157);
     address alice = address(0xA11CE);
@@ -588,8 +588,8 @@ contract SiloEmissionInvariants is Test {
     function setUp() public {
         obol = new SpoilsToken("obol", "OBOL", 0, minter);
         reward = new SpoilsToken("myrrh", "MYRRH", 0, minter);
-        granary = new ScryGranary(reward);
-        silo = new ScrySilo(granary, RPS, 5_000);
+        granary = new EloGranary(reward);
+        silo = new EloSilo(granary, RPS, 5_000);
         granary.setGrant(address(silo), type(uint128).max);
         vm.prank(minter);
         reward.setMinter(address(granary));
@@ -721,7 +721,7 @@ contract InvNft {
 }
 
 contract GachaHandler is Test {
-    ScryGacha public g;
+    EloGacha public g;
     InvNft public nft;
     MockArbSys public arb;
     /// The toll coin. The handler ARMS AND DISARMS it mid-run
@@ -749,7 +749,7 @@ contract GachaHandler is Test {
     /// reason, not a shrug.
     string public lastSettleError;
 
-    constructor(ScryGacha g_, InvNft n_, MockArbSys a_, address sink_, MockToken coin_) {
+    constructor(EloGacha g_, InvNft n_, MockArbSys a_, address sink_, MockToken coin_) {
         g = g_;
         nft = n_;
         arb = a_;
@@ -899,8 +899,8 @@ contract GachaHandler is Test {
         address buyer;
         for (uint256 i = 0; i < n; i++) {
             uint256 candidate = positionIds[(idx + i) % n];
-            (,, address b,,,,,,,,,, ScryGacha.PositionStatus st,) = g.positions(candidate);
-            if (st == ScryGacha.PositionStatus.Drawn && b != address(0)) {
+            (,, address b,,,,,,,,,, EloGacha.PositionStatus st,) = g.positions(candidate);
+            if (st == EloGacha.PositionStatus.Drawn && b != address(0)) {
                 posId = candidate;
                 buyer = b;
                 break;
@@ -940,7 +940,7 @@ contract GachaHandler is Test {
 }
 
 contract GachaInvariants is Test {
-    ScryGacha internal g;
+    EloGacha internal g;
     InvNft internal nft;
     MockArbSys internal arb;
     GachaHandler internal handler;
@@ -963,7 +963,7 @@ contract GachaInvariants is Test {
         arb.setL2Block(20_000_000);
         arb.setWindow(256);
 
-        g = new ScryGacha(100, sink);
+        g = new EloGacha(100, sink);
         nft = new InvNft();
         g.openPool(address(nft), 0.01 ether, 1_000, 8_500);
 
@@ -1115,8 +1115,8 @@ contract GachaInvariants is Test {
         uint256 sum;
         uint256 n = handler.positionCount();
         for (uint256 i = 0; i < n; i++) {
-            (,,,, uint256 backing,,,,,,,, ScryGacha.PositionStatus st,) = g.positions(handler.positionIds(i));
-            if (st == ScryGacha.PositionStatus.Active || st == ScryGacha.PositionStatus.Drawn) {
+            (,,,, uint256 backing,,,,,,,, EloGacha.PositionStatus st,) = g.positions(handler.positionIds(i));
+            if (st == EloGacha.PositionStatus.Active || st == EloGacha.PositionStatus.Drawn) {
                 sum += backing;
             }
         }

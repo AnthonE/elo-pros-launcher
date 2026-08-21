@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryOrchard.sol";
+import "../src/EloOrchard.sol";
 import {INonfungiblePositionManagerOrchard, IUniswapV3FactoryOrchard} from "../src/interfaces/IUniswapV3Orchard.sol";
 import {INonfungiblePositionManager, IUniswapV3Factory, IERC20Seed} from "../src/interfaces/IUniswapV3.sol";
 
@@ -125,8 +125,8 @@ contract OrchardForkTest is Test {
         // script's season-0 shape: mint the pot -> approve -> createIncentive
         // (the Orchard itself can never mint; a season is funded or absent).
         SpoilsToken myrrh = new SpoilsToken("myrrh", "MYRRH", 0, address(this));
-        ScryOrchard orchard =
-            new ScryOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
+        EloOrchard orchard =
+            new EloOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
         myrrh.mint(address(this), POT);
         myrrh.approve(address(orchard), POT);
         uint256 startAt = block.timestamp + 1 hours; // DeployOrchard defaults
@@ -261,8 +261,8 @@ contract OrchardForkTest is Test {
 
         // fresh reward coin + Orchard + a funded season, same shape as above.
         SpoilsToken myrrh = new SpoilsToken("myrrh", "MYRRH", 0, address(this));
-        ScryOrchard orchard =
-            new ScryOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
+        EloOrchard orchard =
+            new EloOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
         myrrh.mint(address(this), POT);
         myrrh.approve(address(orchard), POT);
         uint256 startAt = block.timestamp + 1 hours;
@@ -396,8 +396,8 @@ contract OrchardForkTest is Test {
         int24 usable = (MAX_TICK / spacing) * spacing;
 
         SpoilsToken myrrh = new SpoilsToken("myrrh", "MYRRH", 0, address(this));
-        ScryOrchard orchard =
-            new ScryOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
+        EloOrchard orchard =
+            new EloOrchard(myrrh, INonfungiblePositionManagerOrchard(NPM), IUniswapV3FactoryOrchard(FACTORY));
         myrrh.mint(address(this), POT);
         myrrh.approve(address(orchard), POT);
         uint256 startAt = block.timestamp + 1 hours;

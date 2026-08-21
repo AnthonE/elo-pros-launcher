@@ -3,14 +3,14 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScrySilo.sol";
+import "../src/EloGranary.sol";
+import "../src/EloSilo.sol";
 
 /// Deploy the Silo spoils lockers (FARMING.md, posted tokenomics):
 /// silo -> posted tier menu -> OBOL bin 0 -> granary grant.
 ///
 ///   export PRIVATE_KEY=0x...
-///   export GRANARY=0x...              # the deployed ScryGranary (the mint hub)
+///   export GRANARY=0x...              # the deployed EloGranary (the mint hub)
 ///   export OBOL_TOKEN=0x...           # the OBOL SpoilsToken, bin 0
 ///   # optional: the MYRRH parking bin (allocPoint 25 vs OBOL's 100):
 ///   # export MYRRH_TOKEN=0x...
@@ -21,7 +21,7 @@ import "../src/ScrySilo.sol";
 ///
 /// THE SILO EMITS WHATEVER THE GRANARY BINDS, and it must be given the
 /// **OBOL** granary -- NOT the gardener's, which binds MYRRH since 2026-07-26
-/// (FARMING.md 3a/3b). A ScryGranary holds one token's minter slot, so there
+/// (FARMING.md 3a/3b). A EloGranary holds one token's minter slot, so there
 /// are two: `./deploy_town.sh gardener` builds the MYRRH one, `./deploy_town.sh
 /// granary` builds the OBOL one, and the silo phase refuses to run without it
 /// rather than silently taking the wrong granary and dripping MYRRH.
@@ -48,7 +48,7 @@ contract DeploySilo is Script {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
 
-        ScryGranary granary = ScryGranary(vm.envAddress("GRANARY"));
+        EloGranary granary = EloGranary(vm.envAddress("GRANARY"));
         SpoilsToken obol = SpoilsToken(vm.envAddress("OBOL_TOKEN"));
 
         // THE COIN CHECK, and it belongs here rather than only in the shell.
@@ -59,7 +59,7 @@ contract DeploySilo is Script {
         // name the driver writes — so the shell guard is bypassable by exactly
         // the invocation the docs print. A wrong-granary silo self-arms three
         // lines below (setGrant on whatever it was handed) and drips the wrong
-        // coin forever, because ScrySilo.granary is immutable.
+        // coin forever, because EloSilo.granary is immutable.
         // `spoils()` is a public immutable getter and both values are already
         // in scope; this is the same standard `status` applies to the Orchard's
         // `rewardToken()`. One staticcall, before anything broadcasts.
@@ -73,7 +73,7 @@ contract DeploySilo is Script {
         uint256 dailyCap = vm.envOr("SILO_DAILY_CAP", uint256(250e18)); // 250/day
 
         vm.startBroadcast(pk);
-        ScrySilo silo = new ScrySilo(granary, rps, maxBreak);
+        EloSilo silo = new EloSilo(granary, rps, maxBreak);
         // the posted seasons (FARMING.md section 8): the cJEWEL weight ladder
         silo.addTier(7 days, 10_000); // a week,    1x
         silo.addTier(30 days, 15_000); // a month,   1.5x
@@ -89,7 +89,7 @@ contract DeploySilo is Script {
         }
         vm.stopBroadcast();
 
-        console2.log("ScrySilo   ", address(silo));
+        console2.log("EloSilo   ", address(silo));
         console2.log("rewardPerSecond", rps);
         console2.log("maxBreakBps    ", maxBreak);
         if (granary.steward() != deployer) {

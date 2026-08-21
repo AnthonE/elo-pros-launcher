@@ -7,7 +7,7 @@
 no foundry (`ITEM-CONTRACT.md` §3a: the egress policy blocks the installer), and
 a contract that has only ever been COMPILED is a contract whose behaviour nobody
 has observed. solc ships on npm and `py-evm` ships on PyPI, so between them the
-real bytecode can be deployed and driven here. `contracts/test/ScryTrove.t.sol`
+real bytecode can be deployed and driven here. `contracts/test/EloTrove.t.sol`
 remains the canonical gate and is still owed on a box with foundry — this proves
 the claims, it does not replace the suite.
 
@@ -55,7 +55,7 @@ except Exception as e:  # noqa: BLE001
 if not ART.exists():
     print(f"SKIP (loudly, never a silent pass): no artifacts at {ART}")
     print("  build them with solc first — see contracts/RUNBOOK.md, or:")
-    print("  npm i solc@0.8.26 && node <emit script> ScryTrove.sol test/TroveMocks.sol")
+    print("  npm i solc@0.8.26 && node <emit script> EloTrove.sol test/TroveMocks.sol")
     sys.exit(0)
 
 ARTIFACTS = json.loads(ART.read_text())
@@ -95,7 +95,7 @@ def send(fn, frm):
 
 
 print("[the wrap]")
-trove = deploy("ScryTrove", "https://scry.moreright.xyz/api/trove/")
+trove = deploy("EloTrove", "https://elopros.com/api/trove/")
 skins = deploy("MockNft")   # a game's item contract
 art = deploy("MockNft")     # a completely different collection — an artist's
 
@@ -202,12 +202,12 @@ reverts(lambda: send(trove.functions.wrapTokens(coin.address, 0), HOUSE),
 # ── THE REAL ECOSYSTEM PATH ──────────────────────────────────────────────────
 # Everything above drives MOCKS. This drives the actual contract a listed game
 # would deploy, through the actual wrapper, into the gacha's actual pull. If
-# ScryItem and ScryTrove ever stop fitting each other, this is what says so.
-print("\n[the real path: a real ScryItem through the real trove]")
+# EloItem and EloTrove ever stop fitting each other, this is what says so.
+print("\n[the real path: a real EloItem through the real trove]")
 try:
-    item = deploy("ScryItem", "Gates Items", "GATES", HOUSE, 500, "https://scry.moreright.xyz/i/")
+    item = deploy("EloItem", "Gates Items", "GATES", HOUSE, 500, "https://elopros.com/i/")
 except KeyError:
-    print("   SKIP (loudly): ScryItem is not in the artifacts — add it to build_artifacts.js")
+    print("   SKIP (loudly): EloItem is not in the artifacts — add it to build_artifacts.js")
     item = None
 
 if item is not None:
@@ -239,10 +239,10 @@ if item is not None:
 
     # The compatibility rules, asserted against the pair that will actually be
     # deployed rather than against a mock.
-    for name, ct in (("ScryItem", item), ("ScryTrove", trove)):
+    for name, ct in (("EloItem", item), ("EloTrove", trove)):
         ok(ct.functions.supportsInterface("0x80ac58cd").call(), f"{name} answers ERC-721")
         ok(not ct.functions.supportsInterface("0xd9b67a26").call(),
-           f"{name} does NOT claim ERC-1155, which ScryGacha cannot take")
+           f"{name} does NOT claim ERC-1155, which EloGacha cannot take")
 
 print("\n[the bookkeeping]")
 reverts(lambda: send(trove.functions.wrap(art.address, 99), HOUSE),
@@ -277,7 +277,7 @@ for fn, why in (
     ("setBaseURI", "the metadata base is welded at deploy, not repointable"),
 ):
     ok(fn not in FNS, f"{why} (ABI)")
-src = (HERE / "src" / "ScryTrove.sol").read_text()
+src = (HERE / "src" / "EloTrove.sol").read_text()
 for word, why in (("selfdestruct", "no selfdestruct"), ("delegatecall", "no delegatecall")):
     ok(word not in src, f"{why} in the source")
 ok(trove.functions.supportsInterface("0x80ac58cd").call(), "it answers ERC-165 for ERC-721")

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/scry-depot", "crates/scry-net", "crates/scry-hive", "crates/scry-launcher", "crates/scry-ui", "crates/scry-broker", "crates/scry-vault"]
+members = ["crates/elo-depot", "crates/elo-net", "crates/elo-hive", "crates/elo-launcher", "crates/elo-ui", "crates/elo-broker", "crates/elo-vault"]
 
 # ── the dependency policy ────────────────────────────────────────────────────
 #
@@ -19,7 +19,7 @@ members = ["crates/scry-depot", "crates/scry-net", "crates/scry-hive", "crates/s
 #    compromised maintainer's next patch release in on the next `cargo update`;
 #    an exact pin makes taking it a visible, reviewable diff.
 # 3. The tree is kept SMALL on purpose and counted by a test
-#    (`scry-launcher/tests/supply_chain.rs`). Every crate here is a crate whose
+#    (`elo-launcher/tests/supply_chain.rs`). Every crate here is a crate whose
 #    compromise is our compromise, so the count is a budget and not a metric.
 #    ⚠ Raising the cap is a decision; do it in the same commit as the crate.
 # 4. `deny.toml` runs `cargo deny check` — advisories, licences, and a ban on
@@ -31,7 +31,7 @@ members = ["crates/scry-depot", "crates/scry-net", "crates/scry-hive", "crates/s
 
 [workspace.package]
 # ⚠ THE PUBLISHED VERSION IS THE ONLY THING AN INSTALLED CLIENT COMPARES.
-# `scry check` asks the origin for a version and holds it against the one
+# `elo check` asks the origin for a version and holds it against the one
 # compiled in here, so shipping a rebuild WITHOUT moving this number is
 # invisible: every existing install reads equal and reports itself current.
 # That is exactly how 0.1.0 sat on /download.html for five days and eighteen
@@ -56,7 +56,7 @@ serde = { version = "=1.0.228", features = ["derive"] }
 # FLTK License — LGPL with exceptions. Exception 3 permits static linking with
 # no source obligation and exception 4 waives shipping the licence text, so the
 # only live requirement is that "programs must still identify their use of
-# FLTK". That credit is in `crates/scry-ui/src/lib.rs` and a test asserts it,
+# FLTK". That credit is in `crates/elo-ui/src/lib.rs` and a test asserts it,
 # because a licence gate reading crate metadata will never fail for its absence.
 fltk = "=1.5.23"
 # ── the hive's speaking key ──────────────────────────────────────────────────
@@ -89,17 +89,6 @@ webpki-roots = "=1.0.9"
 rustls-pemfile = "=2.2.0"
 serde_json = "=1.0.145"
 sha2 = "=0.10.9"
-# ── unpacking the client's own release artifacts ─────────────────────────────
-# `scry self-update` (operator, 2026-08-15: *"this downloader needs to update
-# itself or have an updater it can run"*) downloads the same tar.gz/zip the
-# download page hands out and has to open it. This is the inflate half of
-# flate2 with nothing else attached: +2 packages (miniz_oxide, adler2) against
-# flate2's +4, and it is the same code — flate2's pure-Rust backend IS
-# miniz_oxide, and rustc's own backtraces link it. The gzip envelope and the
-# tar/zip walks are ~150 lines in `scry-launcher/src/selfup.rs` instead of two
-# more crates, the same trade `clock.rs` made against `jiff` — and unlike a
-# hand-rolled cipher, a truncated parse here fails loud on hash-verified input.
-miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 # ── a passphrase that does not appear on the screen ──────────────────────────
 # Asked directly rather than through `rpassword`, which is three packages to
 # clear ECHO in a termios struct. This one is ALREADY in the tree (`getrandom`

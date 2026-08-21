@@ -29,7 +29,7 @@ interface IERC721Balance {
 }
 
 /// The SECOND fork harness TEST-AUDIT.md mandates ("the two places a fork
-/// run is mandatory, not optional: ScryOrchard and the SeedSpoilsUniswapV3
+/// run is mandatory, not optional: EloOrchard and the SeedSpoilsUniswapV3
 /// flow"). The unit suite's MockNPM models one economic rail; this runs the
 /// REAL script entry (`runWith`) against the REAL RH-Chain factory + NPM:
 ///
@@ -109,12 +109,12 @@ contract SeedSpoilsForkTest is Test {
             emit log("SKIP: set RH_FORK_URL to run the seed-flow fork test");
             return;
         }
-        address scry = script.DEFAULT_SCRY();
+        address reserve = script.DEFAULT_SCRY();
         SeedSpoilsUniswapV3.SeedInputs memory inp;
         inp.pk = PK;
         inp.factory = script.DEFAULT_FACTORY();
         inp.npm = script.DEFAULT_NPM();
-        inp.scry = scry;
+        inp.reserve = reserve;
         inp.fee = FEE;
         inp.slipBps = 100;
         inp.deadlineSecs = 900;
@@ -126,7 +126,7 @@ contract SeedSpoilsForkTest is Test {
 
         script.runWith(inp);
 
-        (address t0, address t1) = address(spoil) < scry ? (address(spoil), scry) : (scry, address(spoil));
+        (address t0, address t1) = address(spoil) < reserve ? (address(spoil), reserve) : (reserve, address(spoil));
         address pool = IUniswapV3Factory(inp.factory).getPool(t0, t1, FEE);
         assertTrue(pool != address(0), "real factory created the pool");
         (uint160 sqrtP,,,,,,) = IUniswapV3PoolSeedFork(pool).slot0();
@@ -139,6 +139,6 @@ contract SeedSpoilsForkTest is Test {
         );
         // both sides actually deposited (full-range at price 1.0 takes both)
         assertLt(spoil.balanceOf(operator), 1_000e18, "spoil side deposited");
-        assertLt(IERC20Seed(scry).balanceOf(operator), 1_000e18, "SCRY side deposited");
+        assertLt(IERC20Seed(reserve).balanceOf(operator), 1_000e18, "SCRY side deposited");
     }
 }

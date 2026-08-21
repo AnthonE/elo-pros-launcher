@@ -12,15 +12,15 @@
 //! not failures a game should retry, and collapsing them into "signing broke"
 //! is the mistake this example exists to prevent.
 
-#[path = "scry_overlay.rs"]
-mod scry_overlay;
+#[path = "elo_overlay.rs"]
+mod elo_overlay;
 
-use scry_overlay::{play_message, Overlay, SignError};
+use elo_overlay::{play_message, Overlay, SignError};
 
 fn main() {
     // 1. Find the launcher. Not finding one is NORMAL — a game plays without
     //    it. What a game must never do is fall back to asking for a key.
-    let mut scry = match Overlay::connect("gates", "0.1.0") {
+    let mut elo = match Overlay::connect("gates", "0.1.0") {
         Ok(ov) => ov,
         Err(why) => {
             println!("no-launcher: {why}");
@@ -28,25 +28,25 @@ fn main() {
             return;
         }
     };
-    println!("connected: protocol={} signer={}", scry.protocol(), scry.signer());
+    println!("connected: protocol={} signer={}", elo.protocol(), elo.signer());
 
     // 2. Who is playing. An address is a CLAIM; verify it with a signature if
     //    it matters to you.
-    match scry.address() {
+    match elo.address() {
         Some(addr) => println!("address: {addr}"),
         None => println!("address: none — the player has not set one, which is fine"),
     }
 
     // 3. Where the shards are. The launcher hands back a URL and never the
     //    list: this is our list to serve.
-    match scry.servers_url("gates") {
+    match elo.servers_url("gates") {
         Some(url) => println!("servers: {url}"),
         None => println!("servers: none published"),
     }
 
     // 4. Sign a game action. Four outcomes, and three of them are not bugs.
     let msg = play_message("duel", "vow_demo", "ETH up 5", Some("2026-08-04"));
-    match scry.sign(&msg, "settling round 41") {
+    match elo.sign(&msg, "settling round 41") {
         Ok(sig) => println!("signed: {} via {}", &sig.signature, sig.backend),
         Err(SignError::Handoff(url)) => {
             // NOT an error. The player's signer is their browser; show the
@@ -66,9 +66,9 @@ fn main() {
     // A real game would call this each frame and render the result in its own
     // renderer. It may DISPLAY anything it gets; it may never draw its own
     // approval dialog, because a game controls its own pixels and that dialog
-    // would be a forgery. Signing goes through `scry.sign` above, where the
+    // would be a forgery. Signing goes through `elo.sign` above, where the
     // launcher asks the player in the launcher's own window.
-    match scry.overlay("gates") {
+    match elo.overlay("gates") {
         Some(hud) => {
             println!(
                 "overlay: host={} signer={} consent-drawn-by={}",
@@ -91,12 +91,12 @@ fn main() {
     // no consent prompt fires and a game cannot smuggle a sentence into it.
     //
     // The reply is a SIWE (EIP-4361) message, so our backend verifies it with
-    // an off-the-shelf `siwe` library and needs no scry-specific code.
+    // an off-the-shelf `siwe` library and needs no elo-specific code.
     //
     // ⚠ The nonce must be one WE issued, not seen before, and at least 8
     // alphanumeric characters — EIP-4361's rule. A dashed uuid does not fit;
     // strip the dashes.
-    match scry.prove("shard-3.gates.example", "8f14e45fceea167a") {
+    match elo.prove("shard-3.gates.example", "8f14e45fceea167a") {
         Ok(proof) => {
             println!("proof: {} for {:?}", &proof.signature, proof.address);
             // On the server: parse this with `siwe` and verify it against the
@@ -117,7 +117,7 @@ fn main() {
     // ⚠ Three states, and collapsing them tells a lie about a person. `None`
     // means we could NOT LOOK; `found == false` means we looked and nobody has
     // sworn on this address. Drawing "anonymous" for the first invents a fact.
-    match scry.profile("") {
+    match elo.profile("") {
         Some(p) if p.found => {
             // `label()` is the safe string: a sworn name bare, anything
             // self-declared prefixed with `~`. Never show a typed name in the

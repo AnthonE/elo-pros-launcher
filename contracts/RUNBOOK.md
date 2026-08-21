@@ -118,7 +118,7 @@ ever have at the moment you must pick them.
 | welded | contract | consequence |
 |---|---|---|
 | `foundingBurn`, `conveyanceBurn` | `ScryDeed` | **the whole land sink, priced once.** A redeploy is a new deed collection |
-| `FEE_BPS = 30` (0.3%) | `ScryGarden` | a `constant`, not even immutable — the Garden's LP fee cannot move. **Load-bearing, not an inherited default** (operator, 2026-07-27): the Garden is 1% of the v3 pool's depth, so the fee discount is the ONLY thing that can make it the better venue, and it does — up to ~716 OBOL, about one delve's spoils. It went 30 → 100 and straight back the same day; at a matched 1% the Garden is strictly dominated at every trade size. `ScryGarden.sol`'s notice carries the crossover table |
+| `FEE_BPS = 30` (0.3%) | `ScryGarden` | a `constant`, not even immutable — the Garden's LP fee cannot move. **Load-bearing, not an inherited default** (operator, 2026-07-27): the Garden is 1% of the v3 pool's depth, so the fee discount is the ONLY thing that can make it the better venue, and it does — up to ~716 OBOL, about one delve's spoils. It went 30 → 100 and straight back the same day; at a matched 1% the Garden is strictly dominated at every trade size. `EloGarden.sol`'s notice carries the crossover table |
 | `unlockTime` | `ScryGardener` | the 90-day cliff is an ABSOLUTE timestamp, not a duration: deploy late and the cliff is shorter |
 | `maxBreakBps` | `ScrySilo` | ceiling on the early-break burn |
 | `baseStep` | `ScryShrine` | the whole rank ladder scales off it |
@@ -206,7 +206,7 @@ once and retired. Moved by hand afterwards (SEED is a plain ERC-20, no lock).
 **The public RPC will Cloudflare-challenge a script.**
 `https://rpc.mainnet.chain.robinhood.com` started answering HTTP 403 *"Just a
 moment…"* mid-session under ordinary `cast` use. Always pass the keyed pool —
-`--rpc-url "$(printf '%s' "$SCRY_RH_RPC_POOL" | cut -d, -f1)"` or the whole
+`--rpc-url "$(printf '%s' "$ELO_RH_RPC_POOL" | cut -d, -f1)"` or the whole
 comma list where the tool accepts it. Same lesson the holder snapshot learned
 via HTTP 429, in a different costume: **the failure is not an error you notice,
 it is an answer you believe.**
@@ -278,7 +278,7 @@ passed.** The fact was already in the repo — `deploy_town.sh` says *"RH-Chain
 | `blockhash` · `prevrandao` · `block.difficulty` · `block.coinbase` | **none anywhere** |
 | `gasleft()` · `.gas()` | **none** — no gas assumptions |
 | everything time-based | **`block.timestamp`**, which is correct on Nitro |
-| `MockArbSys` used by | `ScryGacha.t.sol`, `ScryGachaFork.t.sol` — **only the gacha** |
+| `MockArbSys` used by | `EloGacha.t.sol`, `EloGachaFork.t.sol` — **only the gacha** |
 
 ⚠ **Two live hazards that are not defects yet:**
 
@@ -326,8 +326,8 @@ while being the third leg of the JEWEL design.
 respect to what consumes IT.** This row read "it can run before phase 2 or
 after phase 9" until 2026-07-28, which is wrong in one direction and welds if
 followed: `ScryEidolon.feeSplitter` and `ScrySteleEdition.feeSplitter` are
-`address public immutable`, and all three of `DeployScryEidolon.s.sol`,
-`DeployScrySteleEdition.s.sol` and `DeployScryMarket.s.sol` take
+`address public immutable`, and all three of `DeployEloEidolon.s.sol`,
+`DeployEloSteleEdition.s.sol` and `DeployEloMarket.s.sol` take
 `SCRY_FEE_SPLITTER` as a **mandatory** `vm.envAddress`. Deploy any of them
 first and the likely path is exporting a placeholder to get the broadcast
 through — after which every priced mint and every ERC-2981 royalty routes
@@ -340,7 +340,7 @@ Two properties are not negotiable:
   (2026-07-27, `SENTENCES.md`). Prizes take
   no line at open: that cut needs an escrow wallet, and pointing it at ops
   would post four outlets while paying three. **The numbers are DERIVED, not
-  retyped** — they live in `DeployScryEconomy.s.sol`'s `vm.envOr` defaults and
+  retyped** — they live in `DeployEloEconomy.s.sol`'s `vm.envOr` defaults and
   the phase greps them back out, so the driver cannot drift from what it
   broadcasts. Export one to override and the phase prints *posted X → you set
   Y* and tells you to append a new sentence. It still refuses a sum ≠ 10000
@@ -487,7 +487,7 @@ of shares and is not a haircut. Once a real stake exists, a transfer accrues pro
 rata to the stakers who are there, and §P9's trickle reasoning applies as
 written. `./deploy_town.sh status` prints **NOT SEEDABLE** while the supply is
 zero; `GET /bank` carries the same gate as `seedable`, and
-`ScryEconomy.t.sol::test_seedIntoAnEmptyBankIsCapturedWholeByTheFirstDepositor`
+`EloEconomy.t.sol::test_seedIntoAnEmptyBankIsCapturedWholeByTheFirstDepositor`
 holds the arithmetic.
 
 ## 3. What green looks like (`./deploy_town.sh status`)
@@ -568,7 +568,7 @@ out the same day.
 *Salvaged 2026-08-12 from §2 of the PvP-lending design doc that lived at
 `docs/agent-town/PVP-LENDING` — culled the same day, recoverable from git
 history if you want the rest of the design.
-The contract is written and **not broadcast** (`contracts/src/ScryBurrow.sol`,
+The contract is written and **not broadcast** (`contracts/src/EloBurrow.sol`,
 absent from `deployments.json`), so unlike §4b this one is still fixable — which
 is exactly why it has to survive the doc that carried it.*
 
@@ -580,7 +580,7 @@ function liquidate(address borrower) external nonReentrant {
     require(healthFactor(borrower) < 1e18, "healthy");   // ← Garden spot, this tx
 ```
 
-(`ScryBurrow.sol:130–132`.) No delay, no TWAP, no cooldown. So the entire
+(`EloBurrow.sol:130–132`.) No delay, no TWAP, no cooldown. So the entire
 attack is **one atomic call**:
 
 ```
@@ -619,7 +619,7 @@ and act.
 > ~10 second" window would really be **~20 minutes** — and nothing would fail,
 > no test would go red, the game would just quietly stop being an arcade.
 >
-> `ScryBurrow.sol` already gets this right and paces everything in
+> `EloBurrow.sol` already gets this right and paces everything in
 > `block.timestamp` (`:56, :61, :64, :69`). Whatever implements the flag delay
 > must do the same, or use `ArbSys(0x64).arbBlockNumber()` for true L2 height.
 > Foundry implements no ArbOS precompile, so a fork test proving the clock has
@@ -807,12 +807,16 @@ Collecting a v3 position pays **both legs**. A SCRY/WETH `collect()` hands back
 SCRY *and* WETH, and the two are not interchangeable here:
 
 - the **SCRY leg** → transfer it in. Done, it counts immediately.
-- the **WETH leg** → **must be swapped to SCRY first.** The cistern cannot see
-  it and cannot move it. Every `safeTransfer` in the contract names
-  `address(scry)`; there is no `rescue()`, no pause, no admin withdrawal, and
-  those absences are load-bearing rather than an oversight (they are what the
-  rug screen is reading). **WETH transferred to this contract is stranded for
-  the life of the chain.** Nobody can recover it, including us.
+- the **WETH leg** → **swap it to SCRY first.** The cistern's own transfers all
+  name `address(scry)`, so a WETH balance sitting here counts toward nothing.
+  ⭐ **It is no longer destroyed by the mistake.** `rescue(token, to, amount)`
+  landed 2026-08-19: `onlyOperator`, and it reverts on `scry`. The old text
+  said the absence of a rescue was load-bearing "because it is what the rug
+  screen is reading" — struck; what it actually bought was a permanent trap on
+  the documented funding path. **The pot is still unreachable, and now for a
+  mechanical reason rather than a promise:** `pooled()` is
+  `scry.balanceOf(this) - outstanding`, and `scry` is the one token `rescue`
+  refuses.
 
 So the hand path is: `collect()` on the position → swap the WETH leg to SCRY on
 our own pool → transfer the whole SCRY amount in. Swapping that leg is a **buy**

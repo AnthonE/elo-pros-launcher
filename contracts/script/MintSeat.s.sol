@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScrySeat.sol";
+import "../src/EloSeat.sol";
 
 /// Mint seats to named wallets through the treasury door — the operator's own
 /// mint, run by the operator.
 ///
-/// WHAT THIS IS FOR. `ScrySeat` deploys with every door SHUT: no root is posted
+/// WHAT THIS IS FOR. `EloSeat` deploys with every door SHUT: no root is posted
 /// and no price is set, so `claim` and `buyWithEth` both refuse and there is no
 /// way for anyone — including the owner — to walk a seat out of doors 1–4. The
 /// fifth door is the only one open on day zero, and this script is it. Its two
@@ -17,13 +17,13 @@ import "../src/ScrySeat.sol";
 ///
 /// WHY IT IS A SCRIPT AND NOT A PASTED `cast send`. An address typed once into a
 /// shell is a seat minted to a wallet nobody holds, and nothing burns a seat —
-/// `ScrySeat` has no burn, so a fat-fingered recipient is permanent and it has
+/// `EloSeat` has no burn, so a fat-fingered recipient is permanent and it has
 /// spent an allocation bounded by an immutable cap. So the recipients are
 /// parsed with named errors, echoed back before the broadcast, and every count
 /// is read off the chain afterwards rather than assumed.
 ///
 ///   export PRIVATE_KEY=0x...            # MUST be the collection's owner()
-///   export SEAT=0x...                   # the deployed ScrySeat
+///   export SEAT=0x...                   # the deployed EloSeat
 ///   export SEAT_MINT_TO=0xaaa...,0xbbb...   # recipients, comma separated
 ///   # export SEAT_MINT_EACH=1           # seats per recipient; default 1
 ///   forge script script/MintSeat.s.sol --rpc-url $RPC            # DRY RUN
@@ -99,7 +99,7 @@ contract MintSeat is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address me = vm.addr(pk);
-        ScrySeat seat = ScrySeat(payable(vm.envAddress("SEAT")));
+        EloSeat seat = EloSeat(payable(vm.envAddress("SEAT")));
         address[] memory to = _addrs(vm.envString("SEAT_MINT_TO"));
         uint256 each = vm.envOr("SEAT_MINT_EACH", uint256(1));
 

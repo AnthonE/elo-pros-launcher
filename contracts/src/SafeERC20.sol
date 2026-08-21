@@ -8,13 +8,13 @@ pragma solidity ^0.8.24;
 ///         `SpoilsToken`, and WRONG for the large family of tokens that return
 ///         nothing at all (the USDT shape): the ABI decoder finds an empty
 ///         returndata where it expected 32 bytes and reverts, so the transfer
-///         appears to fail even when it succeeded. `ScryHarvest` in particular
+///         appears to fail even when it succeeded. `EloHarvest` in particular
 ///         documents itself "token-generic; nothing below assumes a particular
 ///         ERC-20", which was simply false.
 ///
 ///         The rule this encodes: a token call SUCCEEDED if the call itself
 ///         succeeded AND it either returned nothing or returned true. That is
-///         the same test `ScryJobBoard._tryPull` already used — this is that
+///         the same test `EloJobBoard._tryPull` already used — this is that
 ///         one function, shared, so the behaviour cannot drift per contract.
 ///
 ///         Takes `address` rather than a typed interface on purpose: several
@@ -35,7 +35,7 @@ library SafeERC20 {
     }
 
     /// @dev Approve a spender under the same tolerant-return rule.
-    ///      Added for `ScryCistern`, which must let a swap router pull the exact
+    ///      Added for `EloCistern`, which must let a swap router pull the exact
     ///      amount it is about to swap. Kept HERE rather than inline in that
     ///      contract for the reason in the header: a second definition of "did
     ///      this token call succeed" is a second thing to keep in step.
@@ -80,8 +80,8 @@ library SafeERC20 {
     ///      always paid by whoever withdraws last.
     ///
     ///      Two of the three call sites are worse than mis-accounting.
-    ///      `ScryGarden.addLiquidity` mints SEED against the stated amount, so a
-    ///      short deposit dilutes every other depositor; `ScryGarden.swap`
+    ///      `EloGarden.addLiquidity` mints SEED against the stated amount, so a
+    ///      short deposit dilutes every other depositor; `EloGarden.swap`
     ///      prices `out` off the stated `amountIn`, so a short input pays a full
     ///      output — that one is a drain, not a rounding error.
     ///

@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 /// @notice Replaces `src/PlayToken.sol`, the free-faucet play coin (pGOLD /
 ///         pTEARS) retired with the playground on 2026-07-26.
 ///         Three suites used PlayToken purely as a funding fixture —
-///         `SpoilsToken.t.sol` and `ScryGardener.t.sol` as a stand-in for SCRY,
+///         `SpoilsToken.t.sol` and `EloGardener.t.sol` as a stand-in for SCRY,
 ///         and the Garden/Burrow suite as the pair — so the fixture moved here
 ///         and the product token is gone.
 ///

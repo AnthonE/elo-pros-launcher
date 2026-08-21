@@ -1,6 +1,6 @@
 # Build the macOS client on Apple hardware.
 #
-# ⚠ THIS FILE IS MIRRORED FROM AnthonE/scry-forge (deploy/scryward/release.yml).
+# ⚠ THIS FILE IS MIRRORED FROM AnthonE/scry-forge (deploy/elo-pros-launcher/release.yml).
 # Editing it here is overwritten by the next publish.
 #
 # Why this exists at all: Linux and Windows are cross-built on the origin box
@@ -52,7 +52,7 @@ jobs:
       - name: Name what was built
         id: art
         run: |
-          f=$(ls watchtower/dl/scry-*-macos-universal.tar.gz)
+          f=$(ls watchtower/dl/elo-*-macos-universal.tar.gz)
           echo "path=$f" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$f")" >> "$GITHUB_OUTPUT"
           shasum -a 256 "$f"
@@ -62,24 +62,31 @@ jobs:
         run: |
           tar -xzf "${{ steps.art.outputs.path }}" -C /tmp
           d=/tmp/$(basename "${{ steps.art.outputs.name }}" .tar.gz)
-          file "$d/scry" "$d/scry-gui"
-          lipo -archs "$d/scry"
-          lipo -archs "$d/scry-gui"
+          # ⚠ Only the CLI sits at the tarball root. Since 2026-08-21 the GUI
+          # ships INSIDE a .app bundle — a bare Mach-O cannot register the
+          # `elo://` scheme, because CFBundleURLTypes lives in Info.plist. The
+          # directory name is APP_NAME in build_release.py and it has a SPACE
+          # in it, so every use of it here is quoted.
+          cli="$d/elo"
+          gui="$d/Elo Pros.app/Contents/MacOS/elo-gui"
+          test -f "$d/Elo Pros.app/Contents/Info.plist" \
+            || { echo "FAIL no Info.plist — the .app did not survive packaging" >&2; exit 1; }
+          file "$cli" "$gui"
           # A universal binary reports both arches. If lipo prints one, the
           # fuse silently produced a single-arch file and half the Macs that
           # download this would get an executable that cannot run.
-          for b in scry scry-gui; do
-            archs=$(lipo -archs "$d/$b")
+          for b in "$cli" "$gui"; do
+            archs=$(lipo -archs "$b")
             case "$archs" in
-              *arm64*x86_64*|*x86_64*arm64*) echo "ok  $b: $archs" ;;
-              *) echo "FAIL $b is not universal: $archs" >&2; exit 1 ;;
+              *arm64*x86_64*|*x86_64*arm64*) echo "ok  $(basename "$b"): $archs" ;;
+              *) echo "FAIL $(basename "$b") is not universal: $archs" >&2; exit 1 ;;
             esac
           done
 
       - name: Smoke the CLI on the runner
         run: |
           d=/tmp/$(basename "${{ steps.art.outputs.name }}" .tar.gz)
-          "$d/scry" --version || "$d/scry" version || true
+          "$d/elo" --version || "$d/elo" version || true
           # Non-fatal: the point of the run above is that the binary LOADS on
           # macOS — which is the one thing no cross-build could ever tell us.
 

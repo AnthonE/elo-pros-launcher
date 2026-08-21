@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryHarvest.sol";
+import "../src/EloHarvest.sol";
 
-/// Deploy ScryHarvest — the merkle claim bridge for a GAME coin's harvest
+/// Deploy EloHarvest — the merkle claim bridge for a GAME coin's harvest
 /// ledger. This is the script `TEST-AUDIT.md` flagged as missing:
-/// DeployScryEconomy explicitly defers it (the harvest is the OBOL game-coin
+/// DeployEloEconomy explicitly defers it (the harvest is the OBOL game-coin
 /// claim, never funded by the SCRY splitter).
 ///
 ///   export PRIVATE_KEY=0x…
@@ -16,7 +16,7 @@ import "../src/ScryHarvest.sol";
 ///
 /// The POOLS.md §3 step-3 runbook (RUNBOOK.md 7c), in order:
 ///   1. `forge test -vv` green on a real machine FIRST — always.
-///   2. Broadcast this script → ScryHarvest(OBOL); the deployer is operator.
+///   2. Broadcast this script → EloHarvest(OBOL); the deployer is operator.
 ///   3. Fund BEFORE posting: mint `total_committed` OBOL TO the harvest
 ///      address — as the SpoilsToken minter, or via the granary grant to the
 ///      operator (`granary.stewardMint(harvest, total_committed)`) once the
@@ -26,7 +26,7 @@ import "../src/ScryHarvest.sol";
 ///      The contract's "a posted root is a kept promise" invariant is
 ///      OPERATIONAL (fund-then-post), not enforced: postRoot never checks the
 ///      balance, and an under-funded root makes valid claims revert in the
-///      token (pinned in test/ScryEconomy.t.sol).
+///      token (pinned in test/EloEconomy.t.sol).
 ///
 /// The contract is token-generic (constructor takes a plain IERC20), so the
 /// same script deploys a MYRRH harvest — point OBOL_TOKEN at MYRRH.
@@ -45,18 +45,18 @@ contract DeployHarvest is Script {
     /// ran in no test, and F6 was found in exactly that blind spot). Tests must
     /// call this, never `run()` — `vm.setEnv` is process-global and races under
     /// forge's parallel workers, the same trap `SeedSpoilsUniswapV3` hit.
-    function runWith(uint256 pk, IERC20 token) public returns (ScryHarvest harvest) {
+    function runWith(uint256 pk, IERC20 token) public returns (EloHarvest harvest) {
         // A harvest over the zero token is a brick: every claim reverts inside
-        // SafeERC20 with no way to re-point it (`scry` is immutable), and the
+        // SafeERC20 with no way to re-point it (`reserve` is immutable), and the
         // failure only shows up after a root has been posted and published.
         // `vm.envAddress` is perfectly happy to hand back address(0).
         require(address(token) != address(0), "OBOL_TOKEN: zero token address");
 
         vm.startBroadcast(pk);
-        harvest = new ScryHarvest(token);
+        harvest = new EloHarvest(token);
         vm.stopBroadcast();
 
-        console.log("ScryHarvest", address(harvest));
+        console.log("EloHarvest", address(harvest));
         console.log("  token (OBOL)", address(token));
         console.log("  operator = deployer; now: mint total_committed to the");
         console.log("  harvest, THEN postRoot (fund-then-post, RUNBOOK 7c)");

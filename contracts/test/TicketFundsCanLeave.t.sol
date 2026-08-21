@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../src/ScryGameTicket.sol";
+import "../src/EloGameTicket.sol";
 import "./MockToken.sol";
 
 contract MockNFT {
@@ -39,8 +39,8 @@ contract Mock1155 {
 /// withdraw. These tests pin the exceptions: what a misconfigured sink does,
 /// which assets can be walked back out, and which never could.
 contract TicketFundsCanLeaveTest is Test {
-    ScryGameTicket t;
-    MockToken scry;
+    EloGameTicket t;
+    MockToken reserve;
     MockToken usdg;
     MockToken coinA;
 
@@ -53,12 +53,12 @@ contract TicketFundsCanLeaveTest is Test {
     uint256 constant GRANT = 10_000e18;
 
     function setUp() public {
-        scry = new MockToken("Scry", "SCRY");
+        reserve = new MockToken("Scry", "SCRY");
         usdg = new MockToken("USD Glo", "USDG");
         coinA = new MockToken("Coin A", "AAA");
-        t = new ScryGameTicket(
-            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
-            sink, proceeds, 0, "https://scry.moreright.xyz", address(0)
+        t = new EloGameTicket(
+            "Gates", "GATES", "gates", IERC20(address(reserve)), IERC20(address(usdg)),
+            sink, proceeds, 0, "https://elopros.com", address(0)
         );
         t.setPrices(1000, PRICE_WEI, 0, 0);
         vm.deal(buyer, 1 ether);
@@ -69,7 +69,7 @@ contract TicketFundsCanLeaveTest is Test {
     function test_an_erc20_rail_never_custodies_anything() public {
         MockToken partner = new MockToken("Partner", "PTR");
         partner.mint(buyer, 1_000e18);
-        t.setRail(6, ScryGameTicket.AssetKind.ERC20, address(partner), 0, 100e18, devteam, "partner");
+        t.setRail(6, EloGameTicket.AssetKind.ERC20, address(partner), 0, 100e18, devteam, "partner");
 
         vm.startPrank(buyer);
         partner.approve(address(t), type(uint256).max);
@@ -118,14 +118,14 @@ contract TicketFundsCanLeaveTest is Test {
     function test_a_rail_may_not_sink_into_the_ticket_itself() public {
         MockNFT nft = new MockNFT();
         vm.expectRevert(bytes("sink is this contract"));
-        t.setRail(6, ScryGameTicket.AssetKind.ERC721, address(nft), 0, 1, address(t), "nft");
+        t.setRail(6, EloGameTicket.AssetKind.ERC721, address(nft), 0, 1, address(t), "nft");
 
         Mock1155 multi = new Mock1155();
         vm.expectRevert(bytes("sink is this contract"));
-        t.setRail(7, ScryGameTicket.AssetKind.ERC1155, address(multi), 7, 5, address(t), "1155");
+        t.setRail(7, EloGameTicket.AssetKind.ERC1155, address(multi), 7, 5, address(t), "1155");
 
         vm.expectRevert(bytes("sink is this contract"));
-        t.setRail(8, ScryGameTicket.AssetKind.ERC20, address(coinA), 0, 1e18, address(t), "erc20");
+        t.setRail(8, EloGameTicket.AssetKind.ERC20, address(coinA), 0, 1e18, address(t), "erc20");
     }
 
     /// The immutable pair gets the same refusal, where it matters more: there
@@ -136,16 +136,16 @@ contract TicketFundsCanLeaveTest is Test {
         address next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
 
         vm.expectRevert(bytes("sink is this contract"));
-        new ScryGameTicket(
-            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
-            next, proceeds, 0, "https://scry.moreright.xyz", address(0)
+        new EloGameTicket(
+            "Gates", "GATES", "gates", IERC20(address(reserve)), IERC20(address(usdg)),
+            next, proceeds, 0, "https://elopros.com", address(0)
         );
 
         next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectRevert(bytes("proceeds is this contract"));
-        new ScryGameTicket(
-            "Gates", "GATES", "gates", IERC20(address(scry)), IERC20(address(usdg)),
-            sink, next, 0, "https://scry.moreright.xyz", address(0)
+        new EloGameTicket(
+            "Gates", "GATES", "gates", IERC20(address(reserve)), IERC20(address(usdg)),
+            sink, next, 0, "https://elopros.com", address(0)
         );
     }
 }

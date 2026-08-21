@@ -3,14 +3,14 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGranary.sol";
-import "../src/ScrySilo.sol";
-import "../src/ScryGardener.sol";
-import "../src/ScryGarden.sol";
-import "../src/ScryJobBoard.sol";
-import "../src/ScryReputation.sol";
-import "../src/ScryInsurancePool.sol";
-import "../src/IScryArbiter.sol";
+import "../src/EloGranary.sol";
+import "../src/EloSilo.sol";
+import "../src/EloGardener.sol";
+import "../src/EloGarden.sol";
+import "../src/EloJobBoard.sol";
+import "../src/EloReputation.sol";
+import "../src/EloInsurancePool.sol";
+import "../src/IEloArbiter.sol";
 import "../src/IERC20.sol";
 import {MockToken} from "./MockToken.sol";
 
@@ -19,18 +19,18 @@ import {MockToken} from "./MockToken.sol";
 /// `ReentrancyGuard.sol`'s own header states the rule this file enforces:
 /// *"several of these contracts take their token as a CONSTRUCTOR ARGUMENT, so
 /// 'the token has no callback' is a deployment-time assumption a future deployer
-/// cannot see."* That argument was applied to `ScryBank.enter` and then not to
+/// cannot see."* That argument was applied to `EloBank.enter` and then not to
 /// four functions that have exactly the same shape:
 ///
-///   - `ScrySilo.reap` / `unseal`  — `_settle` advanced its checkpoint AFTER
+///   - `EloSilo.reap` / `unseal`  — `_settle` advanced its checkpoint AFTER
 ///     `granary.mint`, so a reentrant call recomputed the same accrual from a
 ///     stale `rewardDebt` and minted it twice
-///   - `ScrySilo.claimOwed`        — read-mint-write across the same call
-///   - `ScryGardener.claimLocked`  — the same, on the cliff balance
+///   - `EloSilo.claimOwed`        — read-mint-write across the same call
+///   - `EloGardener.claimLocked`  — the same, on the cliff balance
 ///
-/// plus two consistency gaps: `ScryJobBoard.complete` was the one state-changing
+/// plus two consistency gaps: `EloJobBoard.complete` was the one state-changing
 /// entry point on the board without a guard (safe, but only because two lines
-/// stayed in order), and `ScryGarden.addLiquidity` minted SEED before pulling
+/// stayed in order), and `EloGarden.addLiquidity` minted SEED before pulling
 /// either side.
 ///
 /// **None of these was live.** `SpoilsToken.mint` has no hook, so the chain
@@ -41,7 +41,7 @@ import {MockToken} from "./MockToken.sol";
 /// contract that is safe and a contract that is safe *for a reason you tested*.
 ///
 /// Blast radius if one had gone live, so the severity is not overstated:
-/// `ScryGranary.mint` debits `mintedToday` BEFORE calling the token, so a
+/// `EloGranary.mint` debits `mintedToday` BEFORE calling the token, so a
 /// reentrancy loop correctly consumes the daily budget and clamps out. The loss
 /// was bounded at the grantee's remaining daily cap (RUNBOOK.md §0: gardener
 /// 500/day, silo 250/day), and honest stakers were delayed rather than
@@ -53,7 +53,7 @@ import {MockToken} from "./MockToken.sol";
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// A `SpoilsToken`-shaped coin that NOTIFIES ITS RECIPIENT on mint. Matches the
-/// ABI `ScryGranary` actually uses (`mint`, `setMinter`), so it can be cast to
+/// ABI `EloGranary` actually uses (`mint`, `setMinter`), so it can be cast to
 /// `SpoilsToken` and handed to a real granary. One-shot, and armed for a single
 /// address, so the harness itself is never hooked.
 contract HookSpoils {
@@ -193,12 +193,12 @@ abstract contract Reenterer {
 // ═══════════════════════════════════════════════════════════════════════════
 
 contract SiloReenterer is Reenterer {
-    ScrySilo public silo;
+    EloSilo public silo;
     SpoilsToken public sealToken;
     uint256 public sealId;
     uint8 public mode; // 0 off · 1 reap · 2 claimOwed
 
-    constructor(ScrySilo s, SpoilsToken t) {
+    constructor(EloSilo s, SpoilsToken t) {
         silo = s;
         sealToken = t;
     }
@@ -228,16 +228,16 @@ contract SiloReenterer is Reenterer {
         uint8 m = mode;
         if (m == 0) return;
         mode = 0;
-        if (m == 1) _fire(address(silo), abi.encodeCall(ScrySilo.reap, (sealId)));
-        else _fire(address(silo), abi.encodeCall(ScrySilo.claimOwed, ()));
+        if (m == 1) _fire(address(silo), abi.encodeCall(EloSilo.reap, (sealId)));
+        else _fire(address(silo), abi.encodeCall(EloSilo.claimOwed, ()));
     }
 }
 
 contract SiloReentrancyTest is Test {
     SpoilsToken obol;
     HookSpoils myrrh;
-    ScryGranary granary;
-    ScrySilo silo;
+    EloGranary granary;
+    EloSilo silo;
     SiloReenterer attacker;
 
     uint256 constant RPS = 1e18; // 1 MYRRH/sec
@@ -249,9 +249,9 @@ contract SiloReentrancyTest is Test {
         myrrh = new HookSpoils(address(this));
         // The granary's coin is typed `SpoilsToken` but resolved at runtime by
         // address — which IS the deployment risk, so the harness builds it.
-        granary = new ScryGranary(SpoilsToken(address(myrrh)));
+        granary = new EloGranary(SpoilsToken(address(myrrh)));
         myrrh.setMinter(address(granary));
-        silo = new ScrySilo(granary, RPS, 5000);
+        silo = new EloSilo(granary, RPS, 5000);
         silo.addTier(7 days, 10_000);
         silo.addTier(100, 10_000);
         silo.addBin(obol, 100);
@@ -325,11 +325,11 @@ contract SiloReentrancyTest is Test {
 // ═══════════════════════════════════════════════════════════════════════════
 
 contract GardenerReenterer is Reenterer {
-    ScryGardener public gardener;
+    EloGardener public gardener;
     MockToken public lp;
     bool public armed;
 
-    constructor(ScryGardener g, MockToken l) {
+    constructor(EloGardener g, MockToken l) {
         gardener = g;
         lp = l;
     }
@@ -354,15 +354,15 @@ contract GardenerReenterer is Reenterer {
     function onSpoilsReceived() external {
         if (!armed) return;
         armed = false;
-        _fire(address(gardener), abi.encodeCall(ScryGardener.claimLocked, ()));
+        _fire(address(gardener), abi.encodeCall(EloGardener.claimLocked, ()));
     }
 }
 
 contract GardenerReentrancyTest is Test {
     HookSpoils myrrh;
     MockToken lp;
-    ScryGranary granary;
-    ScryGardener gardener;
+    EloGranary granary;
+    EloGardener gardener;
     GardenerReenterer attacker;
 
     uint256 constant RPS = 1e18;
@@ -372,10 +372,10 @@ contract GardenerReentrancyTest is Test {
     function setUp() public {
         myrrh = new HookSpoils(address(this));
         lp = new MockToken("lp", "SEED");
-        granary = new ScryGranary(SpoilsToken(address(myrrh)));
+        granary = new EloGranary(SpoilsToken(address(myrrh)));
         myrrh.setMinter(address(granary));
         unlockAt = vm.getBlockTimestamp() + 90 days;
-        gardener = new ScryGardener(granary, RPS, LOCK_BPS, unlockAt);
+        gardener = new EloGardener(granary, RPS, LOCK_BPS, unlockAt);
         granary.setGrant(address(gardener), 1_000e18);
         gardener.addPool(IERC20(address(lp)), 100);
 
@@ -412,19 +412,19 @@ contract GardenerReentrancyTest is Test {
 // ═══════════════════════════════════════════════════════════════════════════
 
 contract BoardReenterer is Reenterer {
-    ScryJobBoard public board;
+    EloJobBoard public board;
     HookToken public coin;
     uint256 public jobId;
     bool public armed;
 
-    constructor(ScryJobBoard b, HookToken c) {
+    constructor(EloJobBoard b, HookToken c) {
         board = b;
         coin = c;
     }
 
     function doPost(address seller, uint256 amount, uint64 deadline) external {
         coin.approve(address(board), type(uint256).max);
-        jobId = board.post(seller, amount, ScryJobBoard.Mode.ReputationOnly, keccak256("spec"), deadline, 0);
+        jobId = board.post(seller, amount, EloJobBoard.Mode.ReputationOnly, keccak256("spec"), deadline, 0);
     }
 
     function arm() external {
@@ -438,29 +438,29 @@ contract BoardReenterer is Reenterer {
     function onTokenPull() external {
         if (!armed) return;
         armed = false;
-        _fire(address(board), abi.encodeCall(ScryJobBoard.complete, (jobId)));
+        _fire(address(board), abi.encodeCall(EloJobBoard.complete, (jobId)));
     }
 }
 
 contract JobBoardReentrancyTest is Test {
-    HookToken scry;
-    ScryReputation rep;
-    ScryInsurancePool pool;
-    ScryJobBoard board;
+    HookToken reserve;
+    EloReputation rep;
+    EloInsurancePool pool;
+    EloJobBoard board;
     BoardReenterer buyer;
     address seller = address(0x5E11E4);
     address splitter = address(0x5911);
 
     function setUp() public {
-        scry = new HookToken();
-        rep = new ScryReputation(0); // threshold 0: everyone meets it
-        pool = new ScryInsurancePool(IERC20(address(scry)), 100e18);
-        board = new ScryJobBoard(
-            IERC20(address(scry)), IReputation(address(rep)), IInsurancePool(address(pool)), splitter, IScryArbiter(address(0)), 1e18
+        reserve = new HookToken();
+        rep = new EloReputation(0); // threshold 0: everyone meets it
+        pool = new EloInsurancePool(IERC20(address(reserve)), 100e18);
+        board = new EloJobBoard(
+            IERC20(address(reserve)), IReputation(address(rep)), IInsurancePool(address(pool)), splitter, IEloArbiter(address(0)), 1e18
         );
         rep.setAuthority(address(board), true);
-        buyer = new BoardReenterer(board, scry);
-        scry.mint(address(buyer), 1000e18);
+        buyer = new BoardReenterer(board, reserve);
+        reserve.mint(address(buyer), 1000e18);
     }
 
     /// `complete` was the only state-changing entry point on the board without
@@ -481,7 +481,7 @@ contract JobBoardReentrancyTest is Test {
         vm.prank(seller);
         board.deliver(id, keccak256("done"));
 
-        scry.arm(address(buyer));
+        reserve.arm(address(buyer));
         buyer.arm();
         buyer.doComplete();
 
@@ -489,8 +489,8 @@ contract JobBoardReentrancyTest is Test {
         assertTrue(buyer.reentryReverted(), "the reentrant complete was NOT refused");
         assertEq(buyer.revertReason(), "reentrant", "the guard refuses it, not the status ordering");
         // and the job settled exactly once: 100 less 5% house fee
-        assertEq(scry.balanceOf(seller), 95e18, "the seller was paid once");
-        assertEq(scry.balanceOf(splitter), 5e18, "and the house took its cut once");
+        assertEq(reserve.balanceOf(seller), 95e18, "the seller was paid once");
+        assertEq(reserve.balanceOf(splitter), 5e18, "and the house took its cut once");
     }
 }
 
@@ -499,13 +499,13 @@ contract JobBoardReentrancyTest is Test {
 // ═══════════════════════════════════════════════════════════════════════════
 
 contract GardenObserver {
-    ScryGarden public garden;
+    EloGarden public garden;
     HookToken public t0;
     MockToken public t1;
     uint256 public supplyDuringPull;
     bool public observed;
 
-    constructor(ScryGarden g, HookToken a, MockToken b) {
+    constructor(EloGarden g, HookToken a, MockToken b) {
         garden = g;
         t0 = a;
         t1 = b;
@@ -527,13 +527,13 @@ contract GardenObserver {
 contract GardenOrderingTest is Test {
     HookToken t0;
     MockToken t1;
-    ScryGarden garden;
+    EloGarden garden;
     GardenObserver observer;
 
     function setUp() public {
         t0 = new HookToken();
         t1 = new MockToken("t1", "T1");
-        garden = new ScryGarden(IERC20(address(t0)), IERC20(address(t1)));
+        garden = new EloGarden(IERC20(address(t0)), IERC20(address(t1)));
 
         // seed the pool from the harness, unhooked
         t0.mint(address(this), 1000e18);
@@ -567,7 +567,7 @@ contract GardenOrderingTest is Test {
     /// The seeding branch moved too — `MINIMUM_LIQUIDITY` is locked after the
     /// pulls now, not before. Same reserves, same shares, same lock.
     function test_the_opening_add_still_locks_minimum_liquidity() public {
-        ScryGarden fresh = new ScryGarden(IERC20(address(t0)), IERC20(address(t1)));
+        EloGarden fresh = new EloGarden(IERC20(address(t0)), IERC20(address(t1)));
         t0.approve(address(fresh), type(uint256).max);
         t1.approve(address(fresh), type(uint256).max);
         uint256 seeds = fresh.addLiquidity(100e18, 100e18, 0, block.timestamp + 1);

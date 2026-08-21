@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../src/SpoilsToken.sol";
 import "./MockToken.sol";
-import "../src/ScryGarden.sol";
+import "../src/EloGarden.sol";
 import {DeploySpoils} from "../script/DeploySpoils.s.sol";
 
 /// SpoilsToken: the capped/earned/burnable play token — and the proof that
@@ -12,7 +12,7 @@ import {DeploySpoils} from "../script/DeploySpoils.s.sol";
 /// the Garden. `forge test -vv` before any broadcast.
 contract SpoilsTokenTest is Test {
     SpoilsToken obol;
-    MockToken scry; // stands in for SCRY here — any ERC20 with a faucet for test funding
+    MockToken reserve; // stands in for SCRY here — any ERC20 with a faucet for test funding
 
     address distributor = address(0xD157);
     address alice = address(0xA11CE);
@@ -22,7 +22,7 @@ contract SpoilsTokenTest is Test {
 
     function setUp() public {
         obol = new SpoilsToken("obol", "OBOL", CAP, distributor);
-        scry = new MockToken("stand-in scry", "tSCRY");
+        reserve = new MockToken("stand-in reserve", "tSCRY");
     }
 
     function test_only_distributor_mints() public {
@@ -152,18 +152,18 @@ contract SpoilsTokenTest is Test {
     /// The point of the cap: a Garden pair of SpoilsToken vs a valued token
     /// is a market, not a leak — there is no faucet to drain the real side.
     function test_garden_pair_vs_valued_token_is_sound() public {
-        ScryGarden garden = new ScryGarden(IERC20(address(obol)), IERC20(address(scry)));
-        // fund alice: earned spoils + faucet stand-in scry
+        EloGarden garden = new EloGarden(IERC20(address(obol)), IERC20(address(reserve)));
+        // fund alice: earned spoils + faucet stand-in reserve
         vm.prank(distributor);
         obol.mint(alice, 500e18);
         vm.prank(alice);
-        scry.faucet(); // 1000e18
+        reserve.faucet(); // 1000e18
         vm.startPrank(alice);
         obol.approve(address(garden), type(uint256).max);
-        scry.approve(address(garden), type(uint256).max);
+        reserve.approve(address(garden), type(uint256).max);
         garden.addLiquidity(400e18, 400e18, 0, type(uint256).max);
         vm.stopPrank();
-        // bob CANNOT mint free obol to drain the scry side — only the
+        // bob CANNOT mint free obol to drain the reserve side — only the
         // distributor mints, within the cap. His only path in is trade.
         vm.startPrank(bob);
         vm.expectRevert("minter only");
@@ -177,7 +177,7 @@ contract SpoilsTokenTest is Test {
         uint256 out = garden.swap(10e18, true, 0, type(uint256).max);
         vm.stopPrank();
         assertGt(out, 0);
-        assertEq(scry.balanceOf(bob), out);
+        assertEq(reserve.balanceOf(bob), out);
     }
 
     // -- fuzz: supply conservation + cap enforcement -------------------------
@@ -194,7 +194,7 @@ contract SpoilsTokenTest is Test {
             if (i % 2 == 0) {
                 uint256 m = amounts[i] % (CAP + 1); // a single mint never exceeds the cap
                 // read the view BEFORE pranking - a staticcall between prank and
-                // mint would consume the prank (the ScryDeed cheatcode-misfire
+                // mint would consume the prank (the EloDeed cheatcode-misfire
                 // class in TEST-AUDIT.md), sending the mint as the wrong caller.
                 bool willFit = obol.totalMinted() + m <= CAP;
                 if (willFit) {
@@ -223,7 +223,7 @@ contract SpoilsTokenTest is Test {
 /// DeploySpoils.s.sol EXECUTED, not merely compiled. The 2026-07-25 audit's
 /// first finding was that 19 of 20 deploy scripts are never run by any test,
 /// and the Garden's opening seed now lives in exactly that blind spot: a
-/// ScryGarden's first add SETS ITS PRICE, so "deployed but not yet seeded" is
+/// EloGarden's first add SETS ITS PRICE, so "deployed but not yet seeded" is
 /// a window in which anyone can open the pool at any ratio for dust.
 contract DeploySpoilsSeedTest is Test {
     DeploySpoils script;
@@ -253,7 +253,7 @@ contract DeploySpoilsSeedTest is Test {
         address garden = vm.computeCreateAddress(deployer, 2);
 
         assertGt(garden.code.length, 0, "the Garden was deployed");
-        ScryGarden g = ScryGarden(garden);
+        EloGarden g = EloGarden(garden);
         (uint112 r0, uint112 r1) = g.getReserves();
         assertGt(uint256(r0), 0, "and it is NOT empty - reserve0");
         assertGt(uint256(r1), 0, "and it is NOT empty - reserve1");
@@ -319,7 +319,7 @@ contract DeploySpoilsSeedTest is Test {
         script.runWith(inp);
         address garden = vm.computeCreateAddress(vm.addr(PK), 2);
         assertGt(garden.code.length, 0, "deployed");
-        (uint112 r0, uint112 r1) = ScryGarden(garden).getReserves();
+        (uint112 r0, uint112 r1) = EloGarden(garden).getReserves();
         assertEq(uint256(r0), 0);
         assertEq(uint256(r1), 0);
     }

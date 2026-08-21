@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryShrine.sol";
+import "../src/EloShrine.sol";
 
 /// Deploy the Shrine - the on-chain votive mirror:
 /// shrine -> OBOL altar (1 point/token) -> MYRRH altar (5 points/token,
@@ -32,19 +32,19 @@ contract DeployShrine is Script {
         // meter/augury.py AUGURY_BASE=100, meter/barrow_rules.py TOLL=10.0,
         // DeploySilo's ~120 OBOL/day — so a 10e18 step priced the rank ladder
         // an order of magnitude below every coin it is denominated in.
-        // `ScryShrine.baseStep` is immutable with no setter, so `shrine --arm`
+        // `EloShrine.baseStep` is immutable with no setter, so `shrine --arm`
         // welds this, and nothing else in the repo would have caught it:
         // meter/test_tokenomics.py law 1 reads the Gardener and Silo defaults
         // and has no shrine entry at all.
         uint256 baseStep = vm.envOr("SHRINE_BASE_STEP", uint256(100e18)); // rank 1: 100 points
 
         vm.startBroadcast(pk);
-        ScryShrine shrine = new ScryShrine(baseStep);
+        EloShrine shrine = new EloShrine(baseStep);
         shrine.addOffering(obol, 1); // altar 0: OBOL, 1 point per token
         shrine.addOffering(myrrh, 5); // altar 1: MYRRH, the Book's base rate
         vm.stopBroadcast();
 
-        console2.log("ScryShrine ", address(shrine));
+        console2.log("EloShrine ", address(shrine));
         console2.log("baseStep   ", baseStep);
     }
 }

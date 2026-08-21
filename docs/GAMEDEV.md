@@ -1,18 +1,18 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-07
-about: "everything a game needs from scry, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
+updated: 2026-08-15
+about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
-# GAMEDEV.md — everything a game needs from scry
+# GAMEDEV.md — everything a game needs from Elo
 
 > Operator, 2026-08-07: *"make the SDK just like steams so its easy for games to
 > auth and get profile info"* · *"whatever other api end points a game dev might
 > need for players"*
 
 You are building a game and you want to know who is playing, what they own, and
-what they have done. That is this page. It assumes nothing about scry and
+what they have done. That is this page. It assumes nothing about Elo and
 nothing about crypto beyond *a player has an Ethereum address.*
 
 **Two halves, and you will use both:**
@@ -125,7 +125,7 @@ with three identities, not three claimants.
 Every one of these is a plain `GET`, no auth, and every one is already a `link`
 in a `profile` reply so you rarely have to build the URL yourself.
 
-Base: `https://scry.moreright.xyz`
+Base: `https://elopros.com`
 
 | what you want | endpoint | notes |
 |---|---|---|
@@ -137,7 +137,7 @@ Base: `https://scry.moreright.xyz`
 | **token balances** | `/api/holdings/{wallet}` | SCRY and each game's own coins, read by `balanceOf`. ⚠ a null balance is a **failed read**, never a zero |
 | **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
 | **reputation** | `/api/reputation/{address}` | soulbound; earned or slashed by outcomes, never bought |
-| a leaderboard | `/api/arena/leaderboard` | the arena's own; empty until a season runs |
+| a leaderboard | *(your game's own)* | the platform served one from the arena until that room was deleted 2026-08-15. A ladder is the game's to keep — the platform verifies outcomes, it does not rank them for you |
 | identity detail | `/api/vow/{vow_id}` | conduct, cadence, the public record |
 | an avatar | `/api/vow/{vow_id}/mark.svg` | deterministic, cacheable |
 
@@ -146,7 +146,7 @@ Base: `https://scry.moreright.xyz`
 Operator, 2026-08-07: *"scry only has SCRY! myrrh and obol are actually gates
 now"* · *"its up to games to decide what to do with the 'MYRHH' btc type coin."*
 
-**scry has exactly one coin — SCRY, the reserve.** OBOL and MYRRH are what
+**Elo has exactly one coin — the reserve.** OBOL and MYRRH are what
 **Gates** happens to use; they are a worked example, not a platform currency
 you inherit.
 
@@ -202,9 +202,11 @@ payload.** Read the flag, never the count:
   The second is the list of badges whose evidence nobody can currently verify.
   Showing `earned` alone as the whole truth overstates; showing
   `earned + uncheckable` as earned overstates worse.
-- **`/api/arena/leaderboard`** returns `season: null` when no season is running.
-  Zero rows in a live season and zero rows because there is no season are
-  different sentences.
+- **There is no platform leaderboard route.** `/api/arena/leaderboard` served
+  one until 2026-08-15 and is gone. The distinction it taught still applies to
+  whatever you build: zero rows in a live season and zero rows because there is
+  no season are different sentences, and a card that renders them the same way
+  is lying in one of the two cases.
 
 **The general rule, and it is this repo's oldest scar:** a reader that never
 raises returns nothing for both *"there is nothing there"* and *"we could not
@@ -212,7 +214,7 @@ look."* Every endpoint above distinguishes them. Your UI should too.
 
 ---
 
-## 4 · What scry will not do for you
+## 4 · What Elo will not do for you
 
 Naming these up front is faster than discovering them:
 
@@ -244,19 +246,6 @@ What a listing needs: an open-source repo, a manifest, and a depot if you ship a
 native build (`docs/client/LAUNCHER.md` §3). Games ship free for now — the buy step
 lands when there is something worth charging for, and gating is net-new work
 rather than a switch (`SENTENCES.md` 2026-08-06).
-
-**And when you do charge, the number is yours.** We do not set a price, suggest
-one, or hold a default anywhere: your title's `ScryGameTicket` is born unpriced
-and only ever carries what you posted with `setPrices(usdCents, ethWei,
-scryWei, usdgUnits)` — a dollar figure and the amount per rail, reposted as
-often as you want, and any rail closed by posting it at 0. Curation is a hand
-act and pricing is not part of it: charge $2 or $60, run a sale for a weekend,
-or ship no ticket contract at all and stay free — the origin answers *free* in
-words for that last one, so it is a statement and not an absence. What that
-means for anything you build: **read the price, never assume it** —
-`/api/ticket/{slug}` off chain, `priceUsdCents()` and `railInfo()` on chain —
-because it is a per-title number that can change between two loads of your own
-store page.
 
 ---
 

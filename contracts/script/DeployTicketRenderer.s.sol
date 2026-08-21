@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryTicketUrlRenderer.sol";
-import "../src/ScryGameTicket.sol";
+import "../src/EloTicketUrlRenderer.sol";
+import "../src/EloGameTicket.sol";
 
 /// Point one title's metadata at the origin instead of at contract storage —
-/// the other end of the `setRenderer` hinge `ScryGameTicket` posts.
+/// the other end of the `setRenderer` hinge `EloGameTicket` posts.
 ///
 /// **WHY A TITLE TAKES THIS TRADE.** On the built-in document, editing the art
 /// or the blurb is a transaction and the fields are only what the contract can
@@ -20,7 +20,7 @@ import "../src/ScryGameTicket.sol";
 ///   export PRIVATE_KEY=0x...
 ///   export RENDERER_GAME="gates"              # the slug, as the catalog spells it
 ///   # optional:
-///   # export RENDERER_BASE=https://scry.moreright.xyz/api    # ⚠ see below
+///   # export RENDERER_BASE=https://elopros.com/api    # ⚠ see below
 ///   # export RENDERER_OWNER=0x...             # default: the broadcasting key
 ///   # export RENDERER_TICKET=0x...            # the deployed ticket. Set it and
 ///   #                                         # this script ALSO calls
@@ -33,8 +33,8 @@ import "../src/ScryGameTicket.sol";
 /// address two different roots and the difference is invisible until a wallet
 /// fetches nothing:
 ///
-///   TICKET_BASE_URI = https://scry.moreright.xyz       -> …/game.html?slug=gates
-///   RENDERER_BASE   = https://scry.moreright.xyz/api   -> …/api/ticket/gates/1/metadata
+///   TICKET_BASE_URI = https://elopros.com       -> …/game.html?slug=gates
+///   RENDERER_BASE   = https://elopros.com/api   -> …/api/ticket/gates/1/metadata
 ///
 /// `meter/tickets.py` declares its routes BARE because nginx strips the prefix
 /// (`CLAUDE.md`'s named trap), so the bare origin here is a measured 404 and a
@@ -47,7 +47,7 @@ contract DeployTicketRenderer is Script {
         string memory game = vm.envString("RENDERER_GAME");
         string memory base = vm.envOr("RENDERER_BASE", string(""));
         if (bytes(base).length == 0) {
-            base = "https://scry.moreright.xyz/api";
+            base = "https://elopros.com/api";
         }
         address rendererOwner = vm.envOr("RENDERER_OWNER", address(0));
         address ticket = vm.envOr("RENDERER_TICKET", address(0));
@@ -63,17 +63,17 @@ contract DeployTicketRenderer is Script {
         require(!_endsWithSlash(base), "RENDERER_BASE must not end in / - the renderer adds it");
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        ScryTicketUrlRenderer r = new ScryTicketUrlRenderer(rendererOwner, base, game);
+        EloTicketUrlRenderer r = new EloTicketUrlRenderer(rendererOwner, base, game);
         // The flip, and it is deliberately a SEPARATE opt-in: deploying a
         // renderer changes nothing a wallet sees, and pointing a live ticket at
         // it changes what every holder's copy renders. One env var stands
         // between those two facts.
         if (ticket != address(0)) {
-            ScryGameTicket(payable(ticket)).setRenderer(address(r));
+            EloGameTicket(payable(ticket)).setRenderer(address(r));
         }
         vm.stopBroadcast();
 
-        console2.log("ScryTicketUrlRenderer", address(r));
+        console2.log("EloTicketUrlRenderer", address(r));
         console2.log("  game", game);
         console2.log("  base", base);
         // Echo the URLs the chain will hand a marketplace. `curl` them before

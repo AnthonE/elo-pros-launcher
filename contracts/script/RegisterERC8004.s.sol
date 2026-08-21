@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-/// ERC-8004 Trustless Agents — register scry's identity in the ecosystem's
+/// ERC-8004 Trustless Agents — register reserve's identity in the ecosystem's
 /// trust layer, so counterparties resolve the pubkey + agent card from the
 /// registry instead of pinning an off-chain blob.
 ///
@@ -24,7 +24,7 @@ import "forge-std/Script.sol";
 /// (same address) with --rpc-url.
 ///
 ///   export PRIVATE_KEY=0x…
-///   export SCRY_AGENT_URI=https://scry.moreright.xyz/.well-known/agent-registration.json
+///   export SCRY_AGENT_URI=https://elopros.com/.well-known/agent-registration.json
 ///   forge script script/RegisterERC8004.s.sol --rpc-url $ETH_RPC --broadcast
 ///
 /// Then: publish the returned agentId, set SCRY_ERC8004_AGENT_ID
@@ -43,7 +43,7 @@ contract RegisterERC8004 is Script {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address registry = vm.envOr("ERC8004_IDENTITY_REGISTRY", DEFAULT_IDENTITY_REGISTRY);
         string memory agentURI =
-            vm.envOr("SCRY_AGENT_URI", string("https://scry.moreright.xyz/.well-known/agent-registration.json"));
+            vm.envOr("SCRY_AGENT_URI", string("https://elopros.com/.well-known/agent-registration.json"));
         require(registry.code.length > 0, "no code at registry - wrong chain or address");
         vm.startBroadcast(pk);
         uint256 id = IIdentityRegistry8004(registry).register(agentURI);

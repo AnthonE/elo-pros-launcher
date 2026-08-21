@@ -68,29 +68,29 @@ test against the real one (the Deed suite now does).
 
 | suite | contracts | verdict | the one thing to know |
 |---|---|---|---|
-| ScryMarket.t.sol | JobBoard·Reputation·InsurancePool | **ADEQUATE as smoke, NOT a gate** | honest assertions, one-example-deep; RepOnly mode has zero positive tests |
-| ScryEconomy.t.sol | Bank·FeeSplitter·Harvest | **THEATER (Bank) / ADEQUATE (rest)** | Bank's `test_noAdminSurface` is a vacuous name; donation attack named in-contract, untested; `leave()` conservation never asserted |
-| ScryGardener.t.sol | Gardener·Granary | **ADEQUATE→thin** | never two stakers in one pool; production-scale precision floor (rps 2.78e14) untested; LP-donation grief unpinned |
-| ScrySilo.t.sol | Silo | **SOLID** | early-break burn proven three-sided; BUT test tier menu ≠ DeploySilo's menu — align it |
-| ScryShrine.t.sol | Shrine | **SOLID** | carries as-is; custodies nothing, setUp matches deploy exactly |
-| ScryOrchard.t.sol | Orchard | **mechanics ADEQUATE, integration THEATER** | hand-set mock clock; shared-range different-liquidity positions inexpressible; mid-season unstake denominator unpinned |
+| EloMarket.t.sol | JobBoard·Reputation·InsurancePool | **ADEQUATE as smoke, NOT a gate** | honest assertions, one-example-deep; RepOnly mode has zero positive tests |
+| EloEconomy.t.sol | Bank·FeeSplitter·Harvest | **THEATER (Bank) / ADEQUATE (rest)** | Bank's `test_noAdminSurface` is a vacuous name; donation attack named in-contract, untested; `leave()` conservation never asserted |
+| EloGardener.t.sol | Gardener·Granary | **ADEQUATE→thin** | never two stakers in one pool; production-scale precision floor (rps 2.78e14) untested; LP-donation grief unpinned |
+| EloSilo.t.sol | Silo | **SOLID** | early-break burn proven three-sided; BUT test tier menu ≠ DeploySilo's menu — align it |
+| EloShrine.t.sol | Shrine | **SOLID** | carries as-is; custodies nothing, setUp matches deploy exactly |
+| EloOrchard.t.sol | Orchard | **mechanics ADEQUATE, integration THEATER** | hand-set mock clock; shared-range different-liquidity positions inexpressible; mid-season unstake denominator unpinned |
 | SpoilsToken.t.sol | SpoilsToken·PlayToken·Garden | **ADEQUATE** | minter gate/cap/elastic genuinely proven; `mint(address(0))` allowed + untested; setMinter negatives missing |
 | SeedSpoilsUniswapV3.t.sol | the seed script | **THEATER (loss dimension)** | passes price-inconsistent inputs green; `vm.setEnv` cross-test pollution may make first real run flaky; price math lives in un-gated Python |
 | ScryPlayground.t.sol | Burrow·Garden·PlayToken | **ADEQUATE(−)** | oracle-manipulation liquidation test is excellent; x·y=k never asserted — matters because Garden is ALSO deployed vs real SCRY |
-| ScryVowRegistry.t.sol | VowRegistry (LIVE) | **ADEQUATE** | soulbound paths complete; zero `expectEmit` though events carry the product; live config (owner==oracle) never tested; merkle cross-check depth-1 only |
-| ScryNotary.t.sol | Notary | **ADEQUATE (thin)** | first-committer priority proven; `Notarized` event (the whole product) unasserted; one circular assert |
-| ScryCovenant.t.sol | Covenant | **SOLID — the model suite** | asserts full event payloads with `expectEmit`; copy this pattern into the other registry suites |
-| ScryPact.t.sol | Pact | **ADEQUATE, two holes** | non-party-proposer auto-sign branch untested; `PactProposed` (the via_ir reason) never asserted, never emitted at posted max sizes |
-| ScryEidolon.t.sol | Eidolon | **ADEQUATE** | cap boundary + conservation + royalty real; safe-transfer surface untested; forge green is SILENT on trait provenance (that lives in `meter/test_eidolon.py`) |
-| ScrySteleEdition.t.sol | SteleEdition | **ADEQUATE (thin); metadata claim THEATER** | tokenURI checked by 29-char prefix — malformed JSON ships green; one bare `expectRevert()` |
-| ScryArbiter.t.sol | Arbiter + real JobBoard | **REBUILT 2026-07-22** | see "fixed today"; churn/governance/3-verdict fee-independence now pinned |
-| ScryDeed.t.sol | Deed | **REBUILT 2026-07-22** | see "fixed today"; original had 4 misfiring tests + a mock-dialect OBOL |
+| EloVowRegistry.t.sol | VowRegistry (LIVE) | **ADEQUATE** | soulbound paths complete; zero `expectEmit` though events carry the product; live config (owner==oracle) never tested; merkle cross-check depth-1 only |
+| EloNotary.t.sol | Notary | **ADEQUATE (thin)** | first-committer priority proven; `Notarized` event (the whole product) unasserted; one circular assert |
+| EloCovenant.t.sol | Covenant | **SOLID — the model suite** | asserts full event payloads with `expectEmit`; copy this pattern into the other registry suites |
+| EloPact.t.sol | Pact | **ADEQUATE, two holes** | non-party-proposer auto-sign branch untested; `PactProposed` (the via_ir reason) never asserted, never emitted at posted max sizes |
+| EloEidolon.t.sol | Eidolon | **ADEQUATE** | cap boundary + conservation + royalty real; safe-transfer surface untested; forge green is SILENT on trait provenance (that lives in `meter/test_eidolon.py`) |
+| EloSteleEdition.t.sol | SteleEdition | **ADEQUATE (thin); metadata claim THEATER** | tokenURI checked by 29-char prefix — malformed JSON ships green; one bare `expectRevert()` |
+| EloArbiter.t.sol | Arbiter + real JobBoard | **REBUILT 2026-07-22** | see "fixed today"; churn/governance/3-verdict fee-independence now pinned |
+| EloDeed.t.sol | Deed | **REBUILT 2026-07-22** | see "fixed today"; original had 4 misfiring tests + a mock-dialect OBOL |
 
 ---
 
 ## Fixed today (this branch) — the audit's direct product
 
-1. **`ScryArbiter.sol` hardened (real liveness flaw).** Removing an arbiter
+1. **`EloArbiter.sol` hardened (real liveness flaw).** Removing an arbiter
    who had voted could strand a case unfinalizable forever (tallies survive,
    the `== arbiterCount` exhaustion check becomes unreachable) — the deadline
    path would then decide the job, inverting outcomes. Fix: **the bench is
@@ -100,7 +100,7 @@ test against the real one (the Deed suite now does).
    2×caseQuorum), so the finalize branch order is immaterial — the prior code
    could, under churn, have let two verdicts both reach quorum and silently
    ruled by code order.
-2. **`ScryDeed.t.sol` rebuilt.** The first version had four tests that
+2. **`EloDeed.t.sol` rebuilt.** The first version had four tests that
    misfire on Foundry cheatcode semantics (`deed.SCOPE_*()` getter staticcalls
    in argument position consume a pending `vm.prank`/`vm.expectRevert`) and a
    `MockOBOL` whose `burnFrom` dialect (order + revert strings) contradicted
@@ -109,7 +109,7 @@ test against the real one (the Deed suite now does).
    zero-to / wrong-from / plot-(0,0) / re-found-after-convey pins, event
    asserts, infinite-allowance carve-out, and a **byte-exact tokenURI
    known-answer** (offline-generated, JSON-validated).
-3. **`ScryArbiter.t.sol` extended.** Constructor guards (incl. the pinned
+3. **`EloArbiter.t.sol` extended.** Constructor guards (incl. the pinned
    1-of-1 acceptance vs the runbook's "never a single oracle" warning),
    remove-path governance incl. the 2→1 shrink deadlock, transferOwnership,
    churn-mid-case, quorum-pin vs later raise, `Voted`/`Ruled` event asserts,
@@ -150,7 +150,7 @@ All three resolved under the repo's own walls and implemented same-day
 
 - **Events are the unguarded half of the product.** Vow text, notary memos,
   pact terms, mint/burn amounts live only in events, and only Covenant/Pact
-  assert any. `ScryCovenant.t.sol`'s `expectEmit`-with-full-payload is the
+  assert any. `EloCovenant.t.sol`'s `expectEmit`-with-full-payload is the
   in-repo template — port it.
 - **Operator/governance knobs are near-universally untested** (`setFeeBps`,
   `setArbiter`, `setThreshold`, `setMaxPayout`, `setAllocPoint`, every
@@ -164,8 +164,8 @@ All three resolved under the repo's own walls and implemented same-day
   Uniswap v3, no mock is faithful — fork it.
 - **Zero fuzz/invariant tests repo-wide** despite forge-native support; every
   numeric law is pinned at hand-picked points.
-- **Bare `vm.expectRevert()`** (any revert passes) at: ScrySilo.t.sol:302,
-  ScrySteleEdition.t.sol:52, ScryEidolon.t.sol:65, SeedSpoils:156.
+- **Bare `vm.expectRevert()`** (any revert passes) at: EloSilo.t.sol:302,
+  EloSteleEdition.t.sol:52, EloEidolon.t.sol:65, SeedSpoils:156.
 
 ---
 
@@ -274,7 +274,7 @@ live price); the two JobBoard operator questions.
 
 ## Standing notes
 
-- `ScryHarvest` has tests but **no deploy script**; `DeployScryEconomy.s.sol`
+- `ScryHarvest` has tests but **no deploy script**; `DeployEloEconomy.s.sol`
   explicitly defers it and nothing picks it up. Write `DeployHarvest.s.sol`.
 - `SeedSpoilsUniswapV3.s.sol`'s hardcoded NPM/factory defaults are exercised
   by zero tests (every test overrides them); the on-chain `npm.factory()`
@@ -356,7 +356,7 @@ found the money-core and collectibles tracks still short of testnet-redundant
 on exactly the governance/knob + metadata/safe-transfer surface a testnet's
 real value catches. All gaps now closed (pure-unit, no fork):
 
-- **Money core** (`ScryMarket.t.sol` + `ScryEconomy.t.sol`): `FeeSplitter.rescue`
+- **Money core** (`EloMarket.t.sol` + `EloEconomy.t.sol`): `FeeSplitter.rescue`
   — the untested operator drain that bypasses the split — pinned (auth, both
   zero-guards, partial + the `amount==0` full-drain, split bypass);
   `FeeSplitter.distribute` all-or-nothing when a recipient's receipt fails
@@ -445,7 +445,7 @@ rotation test) and 661/661 static-site checks. **Scope note on the fork
 mandates:** this change touches neither the farm track (`deploy_town.sh`
 deploys spoils → gardener → silo → shrine → orchard; `ScryJobBoard` is not in
 it) nor anything `OrchardFork`/`SeedSpoilsFork` exercise — `ScryJobBoard`
-broadcasts via `DeployScryMarket.s.sol`, after `ScryArbiter`. The rerun
+broadcasts via `DeployEloMarket.s.sol`, after `ScryArbiter`. The rerun
 requirement above stands on the **Orchard `depositToken`/denominator** changes,
 not this one; the arm gate enforces it either way.
 

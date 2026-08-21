@@ -11,7 +11,7 @@ pragma solidity ^0.8.24;
 ///         a deployment-time assumption a future deployer cannot see.
 ///
 ///         Pairing any of them with an ERC-777, an ERC-1363, or a hook-bearing
-///         ERC-20 turns a comment into a withdrawal. `ScryBank.enter` was the
+///         ERC-20 turns a comment into a withdrawal. `EloBank.enter` was the
 ///         sharpest case: it minted shares BEFORE pulling the deposit and said
 ///         so in a comment. The ordering is fixed; this makes the class safe
 ///         rather than the instance.

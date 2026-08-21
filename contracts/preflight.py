@@ -126,14 +126,40 @@ def gate_tokenomics():
 
 
 def gate_reliquary_odds():
-    """A gacha whose odds do not sum is a gacha that lies. Read the COMMITTED
-    default table out of the source rather than importing (reliquary.py pulls
-    fastapi, and preflight must run on a bare box)."""
-    bps = [int(x) for x in re.findall(r'"bps":\s*(\d+)', src("meter/reliquary.py"))]
-    total = sum(bps)
-    check("reliquary odds sum to 10000 bps", bool(bps) and total == 10000,
-          f"{len(bps)} tiers summing to {total}" if bps else "no bps entries found",
-          "fix _DEFAULT_TABLE in meter/reliquary.py so the posted odds sum")
+    """A gacha whose odds do not sum is a gacha that lies.
+
+    THE SUBJECT MOVED, AND THE GATE HAD TO MOVE WITH IT. This read
+    `meter/reliquary.py`'s committed `_DEFAULT_TABLE` and summed its `"bps"`
+    entries. That module was deleted with the barrow, the arena and the rest of
+    the pre-platform town (#228) — so from that commit the gate summed an empty
+    string, scored 0 against 10000, and printed `no bps entries found` on every
+    run. A launch gate that reds for a file nobody has any intention of
+    restoring teaches the person reading it on the day to discount all four
+    reds, which is the actual cost.
+
+    The odds themselves did not go anywhere: `meter/gacha.py` derives them from
+    the pool's ACTUAL positions at read time (`/gacha/book`), so there is no
+    committed table left to drift out of sum — the failure mode this gate was
+    written against has no surface to happen on. What is worth holding is the
+    negative: nobody reintroduces a hardcoded odds table without this saying
+    so. So the gate now grades the whole tree rather than one deleted file,
+    and it is a gate again instead of a standing red.
+    """
+    tables = []
+    for f in sorted((REPO / "meter").glob("*.py")):
+        if f.name.startswith("test_"):
+            continue
+        bps = [int(x) for x in re.findall(r'"bps":\s*(\d+)', f.read_text())]
+        if bps:
+            tables.append((f.name, len(bps), sum(bps)))
+    bad = [t for t in tables if t[2] != 10000]
+    check("gacha odds are derived, or a committed table sums to 10000 bps",
+          not bad,
+          "no committed odds table — meter/gacha.py derives them from the "
+          "pool's live positions" if not tables else
+          "; ".join(f"{n}: {c} tiers summing to {s}" for n, c, s in tables),
+          "a hardcoded odds table has to sum, or be derived from the positions "
+          "the way meter/gacha.py does it")
 
 
 # ── 2. the drop is sized against a FRESH snapshot ────────────────────────────
@@ -532,7 +558,7 @@ def gate_drop(snap):
     # to get the coin farming is supposed to be the only way to get.
     #
     # The rate is READ from the phase that deploys the farm, never typed here —
-    # `setRewardPerSecond` is a live dial (`ScryGardener.sol`), and a hardcoded
+    # `setRewardPerSecond` is a live dial (`EloGardener.sol`), and a hardcoded
     # 120/day would grade a farm that no longer exists.
     g = src("contracts/script/DeployGardener.s.sol")
     m_rps = re.search(r'vm\.envOr\("REWARD_PER_SECOND",\s*uint256\(([\d_]+)\)\)', g)
@@ -1360,18 +1386,33 @@ def gate_farm_reward():
           "gardens.config.json is what the gardens page reads — of the places "
           "that name this coin, it is the one a player sees")
     # The sole-source rule, as a launch gate rather than a paragraph. Broadcasting
-    # a MYRRH granary + gardener while the barrow still drops MYRRH re-opens the
-    # exact divergence the 07-26 flip closed — measured at 2,509 MYRRH/day of play
-    # mint against 1,320/day of burn at dau=200 (tokenomics_sim.py). Nothing in
-    # the contracts can see this; it lives in a Python env default.
-    br = src("meter/barrow_rules.py")
-    m = re.search(r'SCRY_BARROW_MYRRH_BANDS",\s*\'(.*?)\'', br)
-    empty = bool(m) and m.group(1).strip() in ("{}", "{ }")
+    # a MYRRH granary + gardener while play ALSO drops MYRRH re-opens the exact
+    # divergence the 07-26 flip closed — measured at 2,509 MYRRH/day of play mint
+    # against 1,320/day of burn at dau=200 (tokenomics_sim.py). Nothing in the
+    # contracts can see this; it lived in a Python env default.
+    #
+    # THAT DEFAULT'S FILE IS GONE. This read `SCRY_BARROW_MYRRH_BANDS` out of
+    # `meter/barrow_rules.py`, and the barrow was deleted with the rest of the
+    # pre-platform town (#228). `src()` returns "" for a file that is not there,
+    # the regex found nothing, and the gate has printed `the barrow still drops
+    # MYRRH: unreadable` on every run since — a red that reads like the loot
+    # table is armed when the looter does not exist.
+    #
+    # The rule it enforces is now structural rather than configured, so grade it
+    # that way: no module in the tree may hand out MYRRH as play loot. If a
+    # barrow ever comes back carrying bands, this is what says so.
+    loot = []
+    for f in sorted((REPO / "meter").glob("*.py")):
+        if f.name.startswith("test_"):
+            continue
+        m = re.search(r'([A-Z_]*BARROW[A-Z_]*MYRRH[A-Z_]*BANDS)",\s*\'(.*?)\'',
+                      f.read_text())
+        if m and m.group(2).strip() not in ("{}", "{ }"):
+            loot.append(f"{f.name}: {m.group(1)} = {m.group(2)}")
     check("play mints no MYRRH — the Garden is its only source",
-          empty,
-          "SCRY_BARROW_MYRRH_BANDS is empty; the Gardener is the only tap"
-          if empty else
-          f"the barrow still drops MYRRH: {m.group(1) if m else 'unreadable'}",
+          not loot,
+          "no play-loot MYRRH band anywhere in meter/; the Gardener is the only "
+          "tap" if not loot else "; ".join(loot),
           "FARMING.md §3a — farm the premium coin, do not also loot it. "
           "meter/test_tokenomics.py law 6 asserts the same thing")
 
@@ -1425,7 +1466,7 @@ def gate_token_identity():
     # extrapolation reported "~8 years of headroom" against a schedule that
     # actually runs 40 and stops ~1.07M short of the cap. Read the schedule off
     # ScryGardener's own constants and sum the geometric series instead.
-    _gard = src("contracts/src/ScryGardener.sol")
+    _gard = src("contracts/src/EloGardener.sol")
     _mp = re.search(r"HALVING_PERIOD\s*=\s*(\d+)\s*\*\s*365 days", _gard)
     _mh = re.search(r"HALVINGS\s*=\s*(\d+)", _gard)
     _run_years = int(_mp.group(1)) * int(_mh.group(1)) if (_mp and _mh) else 0

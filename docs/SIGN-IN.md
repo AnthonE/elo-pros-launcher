@@ -147,13 +147,13 @@ says it first and stays right — rung 2's answer is the arca, not a timer.
 
 | what | where | default |
 |---|---|---|
-| public domain the origin verifies for | `SCRY_ORIGIN` | `https://scry.moreright.xyz` |
+| public domain the origin verifies for | `SCRY_ORIGIN` | `https://elopros.com` |
 | code lifetime | `SCRY_SIGNIN_PENDING_TTL` | 600 s |
 | pairing lifetime | `SCRY_SIGNIN_PAIR_TTL` | 43200 s |
 | rate gates | `SCRY_SIGNIN_START_PER_DAY` · `_PROOF_PER_DAY` · `_ASK_PER_DAY` | 60 · 60 · 200 |
 | GUI idle relock | `SCRY_RELOCK_MINUTES` | 30 (0 = never) |
 
-Derive, don't quote: `curl -s scry.moreright.xyz/api/signin` is the card.
+Derive, don't quote: `curl -s elopros.com/api/signin` is the card.
 Tests: `meter/test_signin.py` (the venv rule applies), `cargo test -p
 scry-broker --test cross_language`, `watchtower/test_site.py`.
 

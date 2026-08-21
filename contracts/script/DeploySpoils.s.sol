@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SpoilsToken.sol";
-import "../src/ScryGarden.sol";
+import "../src/EloGarden.sol";
 
 /// Deploy the spoils pair (OBOL + MYRRH) to Robinhood Chain — earned,
 /// elastic-but-budgeted play tokens the Barrow mints and the Agora burns.
@@ -18,7 +18,7 @@ import "../src/ScryGarden.sol";
 /// deploys ONE Garden — **MYRRH/OBOL**, both sides house-minted — and that
 /// is the LP whose SEED shares the Gardener farms.
 ///
-/// Why (AUDIT-2026-07-25.md F5): `ScryGarden` is a deliberately minimal x·y=k
+/// Why (AUDIT-2026-07-25.md F5): `EloGarden` is a deliberately minimal x·y=k
 /// pair with no deadline and no minimum-out on add/remove liquidity, so every
 /// action in it is sandwichable within a block. Pointing it at canonical SCRY
 /// also stood a thin second pool beside the canonical Uniswap v3 pool for the
@@ -40,7 +40,7 @@ import "../src/ScryGarden.sol";
 ///
 /// THE ONE MINT THIS SCRIPT DOES, and why it is not a pre-mine: the Garden's
 /// opening seed (`GARDEN_SEED_MYRRH` / `GARDEN_SEED_OBOL`, posted 5:1). A
-/// ScryGarden's first add SETS ITS PRICE, so a Garden left publicly deployed
+/// EloGarden's first add SETS ITS PRICE, so a Garden left publicly deployed
 /// and empty can be opened by anyone at any ratio for dust — and it is the LP
 /// the farm pays. Seeding it in the same run collapses that window from days
 /// to a couple of blocks. The minted coins go STRAIGHT into the pool and the
@@ -51,7 +51,7 @@ import "../src/ScryGarden.sol";
 /// game ledger. `GARDEN_SEED_MYRRH=0` opts out and says so loudly.
 ///
 /// ⚠ The standing warning is unchanged and now applies to SCRY too: never
-/// pool canonical SCRY in a ScryGarden;
+/// pool canonical SCRY in a EloGarden;
 /// the weak side of a thin toy AMM is whichever side is worth something.
 /// `forge test -vv` first, always.
 ///
@@ -77,7 +77,7 @@ contract DeploySpoils is Script {
         string myrrhName;
         uint256 obolCap;
         uint256 myrrhCap;
-        address scry;
+        address reserve;
         bool pairGarden;
         uint256 seedMyrrh;
         uint256 seedObol;
@@ -112,7 +112,7 @@ contract DeploySpoils is Script {
         // MYRRH: 21,000,000 — Bitcoin's number, chosen by the operator
         // 2026-07-27 ("its our BTC"). It is safe because MYRRH has exactly ONE
         // tap: the Garden, on a Bitcoin schedule (era-0 6,000/day, halving
-        // every 4 years, stopping dead at 40 — see ScryGardener's constants).
+        // every 4 years, stopping dead at 40 — see EloGardener's constants).
         // The WHOLE RUN emits ~17.50M against a ~2.4M genesis float, so ~1.07M
         // of the budget is never minted at all.
         //
@@ -134,9 +134,9 @@ contract DeploySpoils is Script {
         inp.obolCap = vm.envOr("OBOL_CAP", uint256(0));
         inp.myrrhCap = vm.envOr("MYRRH_CAP", uint256(21_000_000e18));
         // Reported for the seeding runbook only — canonical SCRY is NEVER
-        // put in a ScryGarden (see the header). It is paired on canonical
+        // put in a EloGarden (see the header). It is paired on canonical
         // Uniswap v3 by SeedSpoilsUniswapV3.s.sol, and nowhere else.
-        inp.scry = vm.envOr("SCRY_TOKEN", block.chainid == RH_CHAIN_ID ? SCRY_CANON : address(0));
+        inp.reserve = vm.envOr("SCRY_TOKEN", block.chainid == RH_CHAIN_ID ? SCRY_CANON : address(0));
         inp.pairGarden = vm.envOr("GARDEN_PAIR", true);
         // The Garden's opening seed, minted here and deposited immediately.
         // Defaults are the posted 5:1 at faucet scale (LAUNCH-DECISIONS.md);
@@ -226,14 +226,14 @@ contract DeploySpoils is Script {
         address deployer = vm.addr(pk);
         uint256 obolCap = inp.obolCap;
         uint256 myrrhCap = inp.myrrhCap;
-        address scry = inp.scry;
+        address reserve = inp.reserve;
         bool pairGarden = inp.pairGarden;
         uint256 seedMyrrh = inp.seedMyrrh;
         uint256 seedObol = inp.seedObol;
         // EXACT, not integer division. `seedObol / seedMyrrh == 5` accepted
         // anything in [5.0, 6.0) — on wei-scale inputs that is a ratio wrong by
         // up to 20%, and the Garden's opening add SETS ITS PRICE permanently
-        // (ScryGarden mints MINIMUM_LIQUIDITY to itself and never spends it, so
+        // (EloGarden mints MINIMUM_LIQUIDITY to itself and never spends it, so
         // totalSupply never returns to 0 and the seeding branch is unreachable
         // for a second attempt). A guard for a welded price cannot round.
         require(
@@ -253,11 +253,11 @@ contract DeploySpoils is Script {
         uint256 seeds;
         if (pairGarden) {
             // The ONE Garden: MYRRH/OBOL, both sides house-minted. Its SEED
-            // shares are what ScryGardener farms (DeployGardener.s.sol).
-            ScryGarden g = new ScryGarden(IERC20(address(myrrh)), IERC20(address(obol)));
+            // shares are what EloGardener farms (DeployGardener.s.sol).
+            EloGarden g = new EloGarden(IERC20(address(myrrh)), IERC20(address(obol)));
             garden = address(g);
 
-            // AND SEED IT IN THE SAME RUN. A ScryGarden's first add SETS ITS
+            // AND SEED IT IN THE SAME RUN. A EloGarden's first add SETS ITS
             // PRICE, so a Garden that sits publicly deployed-and-empty between
             // this broadcast and a later manual seeding cast can be opened by
             // anyone at any ratio they like, for dust. The window used to be
@@ -282,7 +282,7 @@ contract DeploySpoils is Script {
                 // case this MUST revert rather than add at their price.
                 //
                 // THE DEADLINE NEEDS A MARGIN, and `block.timestamp` is not one.
-                // ScryGarden checks `block.timestamp <= deadline`, and the
+                // EloGarden checks `block.timestamp <= deadline`, and the
                 // timestamp this script reads is the one it was SIMULATED at -
                 // by the time the call is re-simulated and then mined it is
                 // always older, so a zero-margin deadline reverts "deadline
@@ -322,10 +322,10 @@ contract DeploySpoils is Script {
             console2.log("  !! NOT SEEDED - it is publicly empty until you add the first liquidity");
             console2.log("     whoever adds first sets its price. Do it NOW, not tomorrow.");
         }
-        console2.log("SCRY (canonical v3 only - NEVER in a Garden)", scry);
+        console2.log("SCRY (canonical v3 only - NEVER in a Garden)", reserve);
     }
 
-    /// What ScryGarden.addLiquidity mints on an EMPTY pool: sqrt(a0*a1) minus
+    /// What EloGarden.addLiquidity mints on an EMPTY pool: sqrt(a0*a1) minus
     /// the permanently locked MINIMUM_LIQUIDITY. Used as minSeeds so the seed
     /// reverts if the Garden turned out not to be empty after all.
     function _openingSeeds(uint256 a0, uint256 a1) internal pure returns (uint256) {

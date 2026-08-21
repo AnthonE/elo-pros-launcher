@@ -173,7 +173,7 @@ contract SeedSpoilsUniswapV3Test is Test {
     SeedSpoilsUniswapV3 script;
     MockFactory factory;
     MockNPM npm;
-    MockToken scry;
+    MockToken reserve;
     SpoilsToken obol;
     SpoilsToken myrrh;
 
@@ -185,9 +185,9 @@ contract SeedSpoilsUniswapV3Test is Test {
     // 18-dp both sides — computed with the same integer math as
     // script/seed_spoils_uniswap.py: isqrt(amount1 * 2^192 // amount0).
     uint256 constant SQRTP_10_SPOIL_T0 = 250541448375047940197816948333; // price 10 (spoil = token0)
-    uint256 constant SQRTP_10_SCRY_T0 = 25054144837504795036549970000; // price 0.1 (scry = token0)
+    uint256 constant SQRTP_10_SCRY_T0 = 25054144837504795036549970000; // price 0.1 (reserve = token0)
     uint256 constant SQRTP_50_SPOIL_T0 = 560227709747861392881423798214; // price 50 (spoil = token0)
-    uint256 constant SQRTP_50_SCRY_T0 = 11204554194957228324742324713; // price 0.02 (scry = token0)
+    uint256 constant SQRTP_50_SCRY_T0 = 11204554194957228324742324713; // price 0.02 (reserve = token0)
     uint256 constant SQRTP_ONE = 79228162514264337593543950336; // price 1.0 = 2^96
     // The THIRD pool (2026-07-25): MYRRH priced in OBOL at 5 OBOL/MYRRH, which
     // is exactly the cross of the two SCRY pools (50 / 10) so the launch
@@ -208,7 +208,7 @@ contract SeedSpoilsUniswapV3Test is Test {
         operator = vm.addr(PK);
         factory = new MockFactory(200); // 1% tier spacing
         npm = new MockNPM(address(factory));
-        scry = new MockToken("SCRY", operator, 1_000_000e18);
+        reserve = new MockToken("SCRY", operator, 1_000_000e18);
         obol = new SpoilsToken("obol", "OBOL", 10_000_000e18, operator);
         myrrh = new SpoilsToken("myrrh", "MYRRH", 2_500_000e18, operator);
         // give the operator spoils to seed with
@@ -231,7 +231,7 @@ contract SeedSpoilsUniswapV3Test is Test {
         inp.pk = PK;
         inp.factory = address(factory);
         inp.npm = address(npm);
-        inp.scry = address(scry);
+        inp.reserve = address(reserve);
         inp.fee = 10000;
         inp.slipBps = 100;
         inp.deadlineSecs = 900;
@@ -247,12 +247,12 @@ contract SeedSpoilsUniswapV3Test is Test {
         return SeedSpoilsUniswapV3.PoolSeed(token, uint160(sqrtP), baseRaw, quoteRaw);
     }
 
-    /// The sqrtP that encodes the SAME price as (baseRaw spoil, quoteRaw scry)
+    /// The sqrtP that encodes the SAME price as (baseRaw spoil, quoteRaw reserve)
     /// for whichever sort order this pair lands in — the price-CONSISTENT
     /// input the pre-audit suite never used.
-    function _consistentSqrtP(address spoil, uint256 scryPerSpoil) internal view returns (uint256) {
-        if (scryPerSpoil == 10) return spoil < address(scry) ? SQRTP_10_SPOIL_T0 : SQRTP_10_SCRY_T0;
-        if (scryPerSpoil == 50) return spoil < address(scry) ? SQRTP_50_SPOIL_T0 : SQRTP_50_SCRY_T0;
+    function _consistentSqrtP(address spoil, uint256 reservePerSpoil) internal view returns (uint256) {
+        if (reservePerSpoil == 10) return spoil < address(reserve) ? SQRTP_10_SPOIL_T0 : SQRTP_10_SCRY_T0;
+        if (reservePerSpoil == 50) return spoil < address(reserve) ? SQRTP_50_SPOIL_T0 : SQRTP_50_SCRY_T0;
         revert("no posted sqrtP for that ratio");
     }
 
@@ -288,7 +288,7 @@ contract SeedSpoilsUniswapV3Test is Test {
             : (address(obol), address(myrrh), MO_QUOTE, MO_BASE);
         assertEq(npm.initT0(), et0, "token0 sorted");
         assertEq(npm.initT1(), et1, "token1 sorted");
-        assertTrue(et0 != address(scry) && et1 != address(scry), "NO SCRY leg in the third pool");
+        assertTrue(et0 != address(reserve) && et1 != address(reserve), "NO SCRY leg in the third pool");
 
         (address t0, address t1,,,, uint256 a0, uint256 a1,,,,) = npm.lastMint();
         assertEq(t0, et0);
@@ -342,9 +342,9 @@ contract SeedSpoilsUniswapV3Test is Test {
         assertEq(npm.mintCount(), 1, "one mint");
         assertEq(npm.multicallCount(), 1, "one atomic multicall");
 
-        (address et0, address et1, uint256 e0, uint256 e1) = address(obol) < address(scry)
-            ? (address(obol), address(scry), OBOL_BASE, OBOL_QUOTE)
-            : (address(scry), address(obol), OBOL_QUOTE, OBOL_BASE);
+        (address et0, address et1, uint256 e0, uint256 e1) = address(obol) < address(reserve)
+            ? (address(obol), address(reserve), OBOL_BASE, OBOL_QUOTE)
+            : (address(reserve), address(obol), OBOL_QUOTE, OBOL_BASE);
         assertEq(npm.initT0(), et0, "token0 sorted");
         assertEq(npm.initT1(), et1, "token1 sorted");
         assertEq(uint256(npm.initFee()), 10000, "initialize fee = 1% tier");
@@ -392,7 +392,7 @@ contract SeedSpoilsUniswapV3Test is Test {
         assertEq(npm.mintCount(), 1, "only the set token seeded");
         assertEq(npm.initCount(), 1, "no pool created for the sentinel token");
         (address et0, address et1) =
-            address(myrrh) < address(scry) ? (address(myrrh), address(scry)) : (address(scry), address(myrrh));
+            address(myrrh) < address(reserve) ? (address(myrrh), address(reserve)) : (address(reserve), address(myrrh));
         assertEq(npm.initT0(), et0, "the one pool is MYRRH/SCRY (token0)");
         assertEq(npm.initT1(), et1, "the one pool is MYRRH/SCRY (token1)");
         assertEq(uint256(npm.initFee()), 10000, "initFee = 1% tier");
@@ -515,9 +515,9 @@ contract SeedSpoilsUniswapV3Test is Test {
     function _deploySpoilSorting(bool below) internal returns (SpoilsToken t) {
         for (uint256 i; i < 128; i++) {
             t = new SpoilsToken("spoil", "SPL", 0, operator);
-            if ((address(t) < address(scry)) == below) return t;
+            if ((address(t) < address(reserve)) == below) return t;
         }
-        revert("could not land a token on that side of scry");
+        revert("could not land a token on that side of reserve");
     }
 
     function test_sort_branch_spoil_is_token0() public {
@@ -530,13 +530,13 @@ contract SeedSpoilsUniswapV3Test is Test {
         script.runWith(inp);
 
         assertEq(npmB.initT0(), address(below), "spoil sorts as token0");
-        assertEq(npmB.initT1(), address(scry), "scry is token1");
+        assertEq(npmB.initT1(), address(reserve), "reserve is token1");
         assertEq(uint256(npmB.initSqrtP()), SQRTP_10_SPOIL_T0, "sqrtP for spoil-as-token0 (price 10)");
         (,,,,, uint256 a0, uint256 a1,,,,) = npmB.lastMint();
         assertEq(a0, OBOL_BASE, "amount0 = spoil base");
-        assertEq(a1, OBOL_QUOTE, "amount1 = scry quote");
+        assertEq(a1, OBOL_QUOTE, "amount1 = reserve quote");
         assertEq(below.allowance(operator, address(npmB)), OBOL_BASE, "token0 approval");
-        assertEq(scry.allowance(operator, address(npmB)), OBOL_QUOTE, "token1 approval");
+        assertEq(reserve.allowance(operator, address(npmB)), OBOL_QUOTE, "token1 approval");
     }
 
     function test_sort_branch_scry_is_token0() public {
@@ -548,18 +548,18 @@ contract SeedSpoilsUniswapV3Test is Test {
 
         script.runWith(inp);
 
-        assertEq(npmB.initT0(), address(scry), "scry sorts as token0");
+        assertEq(npmB.initT0(), address(reserve), "reserve sorts as token0");
         assertEq(npmB.initT1(), address(above), "spoil is token1");
-        assertEq(uint256(npmB.initSqrtP()), SQRTP_10_SCRY_T0, "sqrtP INVERTED for scry-as-token0 (price 0.1)");
+        assertEq(uint256(npmB.initSqrtP()), SQRTP_10_SCRY_T0, "sqrtP INVERTED for reserve-as-token0 (price 0.1)");
         (,,,,, uint256 a0, uint256 a1,,,,) = npmB.lastMint();
-        assertEq(a0, OBOL_QUOTE, "amount0 = scry quote");
+        assertEq(a0, OBOL_QUOTE, "amount0 = reserve quote");
         assertEq(a1, OBOL_BASE, "amount1 = spoil base");
-        assertEq(scry.allowance(operator, address(npmB)), OBOL_QUOTE, "token0 approval");
+        assertEq(reserve.allowance(operator, address(npmB)), OBOL_QUOTE, "token0 approval");
         assertEq(above.allowance(operator, address(npmB)), OBOL_BASE, "token1 approval");
     }
 
     function _allowanceOf(address token) internal view returns (uint256) {
-        if (token == address(scry)) return scry.allowance(operator, address(npm));
+        if (token == address(reserve)) return reserve.allowance(operator, address(npm));
         if (token == address(obol)) return obol.allowance(operator, address(npm));
         return myrrh.allowance(operator, address(npm));
     }
@@ -572,7 +572,7 @@ contract SeedSpoilsUniswapV3Test is Test {
         vm.setEnv("PRIVATE_KEY", vm.toString(bytes32(PK)));
         vm.setEnv("V3_FACTORY", vm.toString(address(factory)));
         vm.setEnv("V3_NPM", vm.toString(address(npm)));
-        vm.setEnv("SCRY_TOKEN", vm.toString(address(scry)));
+        vm.setEnv("SCRY_TOKEN", vm.toString(address(reserve)));
         vm.setEnv("FEE", "10000");
         vm.setEnv("SLIP_BPS", "100");
         vm.setEnv("DEADLINE_SECS", "900");
@@ -590,7 +590,7 @@ contract SeedSpoilsUniswapV3Test is Test {
         assertEq(npm.mintCount(), 1, "one mint via env path");
         assertEq(uint256(npm.initSqrtP()), sqrtP, "sqrtP parsed from env");
         (,,,,, uint256 a0, uint256 a1,,, address rcpt,) = npm.lastMint();
-        (uint256 e0, uint256 e1) = address(obol) < address(scry) ? (OBOL_BASE, OBOL_QUOTE) : (OBOL_QUOTE, OBOL_BASE);
+        (uint256 e0, uint256 e1) = address(obol) < address(reserve) ? (OBOL_BASE, OBOL_QUOTE) : (OBOL_QUOTE, OBOL_BASE);
         assertEq(a0, e0, "amount0 parsed + sorted from env");
         assertEq(a1, e1, "amount1 parsed + sorted from env");
         assertEq(rcpt, operator, "LP_RECIPIENT parsed from env");

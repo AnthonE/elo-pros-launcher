@@ -2,42 +2,47 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../src/ScryCurve.sol";
+import "../src/EloCurve.sol";
 
 /// Deploy a title's launch curve — the two-way venue that exists before the
 /// pool does.
 ///
-/// ⚠ EVERY FIGURE HERE IS WELDED AT CONSTRUCTION. `ScryCurve` has no owner, no
+/// ⚠ THE FIGURES ARE STAGED IN contracts/curve.env.example (added 2026-08-18).
+///   Every CURVE_* variable was typed from this header before that existed.
+///
+/// ⚠ EVERY FIGURE HERE IS WELDED AT CONSTRUCTION. `EloCurve` has no owner, no
 /// steward and no setter of any kind. There is nothing to fix afterwards: a
 /// wrong number is a redeploy, and a redeploy after anyone has bought is a
 /// second market in the same coin. Read the preview this script prints before
 /// you broadcast, not after.
 ///
 ///   export CURVE_COIN=0x...        # the game's coin
-///   export CURVE_QUOTE=0x...       # SCRY. GATES.md 2.1 - and only SCRY
+///   export CURVE_QUOTE=0x...       # ELO. GATES.md 2.1 - the RESERVE, and only
+///                                  #   the reserve. NOT SCRY: that is the retired
+///                                  #   one (ONE-SHOT.md 2) and this is welded.
 ///   export CURVE_NPM=0x...         # canonical v3 NonfungiblePositionManager
 ///   export CURVE_CREATOR_FEES=0x...   # the studio's cut of trading fees
 ///   export CURVE_PROTOCOL_FEES=0x...  # ours
-///   export CURVE_QUOTE_POOL_FEES=0x...# the SCRY leg, once graduated
+///   export CURVE_QUOTE_POOL_FEES=0x...# the ELO leg, once graduated
 ///   export CURVE_COIN_POOL_FEES=0x... # the coin leg - the game's own splitter
 ///   export CURVE_VIRTUAL_QUOTE=...    # sets the OPENING price
 ///   export CURVE_ALLOC=...            # coin the curve may sell
 ///   export CURVE_POOL_ALLOC=...       # coin held back, becomes the pool
-///   export CURVE_THRESHOLD=...        # SCRY raised at which it closes
-///   # export CURVE_POOL_FEE=10000     # the SCRY/coin tier. Default 1%
+///   export CURVE_THRESHOLD=...        # ELO raised at which it closes
+///   # export CURVE_POOL_FEE=10000     # the ELO/coin tier. Default 1%
 ///   # export CURVE_FEE_BPS=100        # trading fee. Default 1%
-///   # export CURVE_PROTOCOL_SHARE=3000# our share OF that fee. Default 30%
+///   # export CURVE_PROTOCOL_SHARE=1000# our share OF that fee. Default 10%
 ///   # export CURVE_MAX_GAP_BPS=500    # refuse if the two prices differ by more
 ///
 /// THE ORDER, and only step 1 is irreversible:
 ///
-///   1. this script                                   -> ScryCurve
+///   1. this script                                   -> EloCurve
 ///   2. transfer CURVE_ALLOC + CURVE_POOL_ALLOC of the
 ///      coin to it                                    (FUNDED, never minted)
 ///   3. anyone calls arm()                            -> it trades
 ///   4. buys accumulate; anyone calls graduate() once closed
 ///   5. optionally DeployLaunch + DeployGameTicket for the copy sale, which
-///      pairs INTO the pool the curve opened. `ScryLaunchpad.seed()` works
+///      pairs INTO the pool the curve opened. `EloLaunchpad.seed()` works
 ///      unchanged after graduation: `createAndInitializePoolIfNecessary`
 ///      returns the existing pool and the vault mints its own position at the
 ///      live price, so the `sqrtPriceX96` argument is ignored.
@@ -50,7 +55,7 @@ import "../src/ScryCurve.sol";
 /// refuses over `CURVE_MAX_GAP_BPS`, because that check is worthless after the
 /// broadcast — nothing here has a setter.
 ///
-/// ⚠ NOT FORK-TESTED. `ScryCurve`'s suite runs against MOCK v3. It pins this
+/// ⚠ NOT FORK-TESTED. `EloCurve`'s suite runs against MOCK v3. It pins this
 /// contract's own arithmetic and its exits; it proves nothing about tick math,
 /// the ratio a real mint consumes, or what `collect` returns. Fork against the
 /// canonical addresses before this holds a wei.
@@ -71,11 +76,11 @@ contract DeployCurve is Script {
 
         uint256 poolFee = vm.envOr("CURVE_POOL_FEE", uint256(10000));
         uint256 feeBps = vm.envOr("CURVE_FEE_BPS", uint256(100));
-        uint256 protocolShare = vm.envOr("CURVE_PROTOCOL_SHARE", uint256(3000));
+        uint256 protocolShare = vm.envOr("CURVE_PROTOCOL_SHARE", uint256(1000));
         uint256 maxGapBps = vm.envOr("CURVE_MAX_GAP_BPS", uint256(500));
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        ScryCurve curve = new ScryCurve(
+        EloCurve curve = new EloCurve(
             IERC20(coin),
             IERC20(quote),
             ICurvePositionManager(npm),
@@ -95,12 +100,12 @@ contract DeployCurve is Script {
 
         (uint256 closePrice, uint256 openPrice, uint256 coinLeft) = curve.graduationPreview();
 
-        console2.log("ScryCurve", address(curve));
-        console2.log("  quote (SCRY)", quote);
+        console2.log("EloCurve", address(curve));
+        console2.log("  quote (the reserve - ELO)", quote);
         console2.log("  coin", coin);
-        console2.log("  opening price, scry per coin x1e18", (virtualQuote * 1e18) / curveAlloc);
-        console2.log("  curve closes at, scry per coin x1e18", closePrice);
-        console2.log("  pool opens at,   scry per coin x1e18", openPrice);
+        console2.log("  opening price, reserve per coin x1e18", (virtualQuote * 1e18) / curveAlloc);
+        console2.log("  curve closes at, reserve per coin x1e18", closePrice);
+        console2.log("  pool opens at,   reserve per coin x1e18", openPrice);
         console2.log("  coin left on the curve at close (BURNED at graduation)", coinLeft);
         console2.log("  fund it with", curveAlloc + poolAlloc);
         console2.log("  NEXT: transfer that coin here, then anyone calls arm()");

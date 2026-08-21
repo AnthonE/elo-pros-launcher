@@ -1,13 +1,13 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-12
-about: "the desktop client — the 2003 Steam client ripped and pointed at scry: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
+updated: 2026-08-15
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
 ---
 
 # LAUNCHER.md — the desktop client
 
-> Operator, 2026-08-04: *"Im on Ubuntu, make me a steam launcher rip for scry…
+> Operator, 2026-08-04: *"Im on Ubuntu, make me a steam launcher rip for elo…
 > and plan for Gates to work with it. i plan a desktop build soon."*
 >
 > The client is **built, packaged and downloadable** — `launcher-rs/`, Rust,
@@ -30,15 +30,15 @@ about: "the desktop client — the 2003 Steam client ripped and pointed at scry:
 
 ## 0 · One screen
 
-A desktop program that opens Scryward's games, browses the curated catalog,
+A desktop program that opens Elo's games, browses the curated catalog,
 shows what a wallet holds, reads the hive, watches the origin and the chain,
 and — when a title publishes one — installs, hash-verifies and starts a native
 build.
 
-    sudo apt install ./scry_0.1.0_amd64.deb          # from /download.html
-    scry-gui                                          # or `scry` for the CLI
+    sudo apt install ./elo_0.1.0_amd64.deb          # from /download.html
+    elo-gui                                          # or `elo` for the CLI
 
-...on Windows, unzip `scry-<v>-windows-x86_64.zip` and run `scry-gui.exe` —
+...on Windows, unzip `elo-<v>-windows-x86_64.zip` and run `elo-gui.exe` —
 no installer and no redistributable. Or from a checkout:
 
     cd launcher-rs && cargo build --release
@@ -53,7 +53,7 @@ says so in bold.
 
 ⚠ **The published sha256 is a weaker claim than reproducibility, and it says
 so.** `launcher-rs/build_release.py` can only pin the container; rustc writes
-its build path into the binary, so the hash answers *"did I get the bytes scry
+its build path into the binary, so the hash answers *"did I get the bytes Elo
 published"* and never *"can I rebuild them"*. A checksum sold as
 reproducibility that is not reproducible teaches a reader that checking is
 theatre.
@@ -76,7 +76,7 @@ one is the design.
 **The look is a rip, and it is sourced.** The chrome is the 2003/2004 client's
 olive, cross-checked against `resource/styles/steam.styles` in
 `ungstein/OG-Steam` — the same file the website's `--store-muted: #a0aa95`
-already came from (`SITE-PLATFORM.md` §14a). The *meaning* colours are scry's
+already came from (`SITE-PLATFORM.md` §14a). The *meaning* colours are Elo's
 and unchanged: a solid green fill is reserved for an act that moves money or a
 state armed on chain, gold marks in-build, and `test_launcher.py` fails on a
 Play button wearing green. That law is the website's (§14b); porting the skin
@@ -101,7 +101,7 @@ normally *for*, and each is refused.
    repair is to state the narrower thing rather than leave the sweeping one
    standing. What holds:
 
-   * **scry never sees a key.** `CLAUDE.md` invariant 7 is *we* hold none. A
+   * **We never see a key.** `CLAUDE.md` invariant 7 is *we* hold none. A
      local account is generated from the OS entropy pool on the holder's
      machine, encrypted with their passphrase, and transmitted nowhere.
    * **The settings file never holds key material.** It has no key-shaped
@@ -235,9 +235,9 @@ tested:
 version, because it changes what the client is:
 
 The launcher **may hold one key: an account you made on this machine, that
-scry never sees.** It cannot grow a hidden one — the settings file has no
+elo never sees.** It cannot grow a hidden one — the settings file has no
 key-shaped field, a hand-edited one is dropped on load, and crypto is confined
-to the vault by a test. The seam (`scry-broker::signer` + the vault) has five
+to the vault by a test. The seam (`elo-broker::signer` + the vault) has five
 backends:
 
 | setting | who holds the key | what happens |
@@ -259,7 +259,7 @@ rung: the launcher holds the key while unlocked, so its checks are a lint pass
 over its own intentions rather than a boundary, and every surface says so.
 `docs/client/SDK.md` §2a is the reasoning and the cost.
 
-**A game reaches it through the broker** (`launcher-rs/crates/scry-broker`), which is
+**A game reaches it through the broker** (`launcher-rs/crates/elo-broker`), which is
 Steam's local pipe ripped: the launcher serves a socket while it is open, and
 a game asks for identity and signatures instead of ever asking for a key.
 ⚠ That socket is **not** a security boundary against a process running as you;
@@ -268,9 +268,9 @@ whichever signer sits behind it. Consent is per game, per family, counted, and
 dies with the launcher — there is no "always allow".
 
 **The door is open whenever the window is, and there is no setting.**
-`scry-gui` binds it at startup and prints the endpoint; if the bind fails the
+`elo-gui` binds it at startup and prints the endpoint; if the bind fails the
 launcher still runs and games play anonymously. The CLI has no door at all —
-`scry` cannot serve one, so a headless box is not listening. Closing the
+`elo` cannot serve one, so a headless box is not listening. Closing the
 launcher closes it, and every consent grant dies with it.
 
 ⚠ **This paragraph said "off by default" until 2026-08-08 and that was never
@@ -309,7 +309,7 @@ and dormant; it is not Gates' path.
 `crates/client` is a native Bevy client, and `Gates/ci/depot.py` turns it into
 a depot: compile, stage, hash, write the index. It is one command and the
 output installs — measured on 2026-08-05, a depot went from
-`scry install gates` to a verified install on disk, and the digest computed by
+`elo install gates` to a verified install on disk, and the digest computed by
 the packager's own document, by the origin's response and by the client agreed
 exactly.
 
@@ -327,9 +327,9 @@ answering a narrower question than the one that matters.
 
 Three things that packager does NOT do, each on purpose:
 
-- **It does not compute the digest.** `scry digest` does. Gates implementing
+- **It does not compute the digest.** `elo digest` does. Gates implementing
   the number that gets notarized would be a second implementation of it, which
-  is invariant 3 with money attached. If `scry` is on PATH the packager shells
+  is invariant 3 with money attached. If `elo` is on PATH the packager shells
   out to it; otherwise it prints the command and stops.
 - **It does not publish.** It prints the two commands — an `rsync` and the
   one-line `published.json` — and performs neither.
@@ -373,7 +373,7 @@ hard stop for a player who was playing yesterday. So the order is fixed and it
 is the same shape as §6's: **the launcher that knows a placeholder ships first,
 and the depot that uses it is published second.** Never the other way.
 
-`launcher-rs/crates/scry-depot/tests/gates.depot.example.json` is that file with
+`launcher-rs/crates/elo-depot/tests/gates.depot.example.json` is that file with
 every field filled, and `tests/rules.rs` parses it — checking every placeholder
 against `ARG_VARS` — so the shape cannot rot and a title copying from it cannot
 inherit a name no launcher fills.
@@ -385,7 +385,7 @@ browser build if one ever returns) is a delivery choice and never a fairness
 one, so the launcher does not have to care, and neither does the record.
 
 **And it can already sign, before any of that ships.** Gates links
-`sdk/rust/scry_overlay.rs` — one file, `std` only, no crates — and gets
+`sdk/rust/elo_overlay.rs` — one file, `std` only, no crates — and gets
 identity and signatures off the broker with no key anywhere in the game
 process. `sdk/test_sdk.py` compiles that client and drives a real broker with
 it, so the Rust half and the Python half cannot drift. `docs/client/SDK.md` §5 is
@@ -406,7 +406,7 @@ them — **the shard list is the game's to serve.** Until a title publishes one,
 the window names the field that would fill it rather than showing an empty
 grid, which is the same discipline every dark panel on the site follows.
 
-The shape (`scry-shardlist-v1`, and it is a **(knob)** until Gates has shards
+The shape (`elo-shardlist-v1`, and it is a **(knob)** until Gates has shards
 to list):
 
 ```json
@@ -419,14 +419,14 @@ Joining passes `addr` into the launch args as `{server}`. Every field but
 `id`, `name` and `addr` is optional, and an absent count draws `?` — never a
 `0`, which would make a busy shard read as empty.
 
-`scry servers <title>` is the same read from a terminal, and `--json` gives it
+`elo servers <title>` is the same read from a terminal, and `--json` gives it
 back machine-readable with each row's join link.
 
 ### Where a title publishes it — `GET /api/launcher/servers/{slug}`
 
 **A game may serve its list anywhere; this origin will also hold it, because
 the url games were told to publish at never existed.** `Gates/ci/shardlist.py`
-printed `https://scry.moreright.xyz/depot/<slug>/servers.json` and `/depot/`
+printed `https://elopros.com/depot/<slug>/servers.json` and `/depot/`
 is not a location here — depot bytes have always come through `launcher.py`
 — so the one thing a title was told to do could only have 404'd, which is the
 whole of why `servers.url` stayed null while a real shard was up.
@@ -464,7 +464,7 @@ invent, cache or rank anything — it asks each shard about itself, exactly as i
 asks each title's origin about its list. Nothing is intermediated; everyone
 measures. A shard that does not answer keeps whatever the row said.
 
-## 6b · Join links — `scry://join/<title>/<host:port>`
+## 6b · Join links — `elo://join/<title>/<host:port>`
 
 **A friend pastes a link and the game comes up on the shard they are standing
 on.** The launcher owns the scheme rather than the game, and every reason is
@@ -476,10 +476,10 @@ install it. A game-owned scheme cannot: the game is what is missing.
 
 | door | what happens |
 |---|---|
-| `scry join <link>` | resolves it and becomes `play <slug> --server <addr>` — not a second launch path, so playtime, presence and session records cannot drift |
-| `scry <link>` | the desktop hands a handler its url as `argv[1]`; it is rewritten to `join` before dispatch, so the clicked path and the typed one are one path |
+| `elo join <link>` | resolves it and becomes `play <slug> --server <addr>` — not a second launch path, so playtime, presence and session records cannot drift |
+| `elo <link>` | the desktop hands a handler its url as `argv[1]`; it is rewritten to `join` before dispatch, so the clicked path and the typed one are one path |
 | the Servers window | **Invite** copies the canonical link for a row |
-| Gates itself | parses `scry://join/gates/…` and `gates://host:port` on its argv, for a url handed straight to the game |
+| Gates itself | parses `elo://join/gates/…` and `gates://host:port` on its argv, for a url handed straight to the game |
 
 **A link may name a title and an address and nothing else.** Not an identity,
 not a token, not a flag, not a path — anything past the address is *refused*,
@@ -491,16 +491,16 @@ manifest slug's character class (it reaches a url and an install directory),
 and the address gets the same shape check a typed one does.
 
 **Registering the scheme is packaging, not code.** The `.deb` ships a hidden
-`scry-join.desktop` carrying `MimeType=x-scheme-handler/scry;` and a `postinst`
+`elo-join.desktop` carrying `MimeType=x-scheme-handler/elo;` and a `postinst`
 that runs `update-desktop-database` — without that rebuild the handler is
 installed, correct, and never called. From a tarball, by hand:
 
 ```sh
-xdg-mime default scry-join.desktop x-scheme-handler/scry
+xdg-mime default elo-join.desktop x-scheme-handler/elo
 ```
 
 Windows has no equivalent yet; it is a registry key under
-`HKCU\Software\Classes\scry` and nothing writes it.
+`HKCU\Software\Classes\elo` and nothing writes it.
 
 ## 7 · What is dark, and why
 
@@ -561,12 +561,12 @@ Twelve of them, browser-native, and the client opens them.
 | # | deliverable | state | operator act? |
 |---|---|---|---|
 | 1 | a Gates depot for `linux-x86_64` | **BUILDABLE, AND DRIVEN END TO END 2026-08-06; PUBLISHED 2026-08-10** — `Gates/ci/depot.py` compiles the Bevy client, stages it, hashes it and writes the depot index. Run it and you get a real one; row 1b is the publish, and it has happened. §8b is what the full chain actually did | done |
-| 1b | publish that depot | **DONE 2026-08-10 — and it was two, not one.** `linux-x86_64` `0.1.0-g0c487ad97` (installed and verified end to end) and `win-x86_64` `0.1.0-g38e8bf038`, both staged into the origin's depot root with `published.json` naming them. ⚠ **Publishing `win-x86_64` did nothing visible at first**: the manifest fills native SLOTS that already exist and never creates a row, so the depot served fine over HTTP, `scry games` was happy, and the manifest kept showing one row — found by reading the rendered manifest instead of stopping at a 200. Gates' manifest carries both rows now | done |
-| 2 | notarize the depot digests | **DONE 2026-08-10 — both of them**, on `ScryNotary` `0x0C15fA78…` under label `gates-build`: `linux-x86_64` `0x50fef181…8fbb`, `win-x86_64` `0xdf98de59…45cc`, committed by the deployer wallet and recorded in `data/launcher/gates.manifest.json` §notary. `scry digest <depot>` recomputes either from the depot file, and anyone can look it up | done |
-| 3 | `scry-shardlist-v1` served by Gates | shape drafted here, unbuilt | the shape is a **(knob)** |
-| 4 | serve manifests off the origin (`/api/launcher/manifests`) | **BUILT 2026-08-05, REACHABLE 2026-08-06** — `meter/launcher.py`. Manifests, depot indexes and depot bytes, so `scry install gates` is a slug and not a url. §11 is the design. ⚠ It read *"DONE"* for a day while answering **404 to every client** — §11e is what happened and why no gate saw it | no |
-| 5b | the NATIVE client, packaged for **Linux and Windows** | **DONE 2026-08-06** — `launcher-rs/build_release.py` writes `scry_<v>_amd64.deb`, `scry-<v>-linux-x86_64.tar.gz` and `scry-<v>-windows-x86_64.zip`. §10b9 is what it does and the two defects building it found | no |
-| 6 | **the ticket flow** — a sold title, end to end | **BUILT 2026-08-08** (`TICKET.md` is the lane's record): `scry entitle <slug>` does the whole dance in one command — the exact text fetched from the origin, one passphrase prompt against the local account, the day grant cached in `grants.json` beside the games, and install/update pick it up with no flags. `SCRY_GRANT` set by hand still wins, and the grant header rides only to the configured origin (`tests/grant.rs`). ⚠ the depot gate itself ships **OFF** (`SCRY_TICKET_GATE_DEPOT` — the servers are the wall, operator 2026-08-08), so this path idles until a deployment arms it; nothing else changes for free titles | arming the gate is an env |
+| 1b | publish that depot | **DONE 2026-08-10 — and it was two, not one.** `linux-x86_64` `0.1.0-g0c487ad97` (installed and verified end to end) and `win-x86_64` `0.1.0-g38e8bf038`, both staged into the origin's depot root with `published.json` naming them. ⚠ **Publishing `win-x86_64` did nothing visible at first**: the manifest fills native SLOTS that already exist and never creates a row, so the depot served fine over HTTP, `elo games` was happy, and the manifest kept showing one row — found by reading the rendered manifest instead of stopping at a 200. Gates' manifest carries both rows now | done |
+| 2 | notarize the depot digests | **DONE 2026-08-10 — both of them**, on `ScryNotary` `0x0C15fA78…` under label `gates-build`: `linux-x86_64` `0x50fef181…8fbb`, `win-x86_64` `0xdf98de59…45cc`, committed by the deployer wallet and recorded in `data/launcher/gates.manifest.json` §notary. `elo digest <depot>` recomputes either from the depot file, and anyone can look it up | done |
+| 3 | `elo-shardlist-v1` served by Gates | shape drafted here, unbuilt | the shape is a **(knob)** |
+| 4 | serve manifests off the origin (`/api/launcher/manifests`) | **BUILT 2026-08-05, REACHABLE 2026-08-06** — `meter/launcher.py`. Manifests, depot indexes and depot bytes, so `elo install gates` is a slug and not a url. §11 is the design. ⚠ It read *"DONE"* for a day while answering **404 to every client** — §11e is what happened and why no gate saw it | no |
+| 5b | the NATIVE client, packaged for **Linux and Windows** | **DONE 2026-08-06** — `launcher-rs/build_release.py` writes `elo_<v>_amd64.deb`, `elo-<v>-linux-x86_64.tar.gz` and `elo-<v>-windows-x86_64.zip`. §10b9 is what it does and the two defects building it found | no |
+| 6 | **the ticket flow** — a sold title, end to end | **BUILT 2026-08-08** (`TICKET.md` is the lane's record): `elo entitle <slug>` does the whole dance in one command — the exact text fetched from the origin, one passphrase prompt against the local account, the day grant cached in `grants.json` beside the games, and install/update pick it up with no flags. `ELO_GRANT` set by hand still wins, and the grant header rides only to the configured origin (`tests/grant.rs`). ⚠ the depot gate itself ships **OFF** (`SCRY_TICKET_GATE_DEPOT` — the servers are the wall, operator 2026-08-08), so this path idles until a deployment arms it; nothing else changes for free titles | arming the gate is an env |
 | — | macOS | the platform enum has the row; nobody has built it | later |
 | — | Windows and macOS depots | the platform enum has the rows | later |
 | — | delta patching | **the DOWNLOAD half is built and the UPLOAD half is one rsync flag — §8d.** What stays unbuilt is *sub-file* delta, which only earns its machinery once a single pak is big enough that rewriting it whole is the cost | later, and only if a build gets big enough to earn it |
@@ -649,7 +649,7 @@ pixels did.
 | notices | an install records its `depot_digest`; stale is that disagreeing with the published depot's |
 | keeps builds side by side | `<games>/<slug>/<build>/`, so a failed patch is never an uninstalled game. `prune` is a separate act |
 | **downloads only what changed** | and needs no delta format — see below |
-| never lies about being current | `UpdateState::Unknown` is its own arm; `scry status` exits 3 for unknown, 10 for stale |
+| never lies about being current | `UpdateState::Unknown` is its own arm; `elo status` exits 3 for unknown, 10 for stale |
 
 **The delta falls out of content addressing.** Every depot file is identified
 by sha256, so a file that did not change between two builds *is the same file*
@@ -683,7 +683,7 @@ different answer — §8d.
 `test_launcher.py` covers the install *logic* well, but it injects `opener=`,
 so `_download` never faced real HTTP and no real binary was ever launched.
 That was the highest-risk untested path on the critical path for every native
-title. `launcher-rs/crates/scry-launcher/tests/transport.rs` stands up an
+title. `launcher-rs/crates/elo-launcher/tests/transport.rs` stands up an
 actual TCP server and covers install-over-the-wire, a truncated body, a 404, a
 5xx, an unreachable origin, a redirect, launching a real executable with argv
 and `LD_LIBRARY_PATH` applied, and an update that fetches only what changed.
@@ -694,7 +694,7 @@ and `LD_LIBRARY_PATH` applied, and an update that fetches only what changed.
    `HTTP_PROXY` and applies them to everything — so a client on a proxied
    network would tunnel `--host http://127.0.0.1:3600`, a LAN depot mirror,
    and its own tests. Worse, the proxy *answers* for a dead port, which
-   defeats `reachable` one layer below §2. `scry-net/src/proxy.rs` picks the
+   defeats `reachable` one layer below §2. `elo-net/src/proxy.rs` picks the
    agent per request.
 2. **`play` started the oldest installed build.** Builds sort by name and a
    title can have several installed, so taking the first match ran `0.1.0`
@@ -710,7 +710,7 @@ is not Python any more. `CHANGELOG.md` carries the measurements.
 
 ### 10b3 · The toolkit decision, in one line
 
-`crates/scry-ui` draws under FLTK and the binary budget held. Anything that
+`crates/elo-ui` draws under FLTK and the binary budget held. Anything that
 would add a runtime dependency on the player's machine is refused here — that is
 the constraint the toolkit was chosen against, and it outlives the choice.
 
@@ -719,14 +719,14 @@ the constraint the toolkit was chosen against, and it outlives the choice.
 > Operator, 2026-08-06: *"get us a pure rust launcher building on windows and
 > ubuntu linux"*.
 
-**`crates/scry-broker` is `broker.py` ported, wire unchanged.** The vocabulary
+**`crates/elo-broker` is `broker.py` ported, wire unchanged.** The vocabulary
 is the same seven verbs, fields are still allowlisted per verb, an unknown
 field is still a refusal rather than an ignore, and every verb still waits for
 `hello` to name the game. No new dependency: the wire is newline JSON over a
 local stream and both halves are in `std` plus the `serde_json` already here.
 
 **The test that says no game broke.** `tests/sdk_parity.rs` compiles
-`sdk/rust/scry_overlay.rs` — the file Gates vendors byte-for-byte under a
+`sdk/rust/elo_overlay.rs` — the file Gates vendors byte-for-byte under a
 sha256 pin — as a module, and drives it against this broker over a real socket.
 Handshake, identity, a signature, and a player's refusal arriving *as a
 refusal* rather than as a transport error. `sdk/test_sdk.py` still drives the
@@ -750,10 +750,10 @@ Ubuntu and Windows both build, and the Windows half is not a type-check —
 ⚠ The Windows artifact is **cross-compiled and has never been run on Windows**,
 and every surface that offers it says so.
 
-### 10b6 · `scry-gui` is the program
+### 10b6 · `elo-gui` is the program
 
 Until this binary existed there was a CLI, a window *library*, and no launcher.
-`crates/scry-ui/src/bin/scry-gui.rs` opens the menu, reads the catalog, and
+`crates/elo-ui/src/bin/elo-gui.rs` opens the menu, reads the catalog, and
 binds the game door's socket at startup — always, dying with the window (§4).
 
 ### 10b7 · Six windows, and no dead buttons
@@ -770,8 +770,8 @@ behind it renders its own dark state and says why, rather than an empty frame.
 
 > Operator, 2026-08-06: *"don't hand roll anything but yea do what we can."*
 
-**`crates/scry-vault` is the local account, and it is the only crate in the
-workspace that holds a key.** That split is the design: `scry-broker::signer`
+**`crates/elo-vault` is the local account, and it is the only crate in the
+workspace that holds a key.** That split is the design: `elo-broker::signer`
 stays keyless *by construction* and its test keeps asserting so against the
 source, which would have had to become a per-backend scan if `LocalSigner` had
 landed beside the other four. One crate holds keys and every other crate
@@ -845,7 +845,7 @@ version bump made with the change goes red until the release runs.
 
 **The `.deb` also furnishes the desktop it lands on.** The menu icon is
 the site's green orb — one file, compiled into every window the client opens
-(`crates/scry-ui/assets/orb.svg`, `windows::mark`) and byte-welded to
+(`crates/elo-ui/assets/orb.svg`, `windows::mark`) and byte-welded to
 `watchtower/favicon.svg` by `build_release.py --check`, so the dock, the menu
 and the browser tab cannot show three different marks. An AppStream metainfo
 file is what GNOME Software / KDE Discover render an installed program's page
@@ -909,7 +909,7 @@ claimed name in the clothes of a checked one.
 `run.py` starts a process and forgets it — no running state, no stop, no
 playtime, which is what Steam's whole in-game presence layer sits on.
 
-**Playtime is only real if something watched the process.** So `scry play`
+**Playtime is only real if something watched the process.** So `elo play`
 supervises by default and `--detach` is the exception, and a session has three
 shapes that are not interchangeable: *supervised and finished* (measured, and
 the only one that counts), *running*, and *detached* (we know it began and
@@ -935,7 +935,7 @@ WebSocket**, and NIP-42 AUTH. `publish` returns only when a relay ruled `true`.
 **The voice is not the wallet, and that is the whole design.** Nostr is
 schnorr; the signer ladder is ECDSA. A voice **cannot move money** — no
 balance, no transaction, nothing on chain, and `CLAUDE.md` invariant 7 is
-untouched because scry never sees it. It **can speak as you**. At rest it is a
+untouched because we never see it. It **can speak as you**. At rest it is a
 file at 0600 rather than an encrypted keystore, and every surface says so:
 `vault.py` wraps the *wallet* in scrypt because that key holds money and is
 used rarely, while a chat key is used on every message and a passphrase per
@@ -951,7 +951,7 @@ saw it.
 
 ### 10g · The MCP face
 
-`scry mcp` is the other half of *no plugin loader* (`SENTENCES.md` 2026-08-05):
+`elo mcp` is the other half of *no plugin loader* (`SENTENCES.md` 2026-08-05):
 **the user's own harness is the mod.** Read-only by construction — no install,
 no play, no speaking, because an agent that can install software or post as you
 without a human act is a different product. One dispatcher tool with a `what=`
@@ -984,7 +984,7 @@ family.
 
 **The client had three name rules and now has one.** A hive message's `who`, a
 kind:0 `display`, and a bare npub were each decided at the point of rendering.
-`scry-hive/src/who.rs` is the single resolver over `GET /api/who`, which takes
+`elo-hive/src/who.rs` is the single resolver over `GET /api/who`, which takes
 a wallet, an npub, a vow id or a sworn name — and `Message::speaker()` and
 `short_npub()` are both **deleted**, because a second place that decides what
 a name is, is the whole problem in miniature.
@@ -1012,8 +1012,8 @@ elements are mud at tray size — checked by rendering and looking, not assumed.
 ### 10k · The account door, and window callbacks
 
 The account had no door and the windows had no callbacks — three findings, one
-cause. Both are closed; `scry account new` generates a secret locally and
-`scry-vault` writes it as an encrypted V3 keystore (§10b8, and §1's narrowing
+cause. Both are closed; `elo account new` generates a secret locally and
+`elo-vault` writes it as an encrypted V3 keystore (§10b8, and §1's narrowing
 is what that fact is pinned against).
 
 ### 10l · Who is allowed to submit a game
@@ -1025,11 +1025,11 @@ string somebody typed, and nothing signed a manifest. A depot digest answers
 **what** you got and says nothing about **who** published it. Integrity and
 authenticity are different questions and only one was answered.
 
-`scry-depot/src/publisher.rs` answers the other. A publisher signs a fixed
+`elo-depot/src/publisher.rs` answers the other. A publisher signs a fixed
 statement with an Ethereum key:
 
 ```text
-scry-manifest-v1
+elo-manifest-v1
 slug:gates
 name:Gates
 publisher:scryworks
@@ -1037,7 +1037,7 @@ repo:https://github.com/AnthonE/Gates
 source_required:true
 ```
 
-`scry publisher <title> --statement` prints those exact bytes and `scry account
+`elo publisher <title> --statement` prints those exact bytes and `elo account
 sign` signs them, so the signable form is one anybody can produce — **a verifier
 whose signature nobody could generate would be a lock with no key cut for it.**
 
@@ -1060,7 +1060,7 @@ Three decisions worth keeping:
   like it had.
 
 ⚠ **Unsigned is the expected state and is not a finding.** No manifest carries a
-signature today, so `scry games` says nothing for an unsigned title and shouts
+signature today, so `elo games` says nothing for an unsigned title and shouts
 only for a **broken** one — printing "unsigned" against every row would train a
 reader to skim the one line that will ever matter. A stripped signature is
 `Malformed`, never `Unsigned`, because half a signature is what tampering
@@ -1094,7 +1094,7 @@ text cannot mint authority.
 server, and `protocol::prove_message` composes:
 
 ```text
-scry prove
+elo prove
 game:gates
 server:shard-3.gates.example
 nonce:8f14e45fceea167a
@@ -1129,7 +1129,7 @@ SDK over a real socket to a host holding a real key, recomputes the message the
 way a server must, `ecrecover`s it, and checks the address — then asserts a
 **different nonce** and a **different game** do NOT verify, which is what stops
 a captured proof being a skeleton key or one title's proof admitting a player to
-another. The CLI's `scry prove` builds the same string through the same
+another. The CLI's `elo prove` builds the same string through the same
 function, so an agent never hand-assembles it.
 
 `signer_name` now reports `local` when an account exists. It said `none` while
@@ -1140,8 +1140,8 @@ function, so an agent never hand-assembles it.
 
 **`sign` was the last verb the client could not answer**, and §10k had named
 the window as the thing standing in the way rather than as a missing feature.
-It is built: `scry-ui/src/consent.rs` is the crossing, `windows::consent` draws
-it, `wiring::serve_consent` answers it, and `scry-gui`'s `Host::sign` now signs.
+It is built: `elo-ui/src/consent.rs` is the crossing, `windows::consent` draws
+it, `wiring::serve_consent` answers it, and `elo-gui`'s `Host::sign` now signs.
 
 **The problem was a thread, not a dialog.** The game door runs on its own
 thread — it has to, `prove` is served from there while a player uses the
@@ -1184,7 +1184,7 @@ Four decisions worth keeping:
   by guessing at the window manager.
 
 ⚠ **`consent::one_line` is an injection guard and not tidying.** An FLTK label
-breaks on `\n`, so a `why` of `"settling\n\n✓ already approved by scry"` draws
+breaks on `\n`, so a `why` of `"settling\n\n✓ already approved by Elo"` draws
 two lines the launcher never wrote, in the launcher's own window, under the
 launcher's own words. That is exactly what `check_prove_field` refuses for
 `prove`, arriving through the one field a game still fills in on this path.
@@ -1211,13 +1211,13 @@ back to the machine's own address. Only the human is stood in for.
 hive reads" and each line of that was retired by §10b6–§10b9 without the list
 being rewritten — which is exactly the failure `CLAUDE.md` warns about, a note
 that disagrees with a measurement. Derive it instead of reading it:
-`cd launcher-rs && cargo test --workspace`, then `scry check`.
+`cd launcher-rs && cargo test --workspace`, then `elo check`.
 
 **Nothing is Python-only any more.** The desktop client that was
 (2026-08-07: *"delete the python launcher we dont use it anymore"*) is gone, and
 with it the split between a client that could do Windows and one that could
 not. What is still Python is the **origin** (`meter/`) and the **SDK client a
-Python game or agent harness links** (`sdk/python/scry_overlay.py`) — neither
+Python game or agent harness links** (`sdk/python/elo_overlay.py`) — neither
 is a launcher.
 
 The two clients share the receipt format on purpose, so an install made by one
@@ -1225,7 +1225,7 @@ is readable by the other.
 
 ## 11 · The origin's half — how a player finds a game at all
 
-> Operator, 2026-08-05: *"can we setup the scry launcher to support Gates? and
+> Operator, 2026-08-05: *"can we setup the elo launcher to support Gates? and
 > I guess the backend of the site? … make it a real downloader?"*
 
 Everything above described a client that could install a build **if you already
@@ -1241,7 +1241,7 @@ GET /api/launcher/depot/{slug}/{build}/files/{path}   the bytes
 GET /api/launcher/servers/{slug}                      the title's shard list
 ```
 
-So `scry install gates` works, and `scry games` says what there is to install.
+So `elo install gates` works, and `elo games` says what there is to install.
 
 ### 11a · Four rules, each of them a refusal
 
@@ -1256,7 +1256,7 @@ whole document, so re-serialising it — even to prettier JSON — changes the
 number a player recomputes and looks up on chain. The origin therefore never
 edits a depot on the way out. The publisher bakes `root` at package time and we
 hand over exactly the bytes they wrote. *(Measured 2026-08-05: the digest off
-the packager, off the origin's response, and out of `scry install` are one
+the packager, off the origin's response, and out of `elo install` are one
 string. ⚠ Read the scope — that run drove the **app**, and on 2026-08-05 the
 app was not what the internet could reach. It says the digest does not drift
 through this code; it never said a player could fetch it. §11e.)*
@@ -1365,7 +1365,8 @@ reached at `/api/tape`, and `smoke_test.py`'s own usage line says *"local (no
 
 Measured against the origin the day after: `/api/tape` 200, `/api/launcher`
 404. Every other surface the repo names — `/api/health`, `/api/catalog`,
-`/api/crier`, `/api/errors`, `/api/pubkey` — 200. One file, one prefix, the
+`/api/errors`, `/api/pubkey` — 200. (`/api/crier` was in that list and
+was deleted 2026-08-15 with the town.) One file, one prefix, the
 whole desktop distribution path.
 
 **Why no gate saw it, and this is the transferable part: a test client never
@@ -1435,7 +1436,7 @@ manifest format already carries the rows (`win-x86_64`, `mac-arm64`,
 needs a format change. Re-derive any line below; none of it is typed from
 memory.
 
-**The good news is the expensive half.** `cargo check -p scry-depot --target
+**The good news is the expensive half.** `cargo check -p elo-depot --target
 x86_64-pc-windows-msvc` **passes clean today.** The depot core — install,
 verify, update, digest, launch, path safety — is the highest-risk code in the
 client (it writes files a stranger named) and it is already portable. The
@@ -1449,9 +1450,9 @@ What is genuinely owed, in descending cost:
 
 | # | what | why it is not free |
 |---|---|---|
-| ~~1~~ | ~~**the broker socket**~~ | **DONE for the native client 2026-08-06.** `scry-broker::transport` binds and accepts on `\\.\pipe\scry-launcher-<user>` under `cfg(windows)`, and both reference SDKs reach it: `scry_overlay.rs` via `WaitNamedPipeW`, `scry_overlay.py` by opening the pipe as a file, since CPython exposes no `AF_UNIX` there. ⚠ **This row claimed the SDK half was "vendored byte-for-byte into Gates and pinned by sha256" and that was not true for three days.** Gates' copy predated the named pipe entirely — it imported `std::os::unix::net` unconditionally, so a Windows build of that game could not compile, while its pin stayed green because a pin catches local edits and cannot see upstream move. Re-vendored 2026-08-09; the check that exists now is `sdk/SHA256SUMS` plus two gates in `sdk/test_sdk.py` (rustfmt-clean, and no unguarded unix import). `docs/client/SDK.md` §5a. Fix upstream and re-vendor, never patch in the game (`Gates/CLAUDE.md` §vendored). |
+| ~~1~~ | ~~**the broker socket**~~ | **DONE for the native client 2026-08-06.** `elo-broker::transport` binds and accepts on `\\.\pipe\elo-launcher-<user>` under `cfg(windows)`, and both reference SDKs reach it: `elo_overlay.rs` via `WaitNamedPipeW`, `elo_overlay.py` by opening the pipe as a file, since CPython exposes no `AF_UNIX` there. ⚠ **This row claimed the SDK half was "vendored byte-for-byte into Gates and pinned by sha256" and that was not true for three days.** Gates' copy predated the named pipe entirely — it imported `std::os::unix::net` unconditionally, so a Windows build of that game could not compile, while its pin stayed green because a pin catches local edits and cannot see upstream move. Re-vendored 2026-08-09; the check that exists now is `sdk/SHA256SUMS` plus two gates in `sdk/test_sdk.py` (rustfmt-clean, and no unguarded unix import). `docs/client/SDK.md` §5a. Fix upstream and re-vendor, never patch in the game (`Gates/CLAUDE.md` §vendored). |
 | ~~2~~ | ~~**`is_alive` lies on Windows**~~ | **DONE 2026-08-06.** It returned a flat `false` for every pid under `cfg(not(unix))`, so the client's `── running ──` block would have been permanently empty and looked like a correct reading of an idle machine — the repo's never-raises-reader trap with a `cfg` on it. Now `OpenProcess` + `GetExitCodeProcess`, declared as a raw `extern "system"` the way `kill` already is, so it costs no crate against the tree budget. ⚠ `STILL_ACTIVE` is 259, so a process exiting *with* code 259 reads as alive — the documented Win32 ambiguity, and it lands in the same display-only place the pid-recycle caveat does |
-| ~~3~~ | ~~**the paths**~~ | **DONE for the Rust client 2026-08-06**, and it was worse than "XDG". Both roots read `$HOME` and `unwrap_or_default()`'d it — unset is the *normal* state on Windows, where the variable is `USERPROFILE` — so the games root became `/.local/share/scry/games`, an absolute path at the filesystem root. Now `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%` on Windows, XDG on unix, and the working directory rather than `/` when there is nothing to read. `tests/origin.rs` pins it through the real binary with the environment actually cleared. |
+| ~~3~~ | ~~**the paths**~~ | **DONE for the Rust client 2026-08-06**, and it was worse than "XDG". Both roots read `$HOME` and `unwrap_or_default()`'d it — unset is the *normal* state on Windows, where the variable is `USERPROFILE` — so the games root became `/.local/share/elo/games`, an absolute path at the filesystem root. Now `%LOCALAPPDATA%`/`%APPDATA%`/`%USERPROFILE%` on Windows, XDG on unix, and the working directory rather than `/` when there is nothing to read. `tests/origin.rs` pins it through the real binary with the environment actually cleared. |
 | ~~4~~ | ~~**the packaging**~~ | **DONE 2026-08-06** — and it landed exactly as this row predicted. `launcher-rs/build_release.py` writes a `.zip` of two `.exe`s and that is the entire Windows installer story: no MSI, no redistributable, no registry. §10b9. |
 | 5 | **`requires.libs`** | `Gates/ci/depot.py` reads ELF `DT_NEEDED` via objdump/readelf. A PE build needs an import-table reader or an honest empty with a reason — it already returns `([], why)` when neither tool is present, so the shape is right |
 | 6 | **the executable bit** | `launch.rs` skips its `0o111` check off unix and `install.rs` no-ops `set_executable`. Correct on Windows, where `.exe` carries it — worth stating so nobody "fixes" it |
@@ -1464,8 +1465,8 @@ before the port does, and row 1 is owed either way.
 What is left in this table is row 5 and row 6's statement-not-fix.
 
 **How the Windows half is checked without a Windows box.** `cargo check -p
-scry-depot --target x86_64-pc-windows-msvc` type-checks the `cfg(windows)` arms
-including the new `is_alive`; `scry-launcher` cannot be cross-checked because
+elo-depot --target x86_64-pc-windows-msvc` type-checks the `cfg(windows)` arms
+including the new `is_alive`; `elo-launcher` cannot be cross-checked because
 `ring` (via `ureq`'s TLS) runs a C build script wanting MSVC's `lib.exe`, so
 its one `cfg(windows)` block is compiled in isolation with `rustc --target`
 instead. ⚠ **That is compilation, not execution** — nothing here has been *run*
@@ -1477,59 +1478,31 @@ on Windows, and a type-checked syscall is not a tested one.
 > we make it more compatible with linux ubuntu store things and windows store
 > type things if its worth it?"*
 
-### It replaces itself now — `scry self-update` (2026-08-15)
+### It does not replace itself, and that is the design
 
-> Operator, 2026-08-15: *"this downloader needs to update itself or have an
-> updater it can run."*
-
-That sentence reverses the ruling kept below, which stood from 2026-08-09 to
-2026-08-15. It is not repealed by pretending it was wrong: each objection it
-raised is answered by a named mechanism in `scry-launcher/src/selfup.rs`, and
-the one wall it defended still stands untouched.
-
-| the old objection | what answers it |
-|---|---|
-| *"its own signature policy"* | the artifact is verified against the sha256 the `/api/launcher` card publishes — read off the same `SHA256SUMS` a human is told to check. No hash on the card, no bytes near the disk: a row without one is refused **by name**, before the download |
-| *"its own rollback"* | the previous pair stays beside the new one as `scry.old` / `scry-gui.old` until the *next* self-update. Rolling back is one rename, and the report says so |
-| *"its own answer for dying mid-write"* | stage `<name>.new` whole and fsynced → smoke-run it (`help`, no network) → land it. On unix the current binary is hardlinked to `.old` first and the landing is one atomic rename, so no instant exists with no client at the path. Windows cannot rename onto an occupied name, so it gets two renames and a stated one-rename-wide gap |
-| *"the package manager owns this on Linux"* | where it really does, it still does: an install under `/usr/bin` (dpkg's) is never scribbled over — the `.deb` is downloaded, verified, and the one privileged command is printed for the holder. Exit **12** marks that half-done state; `dpkg -V scry` stays clean |
-
-What did **not** change: nothing updates unasked (`self-update` is a typed
-command with a y/N, `--yes` for scripts, `--dry-run` to look); `scry check`
-and the GUI stay *notices* — a command that reports on everything must not
-also change anything, and the window computes nothing; and **"we could not
-look" is never printed as "you are up to date"** — an unreachable origin exits
-**3** with the reason, the same code `scry status` uses. Both binaries move
-together or not at all (a CLI-only install updates the CLI and does not *gain*
-a window — an updater that adds programs has changed jobs), and the artifact
-is opened in memory only after its hash matched, by ~150 lines of gzip/tar/zip
-walking over `miniz_oxide` (+2 packages, 120 of the 122 budget — the
-workspace manifest carries the trade).
-
-`scry check` still says one of four things, never three — the middle one now
-names the act:
+`elo update <title>` updates a **game**. Nothing updated the **client** — and
+until now nothing even told you a newer one existed. `elo check` now asks the
+origin and says one of four things, never three:
 
 ```
 client      0.1.0 — current
 client      0.1.0 — 0.2.0 is published
-                    scry self-update takes it, or https://scry.moreright.xyz/download.html
+                    https://elopros.com/download.html
 client      0.1.0 — ahead of the origin's 0.1.0        (a local build)
 client      0.1.0 — could not ask: io: Connection refused
 ```
 
-`tests/selfupdate.rs` drives the real binary against a stub origin: the happy
-swap with the `.old` pair left behind, a tampered artifact refused with the
-install untouched, exit 3 on an unreachable origin, EOF at the prompt reading
-as no, and `--json` for the harnesses.
+The last is the one that matters. **"We could not look" is never printed as
+"you are up to date"** — the trap `elo-net` exists around, applied to the
+client's own version.
 
-### The ruling this replaced — kept, because its objections built the mechanism
-
-**A notice, not a self-update** *(2026-08-09 – 2026-08-15)*: a binary that
-rewrites itself is the one part of this client that would have to be trusted
-absolutely — its own signature policy, its own rollback, its own answer for
-dying mid-write; the package manager owns the job on Linux and does it better;
-on Windows nothing does. Every clause of that paragraph is now a row in the
-table above, which is what a good objection is for.
+**A notice, not a self-update, and this is a decision rather than a shortfall.**
+A binary that rewrites itself is the one part of this client that would have to
+be trusted absolutely: it needs its own signature policy, its own rollback, and
+its own answer for dying mid-write. §1's third rule says the client is never a
+source of truth, and a self-replacing binary is the shape that quietly becomes
+one. On Linux the package manager already owns that job and does it better.
+On Windows nothing does, which is the honest gap below.
 
 ⚠ **Two defects found writing this**, both of the same family — a fact typed in
 two places, where only the machine-readable one was wrong:
@@ -1541,8 +1514,8 @@ two places, where only the machine-readable one was wrong:
   from the published `SHA256SUMS`, and `test_launcher_api.py` §8 pins it —
   including that `0.10.0` sorts above `0.9.0`, and that a published version
   missing one artifact says so instead of advertising a path that 404s.
-- `scry check` probed a **hard-coded origin** while every other verb honours
-  `--host`, so `scry check --host <local>` reported on production and looked
+- `elo check` probed a **hard-coded origin** while every other verb honours
+  `--host`, so `elo check --host <local>` reported on production and looked
   healthy.
 
 ### The store question, and the wrinkle that decides it
@@ -1560,7 +1533,7 @@ not:
 | channel | what it buys | what it costs | verdict |
 |---|---|---|---|
 | **an apt repo on our own box** | `apt upgrade` — real auto-update on Ubuntu and Debian, owned by the OS | a GPG signing key, a `Release`/`Packages` index, one nginx `location`, and a `sources.list` line the player adds once. The `.deb` already exists and already declares its dependencies | **the one worth doing** |
-| **winget** | `winget install scry` / `winget upgrade` on Windows. No fee, no store account, no review board | a YAML manifest PR to `microsoft/winget-pkgs`, wanting a stable download url and a sha256 — both already published | **cheap, but see the blocker** |
+| **winget** | `winget install elo` / `winget upgrade` on Windows. No fee, no store account, no review board | a YAML manifest PR to `microsoft/winget-pkgs`, wanting a stable download url and a sha256 — both already published | **cheap, but see the blocker** |
 | **Flathub** | cross-distro Linux reach, arguably wider than Snap now | a manifest, review, and a sandbox that must be holed open (`--filesystem`, `--talk-name`) before the launcher can exec what it downloads | later, if Linux players ask |
 | **Snap / Ubuntu Store** | the Ubuntu surface, auto-updating by default | **`classic` confinement**, which is not self-serve — it needs a manual review request to the Snap store team, justified. A strict snap cannot exec an arbitrary downloaded binary at all | expensive for this shape |
 | **Microsoft Store (MSIX)** | discovery | a Partner Center account (paid), Authenticode signing, store review, and MSIX's own limits on child processes | not now |
@@ -1581,10 +1554,9 @@ not:
 
 1. **Run the Windows build.** It blocks every Windows channel and costs
    nothing but a machine.
-2. **The apt repo**, when a Linux population exists to auto-update. With
-   `scry self-update` covering the typed-command case on every platform, what
-   an apt repo still uniquely buys is *unattended* updating owned by the OS —
-   and it needs no third party's permission.
+2. **The apt repo**, when a Linux population exists to auto-update. It is the
+   only item here that delivers real self-updating, and it needs no third
+   party's permission.
 3. **winget**, once step 1 is done.
 4. **Snap / Flathub / MS Store** — only against a measured population asking
    for them. `CLAUDE.md`'s standing advice applies: prefer the thing that gets
@@ -1701,10 +1673,6 @@ well of empty olive where the game used to be.
 
 ⚠ **What this pass did not fix:** the install still blocks the UI thread
 (above), and a resized window's height is not remembered across a Refresh.
-(The block got a face on 2026-08-16: a download meter stands in for the row's
-status line while bytes land — `chrome::meter`, fed per quarter-megabyte chunk
-by `Net::fetch_with` and repainted from inside the hold — so the hold reads as
-the download it is. The thread is still held, and there is still no cancel.)
 
 ## Reading order
 
