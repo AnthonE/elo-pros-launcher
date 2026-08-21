@@ -5,8 +5,14 @@ import "forge-std/Script.sol";
 import "../src/ScryGameTicket.sol";
 
 /// Deploy one title's ticket — the copy, the licence, the buy step
-/// (`GATES.md` §4 rev. 2026-08-08; `SENTENCES.md` same date: $10 to start,
-/// paid in SCRY / ETH / USDG, half of every SCRY buy burns via the splitter).
+/// (`GATES.md` §4 rev. 2026-08-08: paid in SCRY / ETH / USDG, half of every
+/// SCRY buy burns via the splitter).
+///
+/// ⚠ THE PRICE IS THE DEV'S, AND THIS SCRIPT HAS NO OPINION ON IT. Every
+/// `TICKET_PRICE_*` below is unset by default, the deploy posts nothing when
+/// they are all unset, and `setPrices` can repost whatever the title wants
+/// afterwards. There is no platform figure to copy — the numbers in the
+/// comments below are shapes, not amounts.
 ///
 /// **One deployment per title.** The SCRY sink is the DEPLOYED ScryFeeSplitter
 /// — that is what makes "half burns" a posted split rather than a promise —
@@ -39,13 +45,14 @@ import "../src/ScryGameTicket.sol";
 ///   # `setMetadata(blurb, image)` after the broadcast; `image` takes any URI a
 ///   # wallet can resolve (ipfs://, data:, https://).
 ///   # export TICKET_BASE_URI=https://scry.moreright.xyz
-///   # the opening prices — post them in the same broadcast so the sale is
-///   # never live unpriced. Amounts are per-asset at the posted dollar figure;
-///   # derive them from the tape the day you broadcast, never from a doc:
-///   # export TICKET_PRICE_USD_CENTS=1000      # $10.00
-///   # export TICKET_PRICE_WEI=...             # $10 of ETH, in wei
-///   # export TICKET_PRICE_SCRY=...            # $10 of SCRY, 18 decimals
-///   # export TICKET_PRICE_USDG=10000000       # $10 of USDG (6 decimals)
+///   # the opening prices — the dev's own figure, whatever they want it to be,
+///   # posted in the same broadcast so the sale is never live unpriced. The
+///   # amounts are that one dollar figure priced per asset; derive them from
+///   # the tape the day you broadcast, never from a doc — including this one:
+///   # export TICKET_PRICE_USD_CENTS=<cents>   # the posted figure: 1234 = $12.34
+///   # export TICKET_PRICE_WEI=<wei>           # that figure in ETH, 18 decimals
+///   # export TICKET_PRICE_SCRY=<units>        # that figure in SCRY, 18 decimals
+///   # export TICKET_PRICE_USDG=<units>        # that figure in USDG, 6 decimals
 ///
 ///   forge script script/DeployGameTicket.s.sol --rpc-url $RPC --broadcast
 ///

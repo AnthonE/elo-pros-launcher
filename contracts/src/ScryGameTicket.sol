@@ -41,7 +41,16 @@ interface IScryTicketRenderer {
 ///
 ///         The price is posted in DOLLARS and paid over a RAIL — an asset the
 ///         owner has said this title accepts, at an amount the owner posted
-///         (`SENTENCES.md` 2026-08-08 — $10 to start; ETH, SCRY or USDG).
+///         (ETH, SCRY or USDG at deploy; anything else via `setRail`).
+///
+///         ⚠ THE FIGURE IS THE TITLE'S, NOT THE PLATFORM'S. There is no
+///         platform price, no default, no floor and no ceiling anywhere in this
+///         contract: `priceUsdCents` is born 0 and only ever holds what this
+///         title's owner passed to `setPrices`, which they may repost as often
+///         as they like. A dev charges what they want — a dollar, forty, or
+///         nothing at all — so no surface may state a price for a title
+///         without reading it back from that title's own deployment.
+///
 ///         There is no oracle on chain: the owner posts the dollar figure and
 ///         the amounts together, a rail at amount 0 is closed, and the meter's
 ///         card renders any drift between the posted amounts and the live tape
@@ -199,7 +208,10 @@ contract ScryGameTicket is ReentrancyGuard {
     address public renderer;
 
     // ── the posted price ─────────────────────────────────────────────────────
-    uint256 public priceUsdCents; // e.g. 1000 = $10.00 — informational, the posted claim
+    // Cents, so 1234 is $12.34 — whatever THIS title's owner posted, with no
+    // platform figure behind it. Informational: it is the posted claim, and
+    // what a buyer actually pays is the rail amount.
+    uint256 public priceUsdCents;
 
     // ── the rails — what this contract accepts, and for how much ─────────────
     //
