@@ -1,5 +1,4 @@
-# Scryward
-
+# Elo Pros
 **A game platform: a curated storefront with a launchpad under it.** A game
 lists, its coin launches, players buy copies, and the copy money becomes the
 coin's liquidity.
