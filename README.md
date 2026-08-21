@@ -145,6 +145,16 @@ A player pays once for a **copy of a game**. That payment mints the title's
 title's official servers. Resale royalty is **0 bps**, welded: sell your copy
 if you want to. The buyer also gets the game's coin at the sale price.
 
+**What a copy costs is the developer's to say, per title.** There is no
+platform price and nothing in the contracts holds one — no default, no floor,
+no ceiling. A title's ticket is born unpriced; its owner posts a dollar figure
+and the per-asset amounts with `setPrices`, reposts them whenever they like,
+and closes any rail by posting it at 0. A title with no ticket contract at all
+is simply free. So a copy costs whatever that title's dev decided this morning,
+and **the only place to read it is that title's own deployment** —
+`/api/ticket/{slug}` off chain, `priceUsdCents()` and `railInfo()` on chain.
+Any page quoting one number for the storefront is quoting a number nobody set.
+
 **Changed your mind? Sell the coin.** That is the whole refund mechanism —
 there is no refund window and no escrow, because the coin already is the
 refund. **You keep the copy either way**; selling the coin never takes the game

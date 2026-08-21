@@ -245,6 +245,19 @@ native build (`docs/client/LAUNCHER.md` §3). Games ship free for now — the bu
 lands when there is something worth charging for, and gating is net-new work
 rather than a switch (`SENTENCES.md` 2026-08-06).
 
+**And when you do charge, the number is yours.** We do not set a price, suggest
+one, or hold a default anywhere: your title's `ScryGameTicket` is born unpriced
+and only ever carries what you posted with `setPrices(usdCents, ethWei,
+scryWei, usdgUnits)` — a dollar figure and the amount per rail, reposted as
+often as you want, and any rail closed by posting it at 0. Curation is a hand
+act and pricing is not part of it: charge $2 or $60, run a sale for a weekend,
+or ship no ticket contract at all and stay free — the origin answers *free* in
+words for that last one, so it is a statement and not an absence. What that
+means for anything you build: **read the price, never assume it** —
+`/api/ticket/{slug}` off chain, `priceUsdCents()` and `railInfo()` on chain —
+because it is a per-title number that can change between two loads of your own
+store page.
+
 ---
 
 ## Reading order

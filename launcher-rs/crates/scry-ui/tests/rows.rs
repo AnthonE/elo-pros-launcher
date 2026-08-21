@@ -121,6 +121,12 @@ fn a_row_with_no_name_from_the_origin_is_titled_by_its_slug() {
 // Same rule as the Games rows above and the same reason: the sentence a row
 // prints and the button it offers have to agree, because the button is what a
 // player acts on.
+//
+// ⚠ The dollar figures below are per-fixture sample data and deliberately all
+// different. There is no house price: what a copy costs is the figure that
+// title's dev posted on its own ticket contract, this client only ever prints
+// what `/api/ticket/{slug}` handed it, and nothing here may test as if some
+// one number were the platform's.
 
 /// The one that costs money if it is wrong.
 ///
@@ -150,10 +156,10 @@ fn every_shelf_state_offers_the_control_its_sentence_implies() {
     // Free but nothing published for this platform: drawn, off, and named.
     assert_eq!(shelf(Price::Free, false, false).act(), Act::Unpublished);
     // Priced: the buy is a wallet signing, which happens in a browser.
-    assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, false).act(), Act::Buy);
+    assert_eq!(shelf(Price::Posted { line: "$14.99".into() }, true, false).act(), Act::Buy);
     // Already on this disk: never a second copy.
     assert_eq!(shelf(Price::Free, true, true).act(), Act::Installed);
-    assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, true).act(), Act::Installed);
+    assert_eq!(shelf(Price::Posted { line: "$3.50".into() }, true, true).act(), Act::Installed);
 }
 
 /// Only the one that cannot be pressed is drawn as unpressable, and the four
@@ -204,7 +210,7 @@ fn the_unpressable_shelf_control_does_not_ask_for_the_gold_outline() {
 /// pins the noun, because the old block is one paste away from coming back.
 #[test]
 fn the_shelf_names_the_copy_and_not_the_pass() {
-    for price in [Price::Free, Price::Posted { line: "$10.00, paid in ETH".into() },
+    for price in [Price::Free, Price::Posted { line: "$42.00, paid in ETH".into() },
                   Price::Unknown { why: "x".into() }] {
         let line = shelf(price, true, false).price_line();
         assert!(!line.to_lowercase().contains("pass"),

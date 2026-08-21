@@ -87,8 +87,11 @@ fn main() {
             shelf("gates", "Gates", GATES_BLURB, "live", true, false, Price::Free),
             shelf("barrow", "The Barrow", "a three-room delve — fight, sneak, or leave",
                   "in-build", false, false, Price::Free),
-            shelf("sold", "A Title With A Price", GATES_BLURB, "live", true, false,
-                  Price::Posted { line: "$10.00, paid in ETH".into() }),
+            // Sample data, and the figure is arbitrary on purpose: a price is
+            // whatever that title's dev posted, so a capture must not look
+            // like the storefront has one number in it.
+            shelf("sold", "A Title Its Dev Priced", GATES_BLURB, "live", true, false,
+                  Price::Posted { line: "$14.99, paid in ETH".into() }),
             shelf("dark", "A Title We Could Not Price", GATES_BLURB, "live", true, false,
                   Price::Unknown { why: "could not reach the origin".into() }),
             shelf("mine", "Already Installed", GATES_BLURB, "live", true, true, Price::Free),
