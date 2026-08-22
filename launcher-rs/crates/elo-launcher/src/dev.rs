@@ -33,7 +33,7 @@
 //! that to work, and adding one later changes nothing here.
 
 use crate::args::Args;
-use crate::prompt;
+use crate::signer;
 use elo_broker::signer::Signer;
 use elo_depot::{sha256_file, DepotError};
 use elo_net::{Fetched, Net};
@@ -65,29 +65,30 @@ elo dev — a listing's own desk: the row, the art, the updates
   --json           machine-readable output
 ";
 
-/// The address at this machine's account, without unlocking anything — it lives
-/// in the keystore in the clear. Needed *before* signing, because the origin
-/// picks which allowlist to validate against from who is asking.
-fn my_address() -> Option<String> {
-    elo_vault::LocalSigner::at(elo_vault::keystore_path()).address()
+/// Whose desk this is — the address that will sign, without unlocking
+/// anything. Needed *before* signing, because the origin picks which allowlist
+/// to validate against from who is asking.
+///
+/// ⚠ **It is the SIGNER's address, not the keystore's**, and that is the whole
+/// of what changed on 2026-08-22. A dev whose wallet is a browser extension has
+/// no keystore, and reading one here would have asked the origin about an
+/// address that owns no listing — a desk that says "you stand nowhere" to the
+/// person who owns the game.
+fn my_address(a: &Args, host: &str) -> Option<String> {
+    signer::choose(a, host).ok().and_then(|s| s.address())
 }
 
-/// Unlock once, sign once. The passphrase is prompted for the specific text
-/// being signed and is never held — the vault's own rule, kept here.
-fn sign(message: &str) -> Result<(String, String), DepotError> {
-    let path = elo_vault::keystore_path();
-    let mut signer = elo_vault::LocalSigner::at(&path);
-    if !signer.exists() {
-        return Err(DepotError::new(format!(
-            "no account at {} — `elo account new` makes one, and the key stays there",
-            path.display()
-        )));
-    }
-    crate::warn_if_echoing();
-    let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
-    signer.unlock(&pass).map_err(DepotError::new)?;
+/// Sign one desk act, on whichever signer this machine reaches.
+///
+/// `why` is what the person approving actually reads when the signer is a
+/// browser in another window, so it names the act and the title rather than
+/// the program. On the local backend it costs nothing and the passphrase
+/// prompt is unchanged — `signer::choose` does that per command and forgets at
+/// exit, which is the vault's own rule and where it now lives.
+fn sign(a: &Args, host: &str, message: &str, why: &str) -> Result<(String, String), DepotError> {
+    let mut signer = signer::choose(a, host).map_err(DepotError::new)?;
     let out = signer
-        .sign(message, "elo dev")
+        .sign(message, why)
         .map_err(|r| DepotError::new(r.reason))?;
     let addr = out
         .get("address")
@@ -139,9 +140,12 @@ fn told(got: Fetched<Value>, what: &str) -> Result<Value, DepotError> {
 
 /// prepare → warnings → sign → submit. Every write here goes through it, so
 /// there is exactly one place that decides what a dev sees before a passphrase.
+#[allow(clippy::too_many_arguments)]
 fn perform(
     net: &Net,
     a: &Args,
+    host: &str,
+    why: &str,
     prepare_url: &str,
     prepare_body: Value,
     submit_url: &str,
@@ -163,7 +167,7 @@ fn perform(
         }
         return Ok(0);
     }
-    let (address, signature) = sign(message)?;
+    let (address, signature) = sign(a, host, message, why)?;
     if let Some(map) = submit_body.as_object_mut() {
         map.insert("wallet".into(), json!(address));
         map.insert("signature".into(), json!(signature));
@@ -239,7 +243,7 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
         // Where do I stand, and on whose word. The first thing an arriving
         // agent asks, and the reason it is the default with no verb at all.
         "whoami" => {
-            let me = my_address();
+            let me = my_address(a, host);
             let url = match &me {
                 Some(addr) => format!("{host}/api/store/dev?wallet={addr}"),
                 None => format!("{host}/api/store/dev"),
@@ -319,7 +323,7 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             let slug = game()?;
             let fields = fields_from(a)?;
             let mut prep = json!({"game": slug, "fields": fields, "act": "save"});
-            if let Some(addr) = my_address() {
+            if let Some(addr) = my_address(a, host) {
                 // Sent so the origin quotes the DEV allowlist back rather than
                 // the house's — a refusal that names the wrong field set is
                 // worse than no refusal.
@@ -328,6 +332,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             perform(
                 &net,
                 a,
+                host,
+                &format!("dev desk: edit {slug}"),
                 &format!("{host}/api/store/prepare"),
                 prep,
                 &format!("{host}/api/store/title"),
@@ -364,7 +370,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
                 println!("would sign:\n{message}");
                 return Ok(0);
             }
-            let (address, signature) = sign(message)?;
+            let (address, signature) =
+                sign(a, host, message, &format!("upload art for {slug}"))?;
             let slot = a.flag("--slot").unwrap_or("");
             let url = format!(
                 "{host}/api/store/dev/upload?game={slug}&wallet={address}&signature={signature}\
@@ -433,6 +440,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             perform(
                 &net,
                 a,
+                host,
+                &format!("dev desk: post {slug}"),
                 &format!("{host}/api/store/dev/prepare"),
                 json!({"act": "post", "game": slug, "fields": fields}),
                 &format!("{host}/api/store/dev/post"),
@@ -502,6 +511,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             perform(
                 &net,
                 a,
+                host,
+                &format!("dev desk: delegate {slug}"),
                 &format!("{host}/api/store/dev/prepare"),
                 json!({"act": "delegate", "game": slug, "fields": fields}),
                 &format!("{host}/api/store/dev/delegate"),
@@ -516,7 +527,7 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             // resigning is the one act on this desk nobody else can block.
             let who = match a.positional.get(slug_at + 1) {
                 Some(w) => w.clone(),
-                None => my_address().ok_or_else(|| {
+                None => my_address(a, host).ok_or_else(|| {
                     DepotError::new("which wallet? — a 0x address, or none to resign your own")
                 })?,
             };
@@ -524,6 +535,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             perform(
                 &net,
                 a,
+                host,
+                &format!("dev desk: revoke {slug}"),
                 &format!("{host}/api/store/dev/prepare"),
                 json!({"act": "revoke", "game": slug, "fields": fields}),
                 &format!("{host}/api/store/dev/revoke"),

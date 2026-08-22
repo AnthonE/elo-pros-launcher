@@ -9,6 +9,7 @@
 //! So every read here returns a [`Fetched`] carrying `ok`, `reachable` and
 //! `why`, and no panel may print a count without checking `reachable` first.
 
+pub mod pairing;
 pub mod proxy;
 
 use elo_depot::{shardlist, DepotError, Fetcher};

@@ -812,6 +812,122 @@ pub fn wire_signin(
     });
 }
 
+/// How often the pairing poll looks. Slower than a spinner and faster than a
+/// person: the visitor is switching to a browser, connecting a wallet and
+/// reading a message, so a two-second beat is well inside their own tempo and
+/// costs the origin one small GET.
+const PAIR_POLL: f64 = 2.0;
+
+/// Lend the launcher the wallet in a browser — the GUI half of `elo pair`
+/// (`docs/client/SIGN-IN.md` §8; the origin is `meter/browser_signer.py`).
+///
+/// The mirror of [`pair_browser`] above, and the differences are the
+/// interesting part:
+///
+/// * **No passphrase, because there is no key here to prove.** `pair_browser`
+///   asks for one every time precisely because it acts AS this machine's
+///   account; this acts as nothing — it asks a browser to start answering, and
+///   the browser's own wallet is the thing that consents.
+/// * **This one polls, and that is why it cannot be a straight call.** The
+///   code has to be shown here and typed there, so the wait is a human's, not
+///   a request's. A blocking loop would freeze the window for up to ten
+///   minutes; `add_timeout3` is the same non-blocking beat [`serve_relock`]
+///   runs on.
+/// * **The code is SHOWN here and TYPED there** — §1's rule reflected, and it
+///   does not weaken in the mirror: a code a visitor read off their own
+///   launcher cannot be a stranger's. There is no deep link on purpose.
+///
+/// What lands on disk when it works is a code, a secret and an address, and
+/// **none of the three can sign**. The browser's key stays in the browser.
+pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
+    let Some(b) = account_w.pair.clone() else { return };
+    let mut b = b;
+    let host = host.trim_end_matches('/').to_string();
+    let note = account_w.pair_note.clone();
+    // One at a time. Without this, a second press mints a second code and the
+    // first poller keeps running against a pairing nobody will ever claim —
+    // two timeouts, two codes, and a window that reports whichever finishes.
+    let waiting = Rc::new(std::cell::Cell::new(false));
+    b.set_callback(move |btn| {
+        if waiting.get() {
+            return;
+        }
+        let net = elo_net::Net::new();
+        let (code, secret, _) = match elo_net::pairing::start(&net, &host) {
+            Ok(got) => got,
+            Err(e) => return tell(Told::Refused, &e),
+        };
+        let show = if code.len() == 8 {
+            format!("{}-{}", &code[..4], &code[4..])
+        } else {
+            code.clone()
+        };
+        let mut note = note.clone();
+        note.set_label(&format!(
+            "type  {show}  at {host}/pair.html\nnobody legitimate will ever send you a code"
+        ));
+        let mut btn = btn.clone();
+        btn.deactivate();
+        waiting.set(true);
+        app::redraw();
+
+        let (host, waiting) = (host.clone(), Rc::clone(&waiting));
+        let tell = Rc::clone(&tell);
+        let began = std::time::Instant::now();
+        app::add_timeout3(PAIR_POLL, move |handle| {
+            match elo_net::pairing::poll_claim(&net, &host, &code, &secret) {
+                elo_net::pairing::Claim::Paired(p) => {
+                    let path = elo_vault::pairing_path();
+                    match elo_net::pairing::save(&path, &p) {
+                        Ok(()) => {
+                            note.set_label(&format!(
+                                "paired with {}\nit approves one message at a time; \
+                                 close the tab to end it",
+                                p.address
+                            ));
+                            tell(Told::Done, &format!(
+                                "Paired with {}.\n\nThe launcher will ask that browser \
+                                 to sign, one message at a time. Nothing that can sign \
+                                 was written to this machine.",
+                                p.address
+                            ));
+                        }
+                        // The pairing is real at the origin and we could not
+                        // remember it. Say exactly that — "pairing failed"
+                        // would send someone to redo a thing that worked.
+                        Err(e) => tell(Told::Refused, &format!(
+                            "The browser claimed the code, but the pairing could not be \
+                             written to disk: {e}"
+                        )),
+                    }
+                    btn.activate();
+                    waiting.set(false);
+                    app::redraw();
+                }
+                elo_net::pairing::Claim::Gone(why) => {
+                    note.set_label("");
+                    tell(Told::Refused, &why);
+                    btn.activate();
+                    waiting.set(false);
+                    app::redraw();
+                }
+                elo_net::pairing::Claim::Pending => {
+                    if began.elapsed() >= elo_net::pairing::CLAIM_TIMEOUT {
+                        note.set_label("");
+                        tell(Told::Refused, "Nobody claimed the code in time. Press again \
+                                             for a fresh one.");
+                        btn.activate();
+                        waiting.set(false);
+                        app::redraw();
+                    } else {
+                        app::repeat_timeout3(PAIR_POLL, handle);
+                    }
+                }
+            }
+        });
+    });
+}
+
 /// The published client version NEWER than `mine`, off the origin's
 /// `/api/launcher` card — or `None`, which deliberately covers four different
 /// states: current, ahead (a dev build is not nagged), no client published,

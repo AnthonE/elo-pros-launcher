@@ -271,7 +271,9 @@ dependencies = [
 name = "elo-net"
 version = "0.5.0"
 dependencies = [
+ "elo-broker",
  "elo-depot",
+ "elo-vault",
  "serde_json",
  "ureq",
 ]

@@ -365,3 +365,82 @@ fn an_empty_slot_stays_an_empty_slot() {
     assert_eq!(m.builds[0].depot_url, None);
     assert!(!m.builds[0].published());
 }
+
+// ── the retired host ─────────────────────────────────────────────────────────
+//
+// A depot bakes `root` at package time and that string is inside the notarized
+// digest, so a build packaged before a domain move names its files at an
+// address nobody serves and NOTHING may correct it in the document. Gates'
+// published depots are in exactly that state: packaged against
+// `scry.moreright.xyz`, which has answered 410 for every file since the move.
+//
+// The client's answer is to treat `root` as the locator it is. These pin the
+// two halves that make that safe.
+
+#[test]
+fn a_retired_root_follows_the_origin_that_served_the_document() {
+    let raw = depot_with(json!({
+        "root": "https://scry.moreright.xyz/api/launcher/depot/gates/0.5.0/win-x86_64/files"
+    }));
+    let mut d = parse_depot(&raw, false).expect("parses");
+
+    let was = d
+        .heal_retired_root("https://elopros.com/api/launcher/depot/gates/0.5.0/win-x86_64")
+        .expect("a retired root is healed");
+
+    assert_eq!(was, "https://scry.moreright.xyz/api/launcher/depot/gates/0.5.0/win-x86_64/files");
+    // The HOST moves and the path does not: the origin serves the same layout.
+    assert_eq!(
+        d.file_url("gates.exe"),
+        "https://elopros.com/api/launcher/depot/gates/0.5.0/win-x86_64/files/gates.exe"
+    );
+    assert_eq!(d.healed_from.as_deref(), Some(was.as_str()));
+}
+
+#[test]
+fn healing_the_root_does_not_move_the_digest() {
+    // The reason this is safe at all. `raw` is what the notary committed and
+    // what a player recomputes off a block explorer; healing touches the
+    // locator and never the document, so the number is the same before and
+    // after. If this ever fails, the heal has started forging depots.
+    let raw = depot_with(json!({
+        "root": "https://scry.moreright.xyz/depot/gates/0.5.0/files"
+    }));
+    let mut d = parse_depot(&raw, false).expect("parses");
+    let before = d.digest().expect("digest");
+
+    d.heal_retired_root("https://elopros.com/api/launcher/depot/gates/0.5.0");
+
+    assert_eq!(d.digest().expect("digest"), before, "the digest must not move");
+    assert_eq!(
+        before,
+        elo_depot::digest(&raw).expect("digest"),
+        "and it is still the digest of the document as served"
+    );
+}
+
+#[test]
+fn a_root_that_is_merely_a_cdn_is_never_healed() {
+    // Naming a separate download host is a publisher's right, and the per-file
+    // sha256 secures the bytes wherever they come from — so there is no reason
+    // to override intent, and every reason not to.
+    let raw = depot_with(json!({"root": "https://cdn.example.com/gates/0.5.0"}));
+    let mut d = parse_depot(&raw, false).expect("parses");
+
+    assert_eq!(d.heal_retired_root("https://elopros.com/api/launcher/depot/gates/0.5.0"), None);
+    assert_eq!(d.file_url("run"), "https://cdn.example.com/gates/0.5.0/run");
+    assert!(d.healed_from.is_none());
+}
+
+#[test]
+fn a_retired_document_url_is_not_somewhere_to_send_a_download() {
+    // Reached only by pointing `--host` at the dead host itself. There is no
+    // better address to offer, so the packaged root stands and the download
+    // fails against the address the document names — rather than the client
+    // inventing an origin nobody served this from.
+    let raw = depot_with(json!({"root": "https://scry.moreright.xyz/depot/gates/0.5.0"}));
+    let mut d = parse_depot(&raw, false).expect("parses");
+
+    assert_eq!(d.heal_retired_root("https://scry.moreright.xyz/api/launcher/depot/gates/0.5.0"), None);
+    assert_eq!(d.file_url("run"), "https://scry.moreright.xyz/depot/gates/0.5.0/run");
+}

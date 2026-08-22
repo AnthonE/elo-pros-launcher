@@ -123,6 +123,18 @@ contract SeedSpoilsUniswapV3 is Script {
         /// the canary discipline (seed small, read back, top up) needs each
         /// pool runnable on its own.
         address obolToken;
+        /// ── THE GENERIC LANE (2026-08-22) ───────────────────────────────
+        /// Any ONE game coin, priced in `reserve`. The three lanes above name
+        /// the previous generation's coins in their env keys, and that
+        /// generation is retired (`SENTENCES.md` 2026-08-18) — so the current
+        /// generation seeds through here instead of growing a fourth named
+        /// field per coin. `_seedOne` was never OBOL-specific; only the env
+        /// names were.
+        ///
+        /// Junk is the first thing this lane seeds. Orbs is NOT seeded at the
+        /// same time (operator, 2026-08-22), which is exactly why this is one
+        /// coin rather than a pair: a script that seeds both cannot run.
+        PoolSeed coin;
     }
 
     function run() external {
@@ -163,6 +175,18 @@ contract SeedSpoilsUniswapV3 is Script {
             inp.myrrhObol.sqrtP = uint160(vm.envUint("MYRRH_OBOL_SQRTP"));
             inp.myrrhObol.baseRaw = vm.envUint("MYRRH_OBOL_BASE_RAW");
             inp.myrrhObol.quoteRaw = vm.envUint("MYRRH_OBOL_QUOTE_RAW");
+        }
+        // The generic lane: one game coin against the reserve. Same split as
+        // above — COIN_TOKEN is just an address, COIN_SQRTP is what says
+        // "seed this pool" — so a run that carries the address for reference
+        // seeds nothing until the planner's numbers are exported too.
+        if (vm.envOr("COIN_SQRTP", uint256(0)) != 0) {
+            address coinToken = vm.envOr("COIN_TOKEN", address(0));
+            require(coinToken != address(0), "COIN_SQRTP set but COIN_TOKEN is not");
+            inp.coin.token = coinToken;
+            inp.coin.sqrtP = uint160(vm.envUint("COIN_SQRTP"));
+            inp.coin.baseRaw = vm.envUint("COIN_BASE_RAW");
+            inp.coin.quoteRaw = vm.envUint("COIN_QUOTE_RAW");
         }
         runWith(inp);
     }
@@ -227,6 +251,21 @@ contract SeedSpoilsUniswapV3 is Script {
             "MYRRH/OBOL",
             inp.myrrhObol,
             inp.obolToken,
+            inp.fee,
+            tickLower,
+            tickUpper,
+            inp.slipBps,
+            inp.recipient,
+            deadline
+        );
+        // The generic lane, quoted in the reserve — the same call the three
+        // above make, with the coin named by env rather than by a field.
+        _seedOne(
+            npm,
+            factory,
+            "COIN",
+            inp.coin,
+            inp.reserve,
             inp.fee,
             tickLower,
             tickUpper,

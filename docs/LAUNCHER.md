@@ -235,21 +235,54 @@ tested:
 version, because it changes what the client is:
 
 The launcher **may hold one key: an account you made on this machine, that
-elo never sees.** It cannot grow a hidden one — the settings file has no
-key-shaped field, a hand-edited one is dropped on load, and crypto is confined
-to the vault by a test. The seam (`elo-broker::signer` + the vault) has five
-backends:
+elo never sees. It does not have to hold one at all**, and since 2026-08-22
+that is a road rather than a slogan (§4a). It cannot grow a hidden key — the
+settings file has no key-shaped field, a hand-edited one is dropped on load,
+crypto is confined to the vault by a test, and `pairing.json` is held to the
+same rule by its own.
 
-| setting | who holds the key | what happens |
-|---|---|---|
-| `browser` **(default)** | your wallet, in your browser | builds a link and stops |
-| `local` | **this process, while unlocked** | an account made here, kept here |
-| `arca` | `arca.py`, its own uid | a UNIX socket. **The real boundary** |
-| `external` | a device or a command you name | stdin → message, stdout → `0x…` |
-| `none` | nobody | reads work; writes say so |
+The seam is `elo-broker::signer` plus two crates that implement it:
 
-The backend comes from the settings file alone — never from a manifest, a
-catalog, a depot, or a game.
+| backend | who holds the key | what happens | wired into |
+|---|---|---|---|
+| `local` | **this process, while unlocked** | an account made here, kept here | CLI + GUI |
+| `browser-paired` | your wallet, **in your browser** | asks over the origin, one message at a time (§4a) | CLI + GUI |
+| `browser` | your wallet, in your browser | builds a link and stops — a handoff, no answer | library only |
+| `arca` | `arca.py`, its own uid | a UNIX socket. **The real boundary** | library only |
+| `external` | a device or a command you name | stdin → message, stdout → `0x…` | library only |
+| `none` | nobody | reads work; writes say so | library only |
+
+⚠ **This table said `browser` was the DEFAULT and that "the backend comes from
+the settings file alone", and neither was ever true of the Rust client.** There
+is no settings file with a backend field anywhere in `launcher-rs/`; every CLI
+verb constructed `elo_vault::LocalSigner` directly; `signer_name()` returns
+`local` if a keystore exists and `none` otherwise; and the four keyless
+backends were referenced by nothing outside `elo-broker/tests/signer.rs`. The
+paragraph was describing the **deleted Python client**, and it went on
+describing it for the whole of the port — which is how a reader could conclude
+the launcher already worked without a key when in fact it could not sign
+anything at all without one. The `wired into` column is here so the next drift
+of this kind has to be typed rather than inherited.
+
+**What decides, today, is `elo-launcher/src/signer.rs`** and it is three lines
+of precedence: `--local` if the operator said so, else a browser pairing that
+has not expired, else the local keystore.
+
+⚠ **The GUI's door reverses the middle two, and it is the SAME rule.** The rule
+is *prefer the signer that can answer without interrupting; break ties toward
+the newer deliberate act.* In the CLI nothing is ever unlocked — it unlocks per
+command and forgets — so both doors cost an interruption and the tie goes to
+the pairing, which had to be made BY HAND in the last twelve hours while a
+keystore sits on disk forever. In the window an **unlocked** account answers a
+game mid-play with no round trip at all, which is why `prove` has no prompt
+either; bouncing that player to a browser tab would be strictly worse for them.
+So the window prefers an unlocked local key and falls through to the pairing,
+and both files carry the sentence. `elo pair forget` and `--local` are the two
+ways to say it plainly instead.
+
+**Nothing reads a manifest, a catalog, a depot, or a game to decide this**, and
+that rule is unchanged: a game that could name the program which signs for you
+has already won.
 
 **`local` is the account you can make in the app** — *Create new account* on
 the opening screen, exactly where the 2003 client put it. Twelve BIP-39 words
@@ -288,6 +321,84 @@ offers the unlock. **It does not list what games have asked for** — that claim
 was in this paragraph too, and no such list is built. It is worth building now
 that requests can succeed: a signing surface a player cannot review after the
 fact is one where a mistaken grant leaves no trace.
+
+### 4a · `elo pair` — the wallet you already have, in the browser it lives in
+
+> Operator, 2026-08-22: *"can someone use metamask on the site to sign
+> something and put it into the launcher … so u dont need a private key on the
+> launcher?"*
+
+Yes, and the answer had been three-quarters built for a fortnight without the
+last quarter. `BrowserSigner` opened a page and stopped, which is right for a
+game handing off mid-play and wrong for the launcher's own acts: `elo entitle`
+needs the signature **back**, and there was no road back — so a player with
+MetaMask and no wish for a second key on disk could not run it at all.
+
+**The road back is `meter/browser_signer.py`, and it is `signin.py` reflected.**
+Same bridge and the same reason for it: a tab cannot knock on a Unix socket and
+a desktop program cannot reach into a tab, but both already talk to the origin.
+
+| step | who | what |
+|---|---|---|
+| 1 | the launcher | `elo pair` → `POST /api/signer/start` → a code and a poll secret |
+| 2 | the player | **types** the code at `elopros.com/pair.html` |
+| 3 | the page | fetches the exact text, `personal_sign`s it, claims the code |
+| 4 | the origin | recovers the signer, **recomposes the text from what it knows**, compares byte-for-byte |
+| 5 | the launcher | its poll returns `{address}` — paired, holding nothing that can sign |
+
+Then, per act: the launcher `POST`s the signable, the page shows it verbatim,
+the wallet shows it again, the person answers, the launcher collects.
+
+**Typed, never clicked, and there is no `elo://pair/…` scheme.** §1's rule
+mirrors without weakening — a code read off your own launcher and typed into
+your own browser cannot be somebody else's — and the phish it forbids is the
+other one's reflection: a stranger's code, pasted in a chat as a free-mint
+link, would point YOUR wallet at THEIR launcher's queue. The page says so in as
+many words.
+
+**Four walls, each enforced at the origin rather than asked for:** messages
+only (nothing here can move a coin); first line `elo <family>` — and `scry
+<family>` too, because `tickets.entitle_message` still writes `scry entitle`
+and dropping it would refuse the one signable this seam was built for; **no
+SIWE**, which is what keeps a login phish off the door; and a returned
+signature must recover to the paired address.
+
+⚠ **`elo prove` therefore does not ride it, and that is a consequence rather
+than a carve-out.** `prove_message` IS EIP-4361, so the SIWE wall settles it
+with no special case — a paired launcher gets a readable refusal, and proving
+to a game server still wants a local account or a wallet in that browser.
+`arca` and `external` cannot prove either; this is the third member of that
+set. `meter/test_browser_signer.py` asserts it against the REAL text
+`protocol.rs` composes, so if `prove` ever stops being SIWE the decision gets
+made on purpose instead of discovered.
+
+**What lands on disk is `pairing.json` beside the keystore** — a code, a poll
+secret and an address, 0600, `elo pair forget` deletes it. None of the three
+can sign: holding the file lets a program QUEUE an ask, and a human in another
+window still approves each one in a wallet this process cannot reach. That is
+why invariant 7 is not merely unbroken here but trivially true, and
+`elo-net/tests/pairing.rs` asserts it against the source the way
+`elo-broker/tests/signer.rs` does for its own four.
+
+**Where it is reachable from.** `elo pair` / `pair show` / `pair forget` on
+the command line; **Use my browser wallet…** in the GUI's Account window, in
+both of its states — beside *Make an account* and *Import a key* for someone
+who has neither, and under the website pairing for someone who has a key and
+wants to sign with the browser's anyway. The window shows the code and polls on
+`add_timeout3`, the beat `serve_relock` already runs on, so a ten-minute wait
+for a human never freezes it.
+
+Every verb that takes a signature takes this road: `elo entitle`, `elo account
+sign`, the whole dev desk (`elo dev edit` / `image` / `post` / `delegate` /
+`revoke`), and the broker's door, so a **game** can ask a paired browser to
+sign. A dev-desk ask names itself on the browser's screen — *"dev desk: post
+gates"* — because the person approving is in another window and "what is this
+for" is the only question they have.
+
+**Cost, stated:** every signature is a browser round trip. Fine for `entitle`
+(once a day) and for a dev-desk edit; rough for a game asking playauth
+signatures mid-session, which is exactly why the window prefers an unlocked
+local key when it has one.
 
 ## 5 · Gates on it
 
@@ -1260,6 +1371,36 @@ the packager, off the origin's response, and out of `elo install` are one
 string. ⚠ Read the scope — that run drove the **app**, and on 2026-08-05 the
 app was not what the internet could reach. It says the digest does not drift
 through this code; it never said a player could fetch it. §11e.)*
+
+⚠ **The cost of that rule is a domain move, and it was not theoretical.** A
+depot packaged before 2026-08-20 bakes `root` on `scry.moreright.xyz`, which
+answers **410 Gone** for every file. Nothing may correct it: the string is
+inside the digest the notary holds. So the failure presents with every signal
+green — a current client, a manifest row marked `published`, a computable
+digest that matches the chain, every file present on the origin's disk — and a
+download that cannot complete. Gates' 0.5.0 depots shipped in exactly that
+state and a player found it before any gate did.
+
+Three things changed and they sit at different layers:
+
+* **The client heals it.** `Depot::heal_retired_root` (elo-depot) fetches from
+  the origin that served the *document* when the baked root names a host on
+  `RETIRED_ORIGINS`. The digest is untouched — `raw` is not edited, so the
+  number still resolves against the notary — because `root` is a **locator**
+  and the per-file `sha256` inside that digest is what secures the bytes. The
+  heal is narrow on purpose: an unrecognised host is left exactly as packaged
+  and fails loudly, since naming a CDN is a publisher's right and overriding it
+  would buy nothing. It is never silent — `elo install` names the dead host
+  before any byte moves.
+* **The gate catches it.** `deploy/launch_preflight.py` FAILs a depot whose
+  root is not on `$SCRY_ORIGIN`. Every other depot check passed on this defect,
+  which is why it needed its own.
+* **The origin says it.** A native row whose depot points off-origin carries
+  `root_origin` and `root_why` (`meter/launcher.py`).
+
+**The durable fix is still a re-package and a re-notarize**, per title, on the
+origin box. The heal keeps players installing in the meantime; it does not make
+a stale root correct, and a client older than the heal is not helped by it.
 
 **A build goes live when `published.json` names it — never because a directory
 appeared.** An upload in flight is a half-written tree, and "newest directory

@@ -918,6 +918,15 @@ pub struct AccountWindow {
     /// into the field, never clicked (`docs/client/SIGN-IN.md` §1).
     pub signin_code: Option<input::Input>,
     pub signin: Option<button::Button>,
+    /// The OTHER pairing, and the one that needs no account at all: lend the
+    /// launcher the wallet already in a browser (`SIGN-IN.md` §8). Present in
+    /// **both** states, because it is a third door for someone with no key and
+    /// a second signer for someone who has one.
+    pub pair: Option<button::Button>,
+    /// Where the minted code is shown. It is shown HERE and typed THERE —
+    /// the reflection of §1's rule, and the reason this is a frame the player
+    /// reads rather than a link they press.
+    pub pair_note: frame::Frame,
 }
 
 /// Account — the address the launcher watches, and the two ways to get one.
@@ -953,12 +962,22 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     // Plain, never gold and never green: making a key on your own machine is
     // an ordinary act, and the reserved fill belongs to something that moves
     // money (`SITE-PLATFORM.md` §14b).
-    let (make, import, signin_code, signin) = if address.is_none() {
+    let (make, import, signin_code, signin, pair, pair_note, base) = if address.is_none() {
         let mut make = chrome::button(16, 180, 168, 28, "Make an account…", Tone::Plain);
         make.set_align(enums::Align::Center | enums::Align::Inside);
         let mut import = chrome::button(196, 180, 168, 28, "Import a key…", Tone::Plain);
         import.set_align(enums::Align::Center | enums::Align::Inside);
-        (Some(make), Some(import), None, None)
+        // ⚠ THE THIRD DOOR, and the reason this window had a gap: a player
+        // whose wallet is a browser extension was offered two ways to make a
+        // key and no way to say they already have one. Same row as the other
+        // two because it is the same question — "how does this launcher sign
+        // for me" — and not a lesser answer to it.
+        let mut pair = chrome::button(376, 180, 188, 28, "Use my browser wallet…", Tone::Plain);
+        pair.set_align(enums::Align::Center | enums::Align::Inside);
+        let note = chrome::label(16, 214, 548, 30,
+                      "the browser wallet keeps its key — this machine stores nothing that can sign",
+                      theme::DIM, 11);
+        (Some(make), Some(import), None, None, Some(pair), note, 264)
     } else {
         // Unlocking lives in Signing, deliberately: it is the act that puts a
         // key in memory, and it belongs beside the window that says what can
@@ -977,27 +996,41 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
         chrome::label(16, 256, 548, 14,
                       "type it yourself, off your own screen — nobody legitimate sends you a code",
                       theme::DIM, 10);
-        (None, None, Some(code), Some(b))
+        // The reverse pairing, offered here too: having a key on this machine
+        // is not a reason to be unable to sign with the one in your browser,
+        // and the two doors answer opposite questions rather than competing.
+        chrome::label(16, 282, 548, 16,
+                      "or sign with the wallet in your browser instead:",
+                      theme::MUTED, 11);
+        let mut pair = chrome::button(16, 302, 240, 26, "Use my browser wallet…", Tone::Plain);
+        pair.set_align(enums::Align::Center | enums::Align::Inside);
+        let note = chrome::label(16, 332, 548, 30, "", theme::DIM, 11);
+        (None, None, Some(code), Some(b), Some(pair), note, 372)
     };
 
-    chrome::label(16, 282, 548, 16, "elo never sees a key.", theme::INK, 12);
-    chrome::label(16, 302, 548, 14,
+    chrome::label(16, base, 548, 16, "elo never sees a key.", theme::INK, 12);
+    chrome::label(16, base + 20, 548, 14,
                   "An account made here is generated on this machine and transmitted nowhere.",
                   theme::MUTED, 11);
-    chrome::label(16, 320, 548, 14,
+    chrome::label(16, base + 38, 548, 14,
                   "An address is a claim, not a login — anything that matters asks for a signature.",
                   theme::MUTED, 11);
-    chrome::label(16, 344, 548, 14,
+    chrome::label(16, base + 62, 548, 14,
                   "Delete this program and you still own everything you bought.",
                   theme::DIM, 11);
     // The sentence a holder needs BEFORE they rely on the file, not after they
     // have lost it. There is no reset and no copy anywhere else.
-    chrome::label(16, 366, 548, 14,
+    chrome::label(16, base + 84, 548, 14,
                   "The keystore is the only copy of your key. Back it up; no passphrase can be reset.",
                   theme::GOLD, 11);
+    // Sized from the content rather than typed: the two branches are different
+    // heights now, and a fixed 400 clipped the taller one's last line — the
+    // sentence about the keystore being the only copy, which is the one line
+    // in this window that must never be the one that falls off.
+    w.set_size(580, base + 116);
     w.end();
     AccountWindow { window: w, make, import, address: addr_line, note: note_line,
-                    signin_code, signin }
+                    signin_code, signin, pair, pair_note }
 }
 
 /// Signing — which backend signs, and what that means.

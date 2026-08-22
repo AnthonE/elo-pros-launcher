@@ -101,9 +101,20 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
 /// `depot` is a PATH, not a url — which is the case that matters, because it
 /// is what an origin behind nginx can safely write.
 fn gates_origin() -> (Origin, Vec<u8>) {
+    gates_origin_rooted(|base| format!("{base}/api/launcher/depot/gates/0.1.0/files"))
+}
+
+/// The same origin, with the depot's baked `root` chosen by the caller.
+///
+/// Exists for the retired-host case: a build packaged before the domain move
+/// bakes a root nobody serves any more, and that string is inside the
+/// notarized digest so it cannot be corrected in place.
+fn gates_origin_rooted(root_for: impl FnOnce(&str) -> String) -> (Origin, Vec<u8>) {
     let exe = b"#!/bin/sh\necho \"gates started: $*\"\n".to_vec();
     let body = exe.clone();
+    let mut root_for = Some(root_for);
     let origin = serve(move |base| {
+        let root_for = root_for.take().unwrap();
         let depot = json!({
             "depot_version": 1,
             "slug": "gates",
@@ -113,7 +124,7 @@ fn gates_origin() -> (Origin, Vec<u8>) {
             // is inside the digest, so nothing may rewrite it. Only the
             // MANIFEST's pointer at this document is relative, which is the
             // asymmetry this whole test exists to pin.
-            "root": format!("{base}/api/launcher/depot/gates/0.1.0/files"),
+            "root": root_for(base),
             "files": [{
                 "path": "gates", "sha256": sha_hex(&body),
                 "bytes": body.len(), "executable": true
@@ -303,5 +314,84 @@ fn no_home_lands_in_the_working_directory_never_at_the_filesystem_root() {
     assert!(
         text.contains("elo/games") || text.contains("elo\\games"),
         "it should still name a games root:\n{text}"
+    );
+}
+
+/// **The domain move, from the player's side.**
+///
+/// Gates' published depots were packaged before the origin moved to
+/// `elopros.com` and still name their files on `scry.moreright.xyz`, which
+/// answers `410 Gone` for every one of them. The depot document is current,
+/// its digest is the one the notary holds, and the download is dead — so the
+/// launcher followed a correct document to an address nobody serves, and the
+/// install failed for every player on every platform. Found on Windows because
+/// that is the machine the operator was standing at.
+///
+/// `root` is inside the digest, so nothing may rewrite it in the document. The
+/// client instead treats it as what it is — a locator — and fetches from the
+/// origin that just served the document. The bytes are still held to the
+/// sha256 the notarized digest names, which is the check that was ever doing
+/// the work.
+#[test]
+fn a_depot_packaged_against_the_retired_host_still_installs() {
+    let games = tempfile::tempdir().expect("tmp");
+    let (origin, exe) = gates_origin_rooted(|_base| {
+        "https://scry.moreright.xyz/api/launcher/depot/gates/0.1.0/files".to_string()
+    });
+
+    let (code, out) = elo(games.path(), &origin, &["install", "gates"]);
+    assert_eq!(code, 0, "a retired root must not be a dead end:\n{out}");
+
+    let installed = games.path().join("gates").join("0.1.0").join("gates");
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        exe,
+        "and the bytes are the ones this origin served:\n{out}"
+    );
+
+    // The file came from the origin we asked, at the PATH the document baked.
+    let hits = origin.hits.lock().unwrap().clone();
+    assert!(
+        hits.contains(&"/api/launcher/depot/gates/0.1.0/files/gates".to_string()),
+        "fetched from the serving origin at the baked path; saw {hits:?}"
+    );
+
+    // And it said so. A redirect to a host the document does not name is
+    // exactly the shape of a supply-chain compromise, so it is never silent.
+    assert!(
+        out.contains("scry.moreright.xyz") && out.contains("410"),
+        "the player is told which dead host was healed, and why:\n{out}"
+    );
+}
+
+/// The heal is one dead name, not a policy about where bytes may live.
+///
+/// Naming a separate download host is something a publisher is allowed to do,
+/// and a launcher that quietly redirected every depot onto its own origin
+/// would be overriding a publisher's stated intent for no security gain — the
+/// per-file sha256 is what secures the bytes either way. So a root that is
+/// merely *unreachable* is left exactly as packaged, and fails loudly.
+#[test]
+fn a_root_on_a_host_that_is_not_retired_is_left_alone() {
+    let games = tempfile::tempdir().expect("tmp");
+    // `.invalid` resolves nowhere by RFC 2606, and it is not retired — so it
+    // is not healed, and the install must fail against the address the
+    // document actually names.
+    let (origin, _exe) = gates_origin_rooted(|_base| {
+        "https://cdn.example.invalid/depot/gates/0.1.0/files".to_string()
+    });
+
+    let (code, out) = elo(games.path(), &origin, &["install", "gates"]);
+    assert_ne!(
+        code, 0,
+        "an unreachable third-party root is a failure, not a redirect:\n{out}"
+    );
+    assert!(
+        !out.contains("410 "),
+        "and it is not reported as a retired-host heal:\n{out}"
+    );
+    assert!(
+        !games.path().join("gates").join("0.1.0").join("gates").is_file(),
+        "nothing was installed from anywhere else:\n{out}"
     );
 }
