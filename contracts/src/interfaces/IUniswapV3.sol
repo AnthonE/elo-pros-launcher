@@ -84,4 +84,65 @@ interface INonfungiblePositionManager {
     /// Bundle calls into one transaction — used to land initialize + mint
     /// atomically so no bot can trade the gap (POOLS.md §2.2(b)).
     function multicall(bytes[] calldata data) external payable returns (bytes[] memory results);
+
+    // ── compounding a position (2026-08-22) ─────────────────────────────────
+    // Trading fees accrue to the position and sit there as `tokensOwed` until
+    // somebody calls `collect`. Uncollected they earn nothing, so a pool that
+    // trades well pays nothing extra unless this loop is actually run.
+
+    struct CollectParams {
+        uint256 tokenId;
+        address recipient;
+        uint128 amount0Max;
+        uint128 amount1Max;
+    }
+
+    struct IncreaseLiquidityParams {
+        uint256 tokenId;
+        uint256 amount0Desired;
+        uint256 amount1Desired;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        uint256 deadline;
+    }
+
+    /// ⚠ `tokensOwed0/1` HERE READ STALE and will under-report, usually as
+    /// zero. They are only written when the position is touched — mint,
+    /// increase, decrease or collect — so between touches they say nothing
+    /// about what has actually accrued. To read what is really collectable,
+    /// `eth_call` **collect** with max amounts and the owner as `from`: it
+    /// pokes the pool internally and returns the true figures without
+    /// broadcasting. Reading this field instead is the "a zero means both
+    /// nothing-there and we-could-not-look" trap, and here it is the flavour
+    /// that quietly says a live pool earned nothing.
+    function positions(uint256 tokenId)
+        external
+        view
+        returns (
+            uint96 nonce,
+            address operator,
+            address token0,
+            address token1,
+            uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        );
+
+    /// Sweep accrued fees to `recipient`. Caller must own or be approved for
+    /// the token. Pass type(uint128).max on both maxes to take everything.
+    function collect(CollectParams calldata params) external payable returns (uint256 amount0, uint256 amount1);
+
+    /// Add to an existing position. Whatever cannot be used at the current
+    /// price is refunded, so the two sides need not arrive in the pool's ratio.
+    function increaseLiquidity(IncreaseLiquidityParams calldata params)
+        external
+        payable
+        returns (uint128 liquidity, uint256 amount0, uint256 amount1);
+
+    function ownerOf(uint256 tokenId) external view returns (address);
 }

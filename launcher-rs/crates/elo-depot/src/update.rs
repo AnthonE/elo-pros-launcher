@@ -187,7 +187,7 @@ pub fn check(
             }
         }
     };
-    let depot = match parse_depot(&raw, allow_insecure) {
+    let mut depot = match parse_depot(&raw, allow_insecure) {
         Ok(d) => d,
         Err(e) => {
             return Checked {
@@ -198,6 +198,14 @@ pub fn check(
             }
         }
     };
+    // A build packaged before a domain move names its files on the old host,
+    // which now answers 410 for every one of them. The document is current and
+    // its digest is right — only the address is dead — so downloads follow the
+    // origin that just served this document. `raw` is untouched, so the digest
+    // computed below is still the one the notary holds. See
+    // `Depot::heal_retired_root`.
+    depot.heal_retired_root(&depot_url);
+    let depot = depot;
     let want = match depot.digest() {
         Ok(d) => d,
         Err(e) => {

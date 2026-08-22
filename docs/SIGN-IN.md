@@ -1,14 +1,14 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-11
-about: "sign the website in with the launcher's account — the device-code pairing (type a code, approve in the launcher, the page reads as you), and the relay that lets a page's signables be signed there too. No extension, no session, no cookie, no custody change"
+updated: 2026-08-22
+about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
 # SIGN-IN.md — the website signs in with the launcher
 
 > The purse's only signer used to be a browser extension, and the away state
-> said so: *"install any EIP-1193 wallet"*. But `scry account new` already
+> said so: *"install any EIP-1193 wallet"*. But `elo account new` already
 > writes a real wallet — a V3 keystore every Ethereum tool reads — and a
 > player who made theirs in the launcher had no way to prove it to a page.
 > This is the bridge. **The reframe that unblocks it: that player does not
@@ -124,7 +124,7 @@ would be weaker than what exists** — four digits against a rig is an
 afternoon; the passphrase through scrypt is the real wall, so runtime got the
 hardening instead:
 
-- **the CLI unlocks per command and forgets at exit** (`scry account sign`,
+- **the CLI unlocks per command and forgets at exit** (`elo account sign`,
   `scry entitle`, `scry signin` — one passphrase prompt each);
 - **the GUI relocks an idle key**: every signature refreshes `last_used`, and
   an unlocked account nobody has used for `SCRY_RELOCK_MINUTES` (default 30,
@@ -168,3 +168,76 @@ scry-broker --test cross_language`, `watchtower/test_site.py`.
   remaining signing pages adopt by adding the script tag and letting their
   address come from `Deck.launcher.pairing()`.
 - **no deep link, on purpose** (§1). Re-read before "fixing".
+
+## 8 · The other direction — `elo pair`
+
+Everything above assumes the key is in the LAUNCHER and the browser has none.
+The commoner case is the reflection of it, and it had no road at all until
+2026-08-22: **the visitor already runs MetaMask and does not want a second key
+on disk.** `meter/browser_signer.py` is that road; `docs/client/LAUNCHER.md`
+§4a is the design of record and this section is the seam's half of it.
+
+| step | who | what |
+|---|---|---|
+| 1 | the launcher | `elo pair` → `POST /api/signer/start` → a code + a poll secret |
+| 2 | the player | **types** the code at `elopros.com/pair.html` |
+| 3 | the page | `GET /api/signer/{code}/challenge?address=…` → the exact text, `personal_sign`, claim |
+| 4 | the origin | recovers, **recomposes from what it knows**, compares byte-for-byte |
+| 5 | the launcher | its poll returns `{address}` — paired |
+
+Then the relay runs the same way round: the launcher asks, the page shows the
+text verbatim, the wallet shows it again, the person answers, the launcher
+collects.
+
+**Read §0's table against this one and the symmetry is exact** — which is the
+point, and also the trap. ⚠ **The two secrets keep their MEANINGS and swap
+HANDS.** `secret` belongs to whoever STARTED the pairing and `approver` to
+whoever SIGNS: the browser and the launcher in §0, the launcher and the browser
+here. Reading `approver` as "the launcher" is the mistake worth naming twice.
+
+§1's rule holds unchanged and unrelaxed: **typed, never clicked**, no
+`elo://pair/…` scheme, and the phish it forbids is the mirror image — a
+stranger's code, pasted in a chat, would point your wallet at their launcher's
+queue rather than sign their browser in as you.
+
+§3's four walls hold too, and one of them decides something: **no SIWE rides
+the relay**, and `prove_message` IS EIP-4361, so `elo prove` cannot use this
+door. That is a consequence of the wall rather than an exception carved into
+it, and `meter/test_browser_signer.py` pins it against the text `protocol.rs`
+actually composes. The family wall gained one thing: it accepts `scry
+<family>` beside `elo <family>`, because `tickets.entitle_message` still writes
+`scry entitle` — refusing it would have refused the first act this seam was
+built to carry.
+
+**Custody, restated for this direction:** the browser's key is MetaMask's and
+was never ours. The launcher holds `pairing.json` — a code, a poll secret, an
+address, 0600 — and **none of the three can sign anything.** A launcher paired
+this way holds no key at all, which makes `CLAUDE.md` invariant 7 trivially
+true here rather than merely kept.
+
+Derive, don't quote: `curl -s elopros.com/api/signer` is the card.
+Tests: `meter/test_browser_signer.py` (the venv rule applies), `cargo test -p
+elo-net --test pairing`, `watchtower/test_site.py`.
+
+### 8a · Where it reaches, and the one edge
+
+Every verb that signs takes this road now: `elo entitle`, `elo account sign`,
+the whole dev desk, and the **broker's door**, so a game can ask a paired
+browser. The GUI pairs too — *Use my browser wallet…* in Account, in both of
+its states.
+
+⚠ **The window's door prefers an UNLOCKED local key and falls through to the
+pairing**, which is the reverse of the CLI's order and the same rule stated
+once in `LAUNCHER.md` §4: prefer the signer that can answer without
+interrupting, break ties toward the newer deliberate act. A game asking
+mid-play should not be bounced to a browser tab by a launcher that already
+holds an unlocked key.
+
+- **`prove` has no keyless path** (§8). A player with only a browser wallet can
+  buy, download, run the dev desk and sign platform messages, and cannot prove
+  to a game server. That is the honest edge of this feature and should be said
+  wherever it is sold — both `elo prove` and the window's `prove` name the
+  reason rather than sending their reader off to make a key.
+- **the GUI does not watch the OTHER relay** (§7's item, unchanged): approving
+  a page's signature requests from the launcher is still the CLI's `elo signin`.
+- **no deep link, on purpose** (§1, and it applies to both directions).

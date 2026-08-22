@@ -8,5 +8,14 @@ license.workspace = true
 
 [dependencies]
 elo-depot = { path = "../elo-depot" }
+# For the `Signer` trait and `Refusal` alone (`pairing.rs`). elo-broker depends
+# on serde_json and nothing else, so this is an EDGE and no package — and it
+# cannot go the other way: an HTTP-speaking signer inside elo-broker would be a
+# cycle, since this crate is already downstream of it.
+elo-broker = { path = "../elo-broker" }
+# For `pairing_path()` — ONE definition of where this client's config lives, so
+# the CLI and the GUI cannot find different pairings. Already in the graph via
+# elo-depot; naming it here is the edge, not a new dependency.
+elo-vault = { path = "../elo-vault" }
 serde_json = { workspace = true }
 ureq = { workspace = true }

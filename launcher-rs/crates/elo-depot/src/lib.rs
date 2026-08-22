@@ -51,7 +51,9 @@ pub mod update;
 pub const CHUNK: usize = 262_144;
 
 pub use deeplink::{Join, SCHEME as LINK_SCHEME};
-pub use depot::{parse_depot, Depot, DepotFile, DEPOT_VERSION};
+pub use depot::{
+    origin_of, parse_depot, Depot, DepotFile, DEPOT_VERSION, RETIRED_ORIGINS,
+};
 pub use digest::{canonical, digest, sha256_file};
 pub use error::{DepotError, Result};
 pub use install::{

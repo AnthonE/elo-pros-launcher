@@ -69,6 +69,20 @@ struct Launcher {
     consent: consent::Doorbell,
 }
 
+/// The browser pairing this machine currently reaches, or None.
+///
+/// Read from disk per call rather than held in the struct, and that is on
+/// purpose: the Account window can make one while the door is already serving,
+/// and a cached handle would mean a player pairs, presses Sign, and is told
+/// there is no signer — with a live pairing sitting in a file two inches away.
+/// It is one small read on `hello` and on a signature, neither of which is hot.
+///
+/// ⚠ **An expired pairing reads as None** (`pairing::load`), so no branch
+/// below has to remember to check.
+fn paired() -> Option<elo_net::pairing::Pairing> {
+    elo_net::pairing::load(&elo_vault::pairing_path())
+}
+
 impl Host for Launcher {
     fn address(&self) -> Option<String> {
         // The real one now. Reading it needs no passphrase — `LocalSigner::at`
@@ -76,7 +90,16 @@ impl Host for Launcher {
         // why a LOCKED account can still say who it is. `None` stays a real
         // answer: "someone browsing without an address set is a normal player"
         // (sdk/PROTOCOL.md).
-        self.signer.lock().ok().and_then(|s| s.address())
+        //
+        // ⚠ **Falls through to the paired browser**, because on a keyless
+        // machine the browser's wallet IS who this player is. Answering `None`
+        // there would tell a game "nobody is here" while a wallet it could
+        // reach in one round trip was sitting paired.
+        self.signer
+            .lock()
+            .ok()
+            .and_then(|s| s.address())
+            .or_else(|| paired().map(|p| p.address))
     }
 
     fn signer_name(&self) -> String {
@@ -90,8 +113,19 @@ impl Host for Launcher {
         // there is now a signing verb that works with no prompt, so reporting
         // `none` would hide the capability a game actually wants. `sign` still
         // refuses — with a reason, below — and that is the honest split.
+        //
+        // ⚠ **`local` still wins when a keystore exists, even locked**, and
+        // that is not the CLI's rule. The CLI unlocks per command and forgets,
+        // so a local signature always costs a prompt and the newer deliberate
+        // act breaks the tie. Here an unlocked account answers a game with NO
+        // interruption at all — which is the whole reason `prove` has no
+        // prompt — so the signer that can answer without leaving the program
+        // is the one to name. One rule, two outcomes, and
+        // `elo-launcher/src/signer.rs` carries the same sentence.
         if self.signer.lock().map(|s| s.exists()).unwrap_or(false) {
             "local".into()
+        } else if paired().is_some() {
+            "browser-paired".into()
         } else {
             "none".into()
         }
@@ -127,23 +161,46 @@ impl Host for Launcher {
     /// fixes, and one message covering both sends a player to make a second
     /// account they already have.
     fn sign(&mut self, text: &str, why: &str) -> Result<Value, Refusal> {
-        let mut signer = self
+        // ⚠ **The unlocked local account answers first, and a browser pairing
+        // is the fallback rather than the winner.** This is the reverse of
+        // `elo-launcher/src/signer.rs`'s precedence and it is the SAME rule:
+        // prefer the signer that can answer without interrupting. In the CLI
+        // nothing is ever unlocked, so both doors cost an interruption and the
+        // newer deliberate act breaks the tie; here an unlocked key answers a
+        // game mid-play with no round trip at all, and bouncing that player to
+        // a browser tab would be strictly worse for them.
+        {
+            let mut signer = self
+                .signer
+                .lock()
+                .map_err(|_| Refusal::new("the account is busy — try again"))?;
+            if signer.exists() && signer.is_unlocked() {
+                return signer.sign(text, why);
+            }
+        }
+        // The lock is dropped before this: the browser round trip can take a
+        // person's whole attention span, and holding the account's mutex
+        // across it would make Unlock in the Signing window hang behind a
+        // stranger's tab.
+        if let Some(p) = paired() {
+            let mut s = elo_net::pairing::PairedBrowserSigner::new(p);
+            return s.sign(text, why);
+        }
+        let signer = self
             .signer
             .lock()
             .map_err(|_| Refusal::new("the account is busy — try again"))?;
         if !signer.exists() {
             return Err(Refusal::new(
-                "no account on this machine — make one in Account, or run \
-                 `elo account new`. Playing without one is a normal state.",
+                "no signer on this machine — make an account in Account, or \
+                 pair the wallet in your browser there instead. Playing \
+                 without either is a normal state.",
             ));
         }
-        if !signer.is_unlocked() {
-            return Err(Refusal::new(
-                "the account is locked — unlock it in Signing. It stays \
-                 unlocked until this launcher closes.",
-            ));
-        }
-        signer.sign(text, why)
+        Err(Refusal::new(
+            "the account is locked — unlock it in Signing. It stays \
+             unlocked until this launcher closes.",
+        ))
     }
 
     /// The identity proof. **No consent, and no prompt** — the launcher wrote
@@ -160,6 +217,21 @@ impl Host for Launcher {
             .lock()
             .map_err(|_| Refusal::new("the account is busy — try again"))?;
         if !signer.exists() {
+            // ⚠ **A browser pairing cannot serve this one, and the player is
+            // told why rather than sent to make a key with no reason given.**
+            // `prove_message` is EIP-4361, the relay refuses SIWE so the door
+            // can never be used to phish a login, and that wall has no
+            // exception shaped like us. Same sentence as the CLI's `prove`.
+            if let Some(p) = paired() {
+                return Err(Refusal::new(format!(
+                    "proving to a game server is the one act a browser pairing \
+                     cannot do — the message is a sign-in (EIP-4361), and \
+                     sign-ins do not ride the relay, which is what stops it \
+                     being used to phish a login. {} stays paired for \
+                     everything else; this wants an account here.",
+                    p.address
+                )));
+            }
             return Err(Refusal::new(
                 "no account on this machine — make one in Account, or run \
                  `elo account new`. Playing without one is a normal state; \
@@ -541,6 +613,12 @@ fn main() {
     // unlock relocks when the pairing is done.
     wiring::wire_signin(&account_w, &signer, &host, wiring::real_ask(),
                         wiring::real_tell(), std::rc::Rc::new(wiring::RealSigninHttp));
+    // The OTHER pairing (`SIGN-IN.md` §8): lend this launcher the wallet in a
+    // browser. No passphrase, because there is no key here to prove — the
+    // browser's own wallet is the thing that consents, one message at a time.
+    // Note it takes no `signer`: that is the point, and the button is offered
+    // whether or not this machine has an account.
+    wiring::wire_pair(&account_w, &host, wiring::real_tell());
 
     // Start answering the door. This must be registered before `a.run()` and
     // never from the door's own thread — FLTK's widgets belong to this one,
@@ -1091,6 +1169,20 @@ impl wiring::Storefront for Front {
                 Err(e) => kept_back.push(format!("{} ({e})", old.build)),
             }
         }
+        // Same notice the CLI prints, for the same reason: the bytes came from
+        // a host this build's own document does not name, and that is a thing
+        // to say out loud rather than a convenience to hide. The depot was
+        // packaged before a domain move; see `Depot::heal_retired_root`.
+        let healed = match &depot.healed_from {
+            Some(was) => format!(
+                "\n\nnote: this build names its files on {}, which is retired. They \
+                 were downloaded from {} instead, and every file was still checked \
+                 against the sha256 in the notarized depot.",
+                elo_depot::origin_of(was),
+                elo_depot::origin_of(&depot.root)
+            ),
+            None => String::new(),
+        };
         let sweep = match (swept, kept_back.is_empty()) {
             (0, true) => String::new(),
             (n, true) => format!("\n\n{n} older build(s) removed."),
@@ -1100,7 +1192,7 @@ impl wiring::Storefront for Front {
             ),
         };
         Ok(format!(
-            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}\n\n\
+            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}{healed}\n\n\
              It is in Games now, with a Play button.",
             m.name,
             depot.build,
@@ -1498,10 +1590,31 @@ mod tests {
     /// `consent::PROMPT_LIMIT` because that is what its SDK clients wait, and a
     /// test that inherited it would take five minutes to check the giving-up
     /// path once.
+    /// Every test below that reads or writes `ELO_PAIRING` holds this.
+    ///
+    /// The environment is per PROCESS and cargo runs tests on threads, so a
+    /// test that points the pairing at a real file and one that points it at
+    /// nowhere will happily undo each other — intermittently, which is the
+    /// worst way for a suite to be wrong.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn no_pairing() -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("elo-gui-test-{}", std::process::id()))
+            .join("no-such-pairing.json")
+    }
+
     fn accountless() -> Launcher {
         let nowhere = std::env::temp_dir()
             .join(format!("elo-gui-test-{}", std::process::id()))
             .join("no-such-keystore.json");
+        // ⚠ **And no browser pairing either, or this suite reads the DEVELOPER's.**
+        // `sign` falls through to `paired()`, which resolves the real config
+        // directory — so on a machine that happens to be paired these tests
+        // would take the browser branch and make a network call. Pointed at a
+        // path that cannot exist, once: every test in this module wants the
+        // same "no signer at all" machine.
+        std::env::set_var("ELO_PAIRING", no_pairing());
         Launcher {
             host: "https://elopros.com".into(),
             games_root: std::env::temp_dir(),
@@ -1516,12 +1629,21 @@ mod tests {
     /// account off to make a second one.
     #[test]
     fn the_two_reasons_a_sign_fails_are_not_the_same_sentence() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let mut l = accountless();
         let refusal = l.sign("elo play\nx", "why").expect_err("no account cannot sign");
         let said = refusal.to_json()["reason"].as_str().unwrap_or_default().to_string();
-        assert!(said.contains("no account"), "say which problem it is: {said}");
+        assert!(said.contains("no signer"), "say which problem it is: {said}");
+        // ⚠ **BOTH doors, and this half is new.** The sentence said "no
+        // account — make one", which was the whole truth while a key on this
+        // machine was the only way to sign. It stopped being true the day the
+        // launcher could borrow a browser wallet, and a refusal that names one
+        // of two fixes sends half its readers to do unnecessary work.
         assert!(said.contains("Account") || said.contains("account new"),
                 "say where the fix is: {said}");
+        assert!(said.contains("pair") || said.contains("browser"),
+                "name the other door too — a key here is no longer the only \
+                 way to sign: {said}");
         // The old refusal blamed a missing consent window. That window exists
         // now, and a stale reason would send a player looking for a bug that
         // was fixed.
@@ -1532,12 +1654,66 @@ mod tests {
     /// must not claim a backend before there is one.
     #[test]
     fn a_launcher_with_no_account_reports_no_signer() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(accountless().signer_name(), "none");
     }
 
     /// The door does not decide; it asks. With nothing answering the doorbell
     /// the ask must come back refused rather than allowed — the direction that
     /// costs a click instead of a signature.
+    /// A machine with no key and a live browser pairing is a machine that CAN
+    /// sign, and every verb that answers "who signs here" has to say so.
+    ///
+    /// Before the pairing existed all three of these answered "nobody", which
+    /// was true then and is the exact shape of a stale claim: a game would be
+    /// told there is no signer while a wallet it could reach in one round trip
+    /// sat paired two inches away.
+    #[test]
+    fn a_paired_browser_is_a_signer_this_machine_reaches() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("elo-gui-paired-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pairing.json");
+        let addr = "0x00000000000000000000000000000000000000ab";
+        elo_net::pairing::save(
+            &path,
+            &elo_net::pairing::Pairing {
+                host: "https://elopros.com".into(),
+                code: "ABCD2345".into(),
+                secret: "0".repeat(32),
+                address: addr.into(),
+                expires: elo_net::pairing::now() + 3600,
+            },
+        )
+        .unwrap();
+
+        let mut l = accountless();          // sets ELO_PAIRING to nowhere…
+        std::env::set_var("ELO_PAIRING", &path); // …and this points it at a real one
+
+        assert_eq!(l.signer_name(), "browser-paired",
+                   "a game asks this to decide whether to offer a Sign button");
+        assert_eq!(l.address().as_deref(), Some(addr),
+                   "on a keyless machine the browser's wallet IS who this player is");
+
+        // ⚠ `prove` is the one verb the pairing cannot serve, and it must say
+        // WHY. `prove_message` is EIP-4361 and the relay refuses SIWE, so this
+        // is a consequence of a wall rather than a missing feature — a player
+        // told "make an account" with no reason will read it as a bug.
+        let said = l
+            .prove("anything")
+            .expect_err("a pairing cannot prove")
+            .to_json()["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert!(said.contains("sign-in") || said.contains("EIP-4361"),
+                "name the reason, not just the refusal: {said}");
+        assert!(said.contains(addr), "say what IS still paired: {said}");
+
+        std::env::set_var("ELO_PAIRING", no_pairing());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn an_unanswered_doorbell_refuses() {
         let l = accountless();

@@ -20,12 +20,62 @@ pub struct DepotFile {
     pub executable: bool,
 }
 
+/// Hostnames this platform served from and has since retired.
+///
+/// **This is not a naming rule and not a label to be tidied — it is a list of
+/// dead addresses.** A depot bakes its `root` at package time and that root is
+/// inside the notarized digest, so a build packaged before a domain move keeps
+/// naming the old host forever: the document is current, the digest is right,
+/// and every byte it points at answers `410 Gone`. The move itself is recorded
+/// in `deploy/nginx/scry.moreright.xyz-gone.conf`, which listed the launcher
+/// binaries that would break and did not foresee this one — the depot
+/// documents, which break a launcher that is *not* stale.
+///
+/// Same category as `scry play` in `elo-broker` and the `x-scry-grant` header:
+/// a reader kept for a rename where the two sides move on different days. It
+/// goes when nothing published names one of these.
+pub const RETIRED_ORIGINS: &[&str] = &["scry.moreright.xyz"];
+
+/// `scheme://host[:port]` of a url. Everything from the third `/` is dropped,
+/// which is all a base needs to be.
+pub fn origin_of(url: &str) -> String {
+    let Some(rest) = url.find("://").map(|i| i + 3) else {
+        return url.trim_end_matches('/').to_string();
+    };
+    match url[rest..].find('/') {
+        Some(i) => url[..rest + i].to_string(),
+        None => url.trim_end_matches('/').to_string(),
+    }
+}
+
+/// Is this url's host one the platform has retired?
+fn on_retired_origin(url: &str) -> bool {
+    let origin = origin_of(url);
+    let host = origin
+        .split_once("://")
+        .map(|(_, h)| h)
+        .unwrap_or(&origin)
+        .split(':')
+        .next()
+        .unwrap_or("");
+    RETIRED_ORIGINS
+        .iter()
+        .any(|r| host.eq_ignore_ascii_case(r))
+}
+
 #[derive(Debug, Clone)]
 pub struct Depot {
     pub slug: String,
     pub build: String,
     pub platform: String,
     pub root: String,
+    /// The root this depot was packaged with, when [`Depot::heal_retired_root`]
+    /// has moved downloads off a retired host. `None` is the normal state.
+    ///
+    /// Kept so the client can SAY it did this. A silent redirect to a host the
+    /// document did not name is the kind of helpfulness that reads as a
+    /// compromise the first time anyone looks at it closely.
+    pub healed_from: Option<String>,
     pub files: Vec<DepotFile>,
     pub launch_exec: String,
     pub launch_args: Vec<String>,
@@ -45,6 +95,45 @@ impl Depot {
     /// with or without a trailing slash cannot produce two different URLs.
     pub fn file_url(&self, rel: &str) -> String {
         format!("{}/{}", self.root.trim_end_matches('/'), rel)
+    }
+
+    /// Move downloads off a retired host onto the origin that served this
+    /// document, keeping the path. Returns the root it replaced.
+    ///
+    /// **The digest does not move, and that is the whole point.** `raw` is
+    /// untouched, so [`Depot::digest`] still hashes the document exactly as it
+    /// was served and still resolves against what the notary committed. Only
+    /// the LOCATOR changes — and a locator is not an integrity claim here:
+    /// every file carries its own `sha256` inside that digest and `install`
+    /// re-hashes each one, so bytes fetched from a different host are held to
+    /// the same number as bytes fetched from the baked one. Nothing is trusted
+    /// more for having come from the address the packager typed.
+    ///
+    /// Deliberately narrow. A depot whose root is simply a CDN — any host that
+    /// is not on [`RETIRED_ORIGINS`] — is left alone, because naming a
+    /// separate download host is a thing a publisher is allowed to do and this
+    /// is not a policy about where bytes may live. It is one dead name, healed.
+    pub fn heal_retired_root(&mut self, document_url: &str) -> Option<String> {
+        if !on_retired_origin(&self.root) {
+            return None;
+        }
+        let origin = origin_of(document_url);
+        if origin.is_empty() || on_retired_origin(&origin) {
+            // Nowhere better to point. Leave the root as packaged and let the
+            // download fail loudly against the address the document names,
+            // rather than inventing a host nobody served this from.
+            return None;
+        }
+        let path = match self.root.find("://").map(|i| i + 3) {
+            Some(rest) => match self.root[rest..].find('/') {
+                Some(i) => self.root[rest + i..].to_string(),
+                None => String::new(),
+            },
+            None => String::new(),
+        };
+        let was = std::mem::replace(&mut self.root, format!("{origin}{path}"));
+        self.healed_from = Some(was.clone());
+        Some(was)
     }
 }
 
@@ -197,6 +286,7 @@ pub fn parse_depot(raw: &Value, allow_insecure: bool) -> Result<Depot> {
             .unwrap_or("any")
             .to_string(),
         root,
+        healed_from: None,
         files,
         launch_exec: exec_rel,
         launch_args: args,

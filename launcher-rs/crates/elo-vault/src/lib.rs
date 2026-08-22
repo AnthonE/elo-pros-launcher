@@ -78,6 +78,27 @@ pub fn keystore_path() -> std::path::PathBuf {
     }
 }
 
+/// Where a browser pairing is remembered — beside the keystore, never in it.
+///
+/// **This file holds no key and cannot be made to hold one.** It remembers a
+/// pairing code, the launcher's poll secret and the address a browser wallet
+/// proved, and none of the three can sign anything: every signature is asked
+/// for over the wire and approved by a human in another window
+/// (`meter/browser_signer.py`). It lives here rather than in `elo-net` for the
+/// reason [`keystore_path`] gives about itself — the CLI and the GUI must find
+/// the SAME pairing, and a second copy of the directory logic is how they would
+/// quietly become two.
+///
+/// It is still a bearer credential: whoever holds it may QUEUE asks the
+/// paired browser will be shown. Written 0600 on unix for that reason, and
+/// `elo pair forget` deletes it.
+pub fn pairing_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("ELO_PAIRING") {
+        return std::path::PathBuf::from(p);
+    }
+    keystore_path().with_file_name("pairing.json")
+}
+
 /// An account this machine holds. **Never serialise this**; the encrypted
 /// [`Keystore`] is the on-disk form.
 pub struct Account {

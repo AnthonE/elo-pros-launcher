@@ -53,7 +53,7 @@ def sqrt_price_x96(price_raw: float) -> int:
 
 def plan_pool(tag: str, spoil: str, scry: str, price_scry_per_spoil: float,
               scry_budget: float, spoil_dec: int, scry_dec: int,
-              slip_bps: int, quote_sym: str = "SCRY") -> dict:
+              slip_bps: int, quote_sym: str = "SCRY", label: str = "") -> dict:
     """Plan one v3 pool.
 
     `scry` / `scry_budget` / `price_scry_per_spoil` are the QUOTE side and were
@@ -102,6 +102,12 @@ def plan_pool(tag: str, spoil: str, scry: str, price_scry_per_spoil: float,
         "sqrtp": sp, "price_raw": price_raw,
         "spoil_budget": spoil_budget, "scry_budget": scry_budget,
         "quote_sym": quote_sym,
+        # Display only. The ENV PREFIX is always the tag, because that is
+        # what the Solidity lane reads; `label` exists so the generic COIN_
+        # lane can print "JUNK/ELO" over exports named COIN_*. Never let a
+        # label reach an env key — a coin renamed in a comment is free, a
+        # coin renamed in an export is a pool seeded from nothing.
+        "label": label or tag.split("_")[0],
         "amount0_min": amount0 * (10_000 - slip_bps) // 10_000,
         "amount1_min": amount1 * (10_000 - slip_bps) // 10_000,
     }
@@ -132,7 +138,7 @@ def render_exports(plans: list[dict]) -> str:
     for p in plans:
         t = p["tag"].upper()
         q = p.get("quote_sym", "SCRY")
-        base = p['tag'].split('_')[0]
+        base = p.get('label') or p['tag'].split('_')[0]
         lines.append(f"# {base}/{q}  —  {p['spoil_budget']:.4f} {base} + "
                      f"{p['scry_budget']:.4f} {q}, token0={p['token0']}")
         lines.append(f"export {t}_SQRTP={p['sqrtp']}")
@@ -195,6 +201,34 @@ def _selftest() -> int:
     block = render_exports([p3])
     for key in ("MYRRH_OBOL_SQRTP", "MYRRH_OBOL_BASE_RAW", "MYRRH_OBOL_QUOTE_RAW"):
         assert f"export {key}=" in block, key
+
+    # ── THE GENERIC LANE (2026-08-22), at the numbers actually spoken ────────
+    # Junk at 0.1 reserve per Junk. The properties that matter are the two the
+    # named lanes are checked for -- the coin side is DERIVED from the budget
+    # and the price, and sqrtP agrees with the amounts -- plus one that is new
+    # here: the exports must be named COIN_*, whatever the coin is called,
+    # because that is what SeedSpoilsUniswapV3.s.sol's generic lane reads. A
+    # label leaking into an env key seeds a pool from an unset variable.
+    for coin_a in (lo, hi):        # both sort orders; neither may change a thing
+        p4 = plan_pool("COIN", coin_a, scry, price_scry_per_spoil=0.1,
+                       scry_budget=65_000_000.0, spoil_dec=18, scry_dec=18,
+                       slip_bps=100, quote_sym="ELO", label="JUNK")
+        # 65M reserve at 0.1 reserve/coin is 650M coin -- derived, never passed
+        assert abs(p4["spoil_budget"] - 650_000_000.0) < 1e-6, p4["spoil_budget"]
+        if int(coin_a, 16) < int(scry, 16):
+            recovered4 = p4["amount1"] / p4["amount0"]      # reserve per coin
+        else:
+            recovered4 = p4["amount0"] / p4["amount1"]
+        assert abs(recovered4 - 0.1) < 1e-12, recovered4
+        assert MIN_SQRT_RATIO <= p4["sqrtp"] <= MAX_SQRT_RATIO
+        got4 = (p4["sqrtp"] / Q96) ** 2
+        assert abs(got4 - p4["price_raw"]) / p4["price_raw"] < 1e-6, (got4, p4["price_raw"])
+        block4 = render_exports([p4])
+        for key in ("COIN_SQRTP", "COIN_BASE_RAW", "COIN_QUOTE_RAW"):
+            assert f"export {key}=" in block4, key
+        assert "JUNK/ELO" in block4, block4          # the label reaches the comment
+        assert "export JUNK_" not in block4, block4  # and NEVER an env key
+
     print("seed_spoils_uniswap selftest: OK")
     return 0
 
@@ -203,7 +237,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--selftest", action="store_true", help="run internal checks and exit")
-    ap.add_argument("--scry")
+    ap.add_argument("--scry", "--reserve",
+                    help="the QUOTE side every coin pairs against (SCRY yesterday, ELO now)")
     ap.add_argument("--scry-dec", type=int, default=18)
     ap.add_argument("--obol"); ap.add_argument("--obol-price", type=float)
     ap.add_argument("--obol-scry-budget", type=float); ap.add_argument("--obol-dec", type=int, default=18)
@@ -215,6 +250,29 @@ def main() -> int:
                     help="OBOL per MYRRH (default 5.0 = 50/10, consistent with the two SCRY pools)")
     ap.add_argument("--myrrh-obol-budget", type=float,
                     help="OBOL side of the MYRRH/OBOL pool; omit to skip the third pool")
+    # ── THE GENERIC LANE (2026-08-22) ───────────────────────────────────
+    # One game coin against the reserve, exported as COIN_*. The three
+    # lanes above name the RETIRED generation's coins; this one takes the
+    # coin as an argument, which is what the current generation needs —
+    # Junk seeds on launch day and Orbs waits, so they cannot share a
+    # run. The price is OURS TO CHOOSE (that is why this module and not
+    # seed_pair_uniswap.py, which reads a live cross).
+    ap.add_argument("--coin", help="the game coin's address")
+    ap.add_argument("--coin-price", type=float,
+                    help="RESERVE per COIN at the open — e.g. 0.1 ELO per Junk. "
+                         "A v3 pool's first mint IS its price; there is no second try")
+    ap.add_argument("--coin-reserve-budget", type=float,
+                    help="the RESERVE side of the pool, in whole units. The coin side is "
+                         "DERIVED (budget / price) and is never passed — a listed pair has "
+                         "one degree of freedom too many")
+    ap.add_argument("--coin-dec", type=int, default=18)
+    ap.add_argument("--reserve-symbol", default="SCRY",
+                    help="display only. Defaults to SCRY so the three frozen named lanes "
+                         "render exactly as they always have; the generic lane RESOLVES it "
+                         "(meter/reserve.py) rather than typing a ticker")
+    ap.add_argument("--coin-symbol", default="COIN",
+                    help="display only; the exports stay COIN_* because that is what "
+                         "SeedSpoilsUniswapV3.s.sol reads")
     ap.add_argument("--slip-bps", type=int, default=100)
     args = ap.parse_args()
 
@@ -258,8 +316,15 @@ def main() -> int:
         plans.append(plan_pool("MYRRH_OBOL", args.myrrh, args.obol, args.myrrh_obol_price,
                                args.myrrh_obol_budget, args.myrrh_dec, args.obol_dec,
                                args.slip_bps, quote_sym="OBOL"))
+    if args.coin:
+        if args.coin_price is None or args.coin_reserve_budget is None:
+            ap.error("--coin needs --coin-price and --coin-reserve-budget")
+        plans.append(plan_pool("COIN", args.coin, args.scry, args.coin_price,
+                               args.coin_reserve_budget, args.coin_dec, args.scry_dec,
+                               args.slip_bps, quote_sym=args.reserve_symbol.upper(),
+                               label=args.coin_symbol.upper()))
     if not plans:
-        ap.error("give at least one of --obol / --myrrh")
+        ap.error("give at least one of --obol / --myrrh / --coin")
 
     print("# --- computed at the price you passed; RE-RUN minutes before broadcast (POOLS.md 2.2) ---")
     print(f"export SCRY_TOKEN={_norm(args.scry)}")
@@ -267,6 +332,8 @@ def main() -> int:
         print(f"export OBOL_TOKEN={_norm(args.obol)}")
     if args.myrrh:
         print(f"export MYRRH_TOKEN={_norm(args.myrrh)}")
+    if args.coin:
+        print(f"export COIN_TOKEN={_norm(args.coin)}")
     print(render_exports(plans))
     print()
     for p in plans:

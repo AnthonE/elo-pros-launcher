@@ -30,8 +30,12 @@ pub const VALUE_FLAGS: [&str; 20] = ["--games", "--host", "--platform", "--brows
                                      "--set", "--from", "--slot", "--title", "--body",
                                      "--body-file", "--kind", "--art", "--link", "--scope",
                                      "--days"];
-pub const SWITCHES: [&str; 9] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
-                                 "--detach", "--quiet", "--statement", "--no-watch"];
+pub const SWITCHES: [&str; 10] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
+                                  "--detach", "--quiet", "--statement", "--no-watch",
+                                  // Which signer signs. Only ever narrows: it forces the local
+                                  // keystore over a live browser pairing, and there is no
+                                  // `--paired` because pairing is already the deliberate act.
+                                  "--local"];
 
 pub fn parse(argv: &[String]) -> Result<Args, String> {
     let mut out = Args::default();

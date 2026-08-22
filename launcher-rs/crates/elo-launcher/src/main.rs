@@ -10,6 +10,7 @@ mod args;
 mod dev;
 mod mcp;
 mod prompt;
+mod signer;
 
 // The account's address and signature both come through this trait, so the CLI
 // and the window use one implementation rather than two that agree today.
@@ -57,6 +58,10 @@ elo — the desktop client
   elo account new                 make one — generated here, transmitted nowhere
   elo account import              adopt a key you already have
   elo account sign <message>      sign with it (EIP-191), for a game or a claim
+  elo pair                        sign with the wallet in your BROWSER instead
+                                   — prints a code to type at <host>/pair.html
+  elo pair show                   which wallet this machine can reach
+  elo pair forget                 drop the pairing
   elo signin  <code>              sign the website in with this account — type
                                    the code the browser shows, never a link
   elo publisher <title>           who signed this title's manifest, if anyone
@@ -89,6 +94,8 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --json              machine-readable output
   --no-watch          after `signin`, exit instead of staying to approve
                       the page's signature requests
+  --local             sign with the account on this machine, even when a
+                      browser pairing is live
   --no-reuse          download every file, even ones already on disk
   --allow-insecure    permit an http depot root (a local test server)
   --dry-run           say what would happen, do nothing
@@ -201,6 +208,15 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                               (optional; games play anonymously)");
                 }
             }
+            // ⚠ Which signer this machine REACHES is a different question from
+            // whether it holds an account, and a paired player's answer to the
+            // second one is "none" while the first is a working wallet. Two
+            // lines, because one would have to lie about one of them.
+            match signer::choose(a, &host) {
+                Ok(sig) => println!("signer      {}", sig.line()),
+                Err(_) => println!("signer      none — `elo pair` reaches the wallet \
+                                    in your browser, `elo account new` makes one here"),
+            }
             Ok(0)
         }
 
@@ -235,6 +251,14 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                             .unwrap_or_default()
                         );
                         return Ok(if signer.exists() { 0 } else { 3 });
+                    }
+                    // A paired player has no account and still has a wallet,
+                    // so this verb must not answer "none" and stop — that
+                    // sends someone who is already set up off to make a key
+                    // they do not need.
+                    if let Some(p) = elo_net::pairing::load(&elo_vault::pairing_path()) {
+                        println!("  a browser pairing is live: {} ({})", p.address, p.host);
+                        println!("  `elo pair show` is that door; --local forces this one");
                     }
                     match signer.address() {
                         Some(addr) => {
@@ -289,21 +313,19 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 // is a claim, and a signature is the only thing that makes it
                 // mean anything. Without this the CLI could hold a key and
                 // never use it.
+                //
+                // ⚠ It goes through `signer::choose` now, so it signs with a
+                // paired BROWSER wallet as readily as with the account on this
+                // box — the whole point of the seam. One thing changes for a
+                // caller: a browser-relayed text must be a platform signable
+                // (`elo <family>` first line), because that is the wall that
+                // stops this door carrying somebody else's authorisation
+                // grammar into a wallet with money in it. The origin says so
+                // in words when it refuses, so `--local` is one flag away and
+                // the reader is told which flag.
                 "sign" => {
                     let message = need(a.positional.get(1), "a message to sign")?;
-                    let mut signer = elo_vault::LocalSigner::at(&path);
-                    if !signer.exists() {
-                        return Err(DepotError::new(format!(
-                            "no account at {} — `elo account new` makes one",
-                            path.display()
-                        )));
-                    }
-                    warn_if_echoing();
-                    let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
-                    // A wrong passphrase is a WRONG PASSPHRASE and never
-                    // "corrupt" — the vault draws that line and this must not
-                    // blur it back by rewording the error.
-                    signer.unlock(&pass).map_err(DepotError::new)?;
+                    let mut signer = signer::choose(a, &host).map_err(DepotError::new)?;
                     let out = signer
                         .sign(message, "elo account sign")
                         .map_err(|r| DepotError::new(r.reason))?;
@@ -324,6 +346,111 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
 
                 other => Err(DepotError::new(format!(
                     "unknown account command {other:?} — try show, new, import or sign"
+                ))),
+            }
+        }
+
+        // ── pair: the wallet you already have, in the browser it lives in ───
+        //
+        // The mirror of `elo signin`, and the case that loses more players at
+        // the door. `signin` says "you have a wallet here, but no browser";
+        // this says "you have a browser wallet, and no wish for a second key
+        // on disk." Same bridge — the origin — because a browser cannot knock
+        // on a socket and this process cannot reach into a tab.
+        //
+        // ⚠ THE CODE IS PRINTED HERE AND TYPED THERE, never clicked. That is
+        // `SIGN-IN.md` §1's rule mirrored, and it mirrors without weakening: a
+        // code read off your own launcher and typed into your own browser
+        // cannot be a stranger's. The phish it forbids is the other one's
+        // reflection — a stranger's code, pasted into a chat as a free-mint
+        // link, would point YOUR wallet at THEIR launcher's queue. There is no
+        // `elo://pair/…` scheme on purpose; read meter/browser_signer.py's
+        // header before adding one.
+        //
+        // What lands on disk afterwards is a code, a secret and an address.
+        // None of the three can sign: every signature is asked for over the
+        // wire and approved by a human in another window. A launcher paired
+        // this way holds no key at all.
+        "pair" => {
+            let path = elo_vault::pairing_path();
+            match a.positional.first().map(String::as_str) {
+                Some("show") => {
+                    // The one caller that must tell "expired" from "never
+                    // paired" — everywhere else an expired pairing reads as
+                    // none, so no verb has to remember to check.
+                    let Some(p) = elo_net::pairing::load_even_if_expired(&path) else {
+                        println!("no browser pairing on this machine.");
+                        println!("  `elo pair` starts one; `elo account new` is the other door.");
+                        return Ok(3);
+                    };
+                    let left = p.expires.saturating_sub(elo_net::pairing::now());
+                    if json_out {
+                        let mut v = p.to_json();
+                        if let Some(m) = v.as_object_mut() {
+                            // The secret is a bearer credential. It is on disk
+                            // because this process needs it; it is not in
+                            // stdout, where a pasted terminal log would carry
+                            // it into a chat window.
+                            m.remove("secret");
+                            m.insert("seconds_left".into(), serde_json::json!(left));
+                        }
+                        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                        return Ok(if left == 0 { 3 } else { 0 });
+                    }
+                    println!("{}  ({})", p.address, p.host);
+                    if left == 0 {
+                        println!("  EXPIRED — `elo pair` claims a fresh code");
+                        return Ok(3);
+                    }
+                    println!("  code {} · {}h {}m left", p.show_code(), left / 3600, (left % 3600) / 60);
+                    println!("  every signature is still approved in the browser, one at a time");
+                    Ok(0)
+                }
+                Some("forget") => {
+                    let dropped = elo_net::pairing::forget(&path).map_err(DepotError::new)?;
+                    println!(
+                        "{}",
+                        if dropped {
+                            "forgotten — this machine reaches no browser wallet now"
+                        } else {
+                            "there was no pairing to forget"
+                        }
+                    );
+                    Ok(0)
+                }
+                None => {
+                    let net = Net::new();
+                    let (code, secret, _) =
+                        elo_net::pairing::start(&net, &host).map_err(DepotError::new)?;
+                    let show = format!("{}-{}", &code[..4], &code[4..]);
+                    println!("open this in the browser your wallet lives in:");
+                    println!("    {host}/pair.html");
+                    println!("and TYPE the code:");
+                    println!("    {show}");
+                    println!();
+                    println!("  nobody legitimate will ever send you one of these to enter.");
+                    println!("  waiting …");
+                    let p = elo_net::pairing::await_claim(&net, &host, &code, &secret, || {
+                        // A dot per poll, flushed, so a terminal shows the wait
+                        // as a wait rather than as a hang.
+                        use std::io::Write as _;
+                        print!(".");
+                        let _ = std::io::stdout().flush();
+                    })
+                    .map_err(DepotError::new)?;
+                    println!();
+                    elo_net::pairing::save(&path, &p).map_err(DepotError::new)?;
+                    println!("paired with {}", p.address);
+                    println!("  `elo entitle <game>` and `elo account sign` now ask that browser.");
+                    println!("  it approves one message at a time; `elo pair forget` ends it.");
+                    if json_out {
+                        println!("{}", serde_json::to_string_pretty(&p.to_json()).unwrap_or_default());
+                    }
+                    Ok(0)
+                }
+                Some(other) => Err(DepotError::new(format!(
+                    "unknown pair command {other:?} — try `elo pair`, `elo pair show` \
+                     or `elo pair forget`"
                 ))),
             }
         }
@@ -369,6 +496,23 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             let path = elo_vault::keystore_path();
             let mut signer = elo_vault::LocalSigner::at(&path);
             if !signer.exists() {
+                // ⚠ `prove` is the one signing verb a browser pairing cannot
+                // serve, and a paired player must be told WHY rather than sent
+                // to make a key with no reason given. `prove_message` is
+                // EIP-4361, the relay refuses SIWE so it can never phish a
+                // login, and that wall has no exception shaped like us.
+                if let Some(p) = elo_net::pairing::load(&elo_vault::pairing_path()) {
+                    return Err(DepotError::new(format!(
+                        "proving to a game server is the one act a browser \
+                         pairing cannot do. The message is a sign-in \
+                         (EIP-4361), and sign-ins do not ride the relay — \
+                         that is what stops the door being used to phish a \
+                         login. {} stays paired for everything else; this \
+                         wants an account here (`elo account new`) or a \
+                         wallet in the browser the game opens.",
+                        p.address
+                    )));
+                }
                 return Err(DepotError::new(format!(
                     "no account at {} — `elo account new` makes one",
                     path.display()
@@ -420,17 +564,15 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // (the prove_message lesson).
         "entitle" => {
             let slug = need(a.positional.first(), "a game slug")?;
-            let path = elo_vault::keystore_path();
-            let mut signer = elo_vault::LocalSigner::at(&path);
-            if !signer.exists() {
-                return Err(DepotError::new(format!(
-                    "no account at {} — `elo account new` makes one (or `import`)",
-                    path.display()
-                )));
-            }
+            // ⚠ The address is the SIGNER's, not the keystore's, and that is
+            // the whole of what changed here: with a browser pairing live this
+            // entitles the wallet in the browser, which is the wallet that
+            // actually bought the copy. Reading it off the keystore would have
+            // asked the origin about an address nobody paid with.
+            let mut signer = signer::choose(a, &host).map_err(DepotError::new)?;
             let address = signer
                 .address()
-                .ok_or_else(|| DepotError::new("the keystore names no address"))?;
+                .ok_or_else(|| DepotError::new("the signer names no address"))?;
             let net = Net::new();
             let asked = net.get_json(&format!(
                 "{host}/api/ticket/{slug}/message?wallet={address}"
@@ -447,11 +589,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     asked.why
                 )));
             };
-            warn_if_echoing();
-            let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
-            signer.unlock(&pass).map_err(DepotError::new)?;
             let out = signer
-                .sign(&message, "elo entitle")
+                .sign(&message, &format!("download {slug}"))
                 .map_err(|r| DepotError::new(r.reason))?;
             let sig = out
                 .get("signature")
@@ -1460,6 +1599,19 @@ fn do_install(depot: &Depot, games: &Path, a: &args::Args) -> Result<PathBuf, De
         plan(depot, games)
     };
     println!("build {} — {}", depot.build, p.line());
+    // Never silent. This depot was packaged against a host the platform has
+    // retired, and the files are coming from somewhere its document does not
+    // name — which a player is entitled to be told BEFORE the bytes move, not
+    // in a changelog. The digest printed on the way out is unaffected.
+    if let Some(was) = &depot.healed_from {
+        println!(
+            "note: this build names its files on {}, which is retired and answers 410.\n\
+             \x20     downloading from {} instead — every file is still checked against\n\
+             \x20     the sha256 in the notarized depot.",
+            elo_depot::origin_of(was),
+            elo_depot::origin_of(&depot.root)
+        );
+    }
     if a.has("--dry-run") {
         return Ok(games.join(&depot.slug).join(&depot.build));
     }
@@ -1794,7 +1946,7 @@ fn load_manifest(source: &str, host: &str) -> Result<Manifest, DepotError> {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
 
     let (from, base) = if is_url {
-        (source.to_string(), origin_of(source))
+        (source.to_string(), elo_depot::origin_of(source))
     } else if Path::new(source).is_file() {
         // A file's relative urls have no origin to complete them against, so
         // the host flag is the only sensible base — and it is the one the rest
@@ -1871,18 +2023,6 @@ fn use_cached_grant(games: &Path, slug: &str, host: &str) {
             "ELO_GRANT_ORIGIN",
             row.get("origin").and_then(Value::as_str).unwrap_or(host),
         );
-    }
-}
-
-/// `scheme://host[:port]` of a url, with no url crate. Everything after the
-/// third `/` is dropped, which is all a base needs to be.
-fn origin_of(url: &str) -> String {
-    let Some(rest) = url.find("://").map(|i| i + 3) else {
-        return url.trim_end_matches('/').to_string();
-    };
-    match url[rest..].find('/') {
-        Some(i) => url[..rest + i].to_string(),
-        None => url.trim_end_matches('/').to_string(),
     }
 }
 
