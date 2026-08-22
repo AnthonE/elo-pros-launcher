@@ -253,93 +253,59 @@ def test_real_repo_gates_pass():
     check("the repo's own custody gates pass", not bad, str(bad))
 
 
-def _git_repo(tmp, commits):
-    """A throwaway git repo. `commits` is [(message, {path: text}), …] applied
-    in order. Identity is passed per-invocation so this runs on a box with no
-    global git config."""
-    import subprocess
-    ident = ["-c", "user.email=t@t", "-c", "user.name=t"]
-
-    def g(*a):
-        subprocess.run(["git", *ident, *a], cwd=str(tmp), check=True,
-                       capture_output=True, text=True)
-
-    g("init", "-q", "-b", "main")
-    shas = []
-    for msg, files in commits:
-        for rel, text in files.items():
-            p = tmp / rel
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(text)
-        g("add", "-A")
-        g("commit", "-q", "-m", msg)
-        shas.append(subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                                   cwd=str(tmp), capture_output=True,
-                                   text=True).stdout.strip())
-    return shas
 
 
-def test_declared_decisions_reach_the_ledger():
-    """The Till miss, reintroduced. A gate nobody has watched go red is a green
-    light with no bulb behind it.
+# ⛔ `test_declared_decisions_reach_the_ledger` retired 2026-08-21 with the gate
+# it covered. `gate_sentences_record_decisions` required a commit declaring an
+# operator decision to also write `docs/SENTENCES.md`; the ledger is closed now
+# and CHANGELOG.md is the forward record. Its `_git_repo` fixture helper went
+# with it — nothing else built a throwaway repo.
 
-    Each case below is the gate's actual discriminator, and case 2 is the exact
-    shape of commit `9c918cf`: a real decision, eight files changed, none of
-    them the ledger."""
-    print("declared decisions reach the ledger")
-    LEDGER = "| date | the sentence | detail |\n| 2026-07-29 | a row |  |\n"
 
-    # 1. the decision commit writes the ledger itself -> pass
+def test_a_pinned_drop_is_not_an_arming_drop():
+    """`_drop_is_arming` gates how hard the snapshot and proxy checks bite, and
+    it read a DEPLOYED drop as an ARMING one.
+
+    `deployments.json` records a claim contract forever, so `if claims:` could
+    never say "" again after 2026-07-30. That made `gate_snapshot`'s freshness
+    check permanently hard against a snapshot no drop reads — the exact red its
+    own comment says it was scoped to avoid. The discriminator is whether a
+    fresh snapshot could still CHANGE the drop, which a pinned one cannot."""
+    print("a pinned drop is not an arming drop")
+
+    def _claims(entry):
+        return {"chains": {"4663": {"claims": {"drop-x": entry}}}}
+
+    # 1. THE BUG: a deployed drop with its snapshot pinned is NOT arming
     with Repo() as r:
-        _git_repo(r.dir, [("Seed", {"docs/SENTENCES.md": LEDGER}),
-                          ("A thing\n\nOperator, 2026-07-29: do the thing.\n",
-                           {"docs/SENTENCES.md": LEDGER + "| 2026-07-29 | it |  |\n"})])
-        got = results(P.gate_sentences_record_decisions)
-        check("a decision that writes the ledger passes",
-              got.get("every declared operator decision reaches SENTENCES.md") is True,
-              str(got))
+        r.write("contracts/deployments.json",
+                _claims({"snapshot": "snapshots/scry-holders.b23662441.json",
+                         "plan": "snapshots/airdrop-plan.json", "OBOL": "0xabc"}))
+        check("a drop with a pinned snapshot does not read as arming",
+              P._drop_is_arming() == "", repr(P._drop_is_arming()))
 
-    # 2. THE BUG: declared in the message, ledger untouched, hash uncited
+    # 2. a drop recorded before it pins one still needs a fresh reading
     with Repo() as r:
-        _git_repo(r.dir, [("Seed", {"docs/SENTENCES.md": LEDGER}),
-                          ("A thing\n\nOperator, 2026-07-29: do the thing.\n",
-                           {"contracts/src/Thing.sol": "// x"})])
-        got = results(P.gate_sentences_record_decisions)
-        check("an unrecorded decision REDS the gate",
-              got.get("every declared operator decision reaches SENTENCES.md") is False,
-              str(got))
+        r.write("contracts/deployments.json", _claims({"_what": "drop two, being prepared"}))
+        check("a drop with no pinned snapshot DOES read as arming",
+              "drop-x" in P._drop_is_arming(), repr(P._drop_is_arming()))
 
-    # 3. recorded a day late, but the row cites the commit -> pass
+    # 3. the env door is unchanged and still wins over any file state
     with Repo() as r:
-        shas = _git_repo(r.dir, [("Seed", {"docs/SENTENCES.md": LEDGER}),
-                                 ("A thing\n\nOperator, 2026-07-29: do the thing.\n",
-                                  {"contracts/src/Thing.sol": "// x"})])
-        (r.dir / "docs/SENTENCES.md").write_text(
-            LEDGER + f"| 2026-07-29 | spoken in commit `{shas[-1]}` |  |\n")
-        got = results(P.gate_sentences_record_decisions)
-        check("a late row that cites the commit passes",
-              got.get("every declared operator decision reaches SENTENCES.md") is True,
-              str(got))
+        r.write("contracts/deployments.json",
+                _claims({"snapshot": "snapshots/pinned.json"}))
+        os.environ["SCRY_CLAIM_OBOL"] = "0xdeadbeef"
+        try:
+            check("SCRY_CLAIM_* in the environment still arms",
+                  "SCRY_CLAIM_OBOL" in P._drop_is_arming(), repr(P._drop_is_arming()))
+        finally:
+            del os.environ["SCRY_CLAIM_OBOL"]
 
-    # 4. a parenthetical CITATION of a past decision is not a new one. This repo
-    #    writes those in nearly every message; flagging them would be noise, and
-    #    a noisy gate gets ignored, which is the failure one level up.
+    # 4. no claims at all is not arming, and must not throw
     with Repo() as r:
-        _git_repo(r.dir, [("Seed", {"docs/SENTENCES.md": LEDGER}),
-                          ("A thing\n\nPer the split (operator, 2026-07-26), do it.\n",
-                           {"contracts/src/Thing.sol": "// x"})])
-        got = results(P.gate_sentences_record_decisions)
-        check("citing a past decision does not trip the gate",
-              got.get("every declared operator decision reaches SENTENCES.md") is True,
-              str(got))
-
-    # 5. an unreadable ledger must not clear every commit at once
-    with Repo() as r:
-        _git_repo(r.dir, [("A thing\n\nOperator, 2026-07-29: do the thing.\n",
-                           {"contracts/src/Thing.sol": "// x"})])
-        got = results(P.gate_sentences_record_decisions)
-        check("a missing ledger fails rather than passing vacuously",
-              got.get("SENTENCES.md is readable") is False, str(got))
+        r.write("contracts/deployments.json", {"chains": {"4663": {}}})
+        check("no claims recorded is not arming",
+              P._drop_is_arming() == "", repr(P._drop_is_arming()))
 
 
 def test_drop_claim_isolation():
@@ -1358,7 +1324,8 @@ def test_holder_faucet_stays_disarmed():
 if __name__ == "__main__":
     for fn in (test_negative_gate_cannot_pass_vacuously, test_src_does_not_cross_read,
                test_src_required_reports, test_snapshot_verification_needs_evidence,
-               test_snapshot_freshness_uses_its_own_clock, test_drop_claim_isolation,
+               test_snapshot_freshness_uses_its_own_clock,
+               test_a_pinned_drop_is_not_an_arming_drop, test_drop_claim_isolation,
                test_pool_float_survives_markdown,
                test_published_plans_are_immutable_commitments,
                test_drop_being_graded_is_named,
@@ -1370,7 +1337,6 @@ if __name__ == "__main__":
                test_merkle_totals_must_be_derived,
                test_deploy_script_scanner_discriminates,
                test_holder_faucet_stays_disarmed,
-               test_declared_decisions_reach_the_ledger,
                test_real_repo_gates_pass):
         fn()
     print(f"\npreflight: {PASS} passed, {FAIL} failed")

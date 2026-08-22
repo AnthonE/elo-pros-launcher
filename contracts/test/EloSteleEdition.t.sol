@@ -294,7 +294,7 @@ contract EloSteleEditionTest is Test {
         string memory json = string(jsonBytes);
 
         vm.parseJson(json); // reverts on malformed JSON
-        assertEq(vm.parseJsonString(json, ".name"), "reserve stele edition a1b2c3d4e5f60718 #1");
+        assertEq(vm.parseJsonString(json, ".name"), "elo stele edition a1b2c3d4e5f60718 #1");
         assertEq(vm.parseJsonUint(json, ".attributes[1].value"), 1); // edition
         assertEq(vm.parseJsonUint(json, ".attributes[2].value"), 1_700_000_000); // minted_at
         // the image is a self-contained on-chain SVG data URI (not a URL)

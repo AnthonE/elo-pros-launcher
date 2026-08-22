@@ -45,15 +45,21 @@ import "../src/EloSeatArt.sol";
 ///   # ⚠ SPOKEN 2026-08-12: ONE DOOR. "we only have one door this one and i need
 ///   # like max amount of people LOL just not dust". Door 1 takes the whole
 ///   # float; doors 2, 3 and the PAID door are all 0. The four must sum to
-///   # <= supply (the constructor requires it): 8092 + 0 + 0 + 100 = 8192.
+///   # <= supply (the constructor requires it): 7692 + 0 + 0 + 500 = 8192.
+///   # ⚠ RE-CUT 2026-08-21 AND THIS BLOCK CARRIED 8092/100 UNTIL THEN — the
+///   # superseded pair. It is a copy-pasteable header, so a stale figure here
+///   # welds a collection nobody chose. contracts/hive.env.example is the
+///   # staged record; read the figures from there, never from this comment.
 ///   # ⚠ WHAT A 0 CAP MEANS, since it is immutable: setDoorRoot still succeeds,
 ///   # /mint.html still renders the door, and every claim reverts for as long as
 ///   # the contract exists. For the PAID door it means no seat is ever sold, so
 ///   # the mint raises nothing and the free seats are the whole collection.
-///   export SEAT_SNAPSHOT_CAP=8092         # door 1 — the whole free float
+///   export SEAT_SNAPSHOT_CAP=7692         # door 1 — the whole free float
 ///   export SEAT_PLAY_CAP=0                # door 2 — welded shut
 ///   export SEAT_BUILD_CAP=0               # door 3 — welded shut
-///   export SEAT_TREASURY_CAP=100          # operator, 2026-08-08
+///   export SEAT_TREASURY_CAP=500          # operator, 2026-08-21 (400 of it is
+///                                         # pre-declared gacha prize inventory,
+///                                         # so it is never a post-close sweep)
 ///   export SEAT_RESERVED_UNTIL=...        # unix ts: when the three free doors
 ///                                         # shut and their unclaimed remainder
 ///                                         # becomes paid float. WELDED, public

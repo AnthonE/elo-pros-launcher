@@ -280,10 +280,15 @@ contract EloCisternTest is Test {
         assertEq(cistern.feeOf(1), 10_000);
     }
 
-    function test_track_zero_is_scry_and_cannot_be_repointed() public {
-        vm.expectRevert("track 0 is SCRY");
+    function test_track_zero_is_the_reserve_and_cannot_be_repointed() public {
+        // ⚠ The string is the CONTRACT's, not a description of it. It moved
+        // with the `scry` -> `reserve` rename (EloCistern.sol) and this
+        // assertion did not, which is the whole failure mode: a revert-string
+        // test that drifts fails loudly here and would have been read as a
+        // broken contract on a launch-day gate run.
+        vm.expectRevert("track 0 is the reserve");
         cistern.proposeRoute(0, address(obol), 10_000);
-        vm.expectRevert("track 0 is SCRY");
+        vm.expectRevert("track 0 is the reserve");
         cistern.proposeRoute(2, address(reserve), 10_000);
     }
 

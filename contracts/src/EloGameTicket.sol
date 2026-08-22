@@ -237,7 +237,9 @@ contract EloGameTicket is ReentrancyGuard {
         uint256 amount; // wei · token units · how many NFTs. 0 is NOT "free", it is shut
         address sink; // where payment lands. NATIVE ignores it — see `proceeds`
         bool open;
-        string label; // what a surface calls it: "eth", "elo", a partner's name
+        string label; // what a surface calls it: "eth", "reserve", a partner's
+                      // name. WELDED for rails 1-5 (setRail refuses them), so
+                      // the three built-in labels are roles, not tickers
     }
 
     uint256 public constant RAIL_ETH = 1;
@@ -401,7 +403,16 @@ contract EloGameTicket is ReentrancyGuard {
         // and token are welded here and `setRail` refuses to touch them; only
         // the amount moves, which is what `setPrices` does.
         _seed(RAIL_ETH, AssetKind.NATIVE, address(0), address(0), "eth");
-        _seed(RAIL_ELO, AssetKind.ERC20, address(_reserve), _reserveSink, "elo");
+        // ⚠ THE LABEL IS WELDED AND IT IS A ROLE, NEVER A TICKER. `setRail`
+        // refuses `railId < FIRST_CUSTOM_RAIL`, so rails 1-5 can never be
+        // relabelled by anyone at any price — whatever goes in here is printed
+        // by every surface that reads `railInfo` for the life of the contract.
+        // It said "elo" until 2026-08-21, which is the same mistake the
+        // site-wide SCRY->ELO find-and-replace already made once: a ticker
+        // welded into a place that outlives the ticker. The reserve moved
+        // SCRY -> ELO and may move again; the ROLE does not, which is why the
+        // immutable beside it is `reserve` and not `elo` either.
+        _seed(RAIL_ELO, AssetKind.ERC20, address(_reserve), _reserveSink, "reserve");
         _seed(RAIL_USDG, AssetKind.ERC20, address(_usdg), _proceeds, "usdg");
 
         emit OwnershipTransferred(address(0), owner);

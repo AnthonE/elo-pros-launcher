@@ -304,7 +304,7 @@ contract EloMarketTest is Test {
         vm.prank(seller);
         board.deliver(id, DELIV);
         vm.prank(buyer);
-        vm.expectRevert(bytes("buyer has not funded - approve SCRY or await deadline"));
+        vm.expectRevert(bytes("buyer has not funded - approve the reserve or await deadline"));
         board.complete(id);
     }
 

@@ -392,7 +392,7 @@ contract EloDeed {
         if (renderer != address(0)) return IEloRenderer(renderer).contractURI();
         string memory json = string.concat(
             '{"name":"elo deeds",'
-            '"description":"Titles to plots on the streets of reserve. A deed carries the walls and the '
+            '"description":"Titles to plots on the streets of Elo. A deed carries the walls and the '
             "plot, never the owner reputation - reputation is soulbound to the vow at EloReputation and "
             "does NOT move with a deed. Founding and every conveyance burn OBOL: the deed is a sink by "
             'design, and a deed buys no reputation, no access, no odds - only the four walls.",',
@@ -428,7 +428,7 @@ contract EloDeed {
         string memory json = string.concat(
             '{"name":"elo deed #',
             _u(tokenId),
-            '","description":"Title to one plot on the streets of reserve - street ',
+            '","description":"Title to one plot on the streets of Elo - street ',
             _u(d.streetIndex),
             ", plot ",
             _u(d.plot),

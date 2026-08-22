@@ -402,8 +402,32 @@ def _drop_is_arming():
                 "chains", {}).get("4663", {}).get("claims", {}) or {}
         except Exception:  # noqa: BLE001
             claims = {}
-        if claims:
-            return f"{len(claims)} drop(s) have claim contracts in deployments.json"
+        # ⚠ A DEPLOYED DROP IS NOT AN ARMING DROP, and reading it as one made
+        # every caller of this permanently strict. This branch used to return
+        # truthy for `if claims:` — but `deployments.json` records a claim
+        # contract FOREVER, so from the moment drop one landed (2026-07-30)
+        # nothing could ever make it say "" again. `gate_snapshot`'s freshness
+        # check is scoped on exactly this signal, with a comment explaining that
+        # an unconditional red "forced a snapshot re-take that NEITHER drop
+        # uses"; the signal then guaranteed that red on any snapshot over
+        # MAX_SNAPSHOT_AGE_H. It went red for the reason its own comment says it
+        # must not, and the only green available was re-snapshotting every 24h
+        # for nobody.
+        #
+        # The discriminator is whether a fresh snapshot could still CHANGE the
+        # drop. Once a drop pins its own snapshot file, it cannot: drop one is
+        # pinned at block 23,662,441 with a plan that reproduces byte-for-byte,
+        # and its roots are already on chain. A drop still being prepared has no
+        # pinned snapshot yet, and that one genuinely needs a fresh reading.
+        #
+        # This re-arms by itself. Drop two gets an entry before it has a
+        # snapshot, and on that day these gates are hard again — which is what
+        # "the moment a drop arms, this is hard again" was supposed to mean.
+        unpinned = sorted(k for k, v in claims.items()
+                          if not (isinstance(v, dict) and v.get("snapshot")))
+        if unpinned:
+            return (f"{len(unpinned)} drop(s) with no pinned snapshot: "
+                    f"{', '.join(unpinned)}")
     return ""
 
 
@@ -1808,100 +1832,19 @@ def gate_custody():
           "a signed read is the product; it is never given away for a balance")
 
 
-DECISION_RE = re.compile(r"^Operator, (\d{4}-\d{2}-\d{2}):", re.M)
-DECISION_LOOKBACK_DAYS = 30
-# Any hex run long enough to be a commit citation. 7 is git's own floor for an
-# abbreviation, and it is what most rows on the ledger carry.
-HEX_RUN_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
-
-
-def _git(args):
-    """Local git, never raises. A repo state this cannot read is reported as a
-    skip by the caller, never as a pass — see the note in `src_required`."""
-    try:
-        r = subprocess.run(["git", *args], cwd=str(REPO), capture_output=True,
-                           text=True, timeout=20)
-        return r.stdout if r.returncode == 0 else None
-    except Exception:
-        return None
-
-
-def gate_sentences_record_decisions():
-    """A commit may not claim an operator decision the ledger has never heard of.
-
-    This is the miss that cost a day of re-derivation. Commit `9c918cf` opened
-    *"Operator, 2026-07-29: pick ScryTill"* and changed eight files — none of
-    them `SENTENCES.md`. The decision was real, findable, and invisible to every
-    session that (correctly) went to the ledger first, so it got re-asked three
-    times.
-
-    **A date-level check would NOT have caught it, and that is why this one is
-    shaped the way it is.** 2026-07-29 already carried a row — the dev-wallet
-    sentence — so *"does this date appear"* was already true while the Till
-    decision was still missing. The discriminator has to be the commit, not
-    the day.
-
-    So: a commit whose message declares a decision must either **write the
-    ledger itself**, or **be cited by it**. The second door is not a loophole —
-    it is how a decision recorded a day late still passes, and the citation is
-    worth having on its own, because a row that names the commit it came from
-    can be audited back to the words that were actually said.
-
-    Bounded to `DECISION_LOOKBACK_DAYS` because the convention post-dates the
-    early history, and a gate that reds over commits nobody can amend is a gate
-    people learn to ignore. Only the line-initial form counts: this repo cites
-    past decisions parenthetically (*"(operator, 2026-07-26)"*) in almost every
-    message, and flagging those would make the check noise."""
-    ledger = src_required("SENTENCES.md",
-                          "it decides whether a declared decision was recorded, "
-                          "and an empty read would clear every commit at once")
-    if not ledger:
-        return
-
-    # ⚠ THE CITATION IS MATCHED BY PREFIX, AND AN EXACT MATCH IS A BUG THAT
-    # FIRES ON ITS OWN. git abbreviates `%h` to whatever keeps a sha unique in
-    # THIS repo, and that length grows as the repo does: every row on the
-    # ledger cites 7 characters because 7 is what `%h` printed the day it was
-    # written, and `%h` prints 8 now. An `in` test against the full abbreviation
-    # therefore stopped matching all ten citations AT ONCE — the gate went red
-    # claiming the decisions were never recorded, when what actually changed was
-    # git's abbreviation length. It cost a red preflight from 2026-08-09 to
-    # 2026-08-12 and the message sent every reader to look for missing rows that
-    # were sitting right there.
-    #
-    # So: take the FULL sha and ask whether the ledger cites any prefix of it.
-    # That is what a citation MEANS, it is exact in both directions (a 7-char
-    # citation cannot match a different commit unless git itself would have
-    # collided), and it never rots again when the abbreviation grows to 9.
-    log = _git(["log", f"--since={DECISION_LOOKBACK_DAYS}.days", "--no-merges",
-                "--format=%h%x1f%H%x1f%s%x1f%b%x1e"])
-    if log is None:
-        check("every declared operator decision reaches SENTENCES.md", True,
-              "git log unavailable — skipped (not a launch blocker)",
-              "")
-        return
-
-    cited = set(HEX_RUN_RE.findall(ledger))
-
-    unrecorded = []
-    for entry in (e for e in log.split("\x1e") if e.strip()):
-        parts = entry.strip().split("\x1f")
-        if len(parts) < 4:
-            continue
-        sha, full, subject, body = parts[0], parts[1], parts[2], parts[3]
-        if not DECISION_RE.search(body) and not DECISION_RE.search(subject):
-            continue
-        touched = _git(["show", "--name-only", "--format=", sha]) or ""
-        if "SENTENCES.md" in touched or any(full.startswith(c) for c in cited):
-            continue
-        unrecorded.append((sha, subject))
-
-    check("every declared operator decision reaches SENTENCES.md", not unrecorded,
-          "all declared decisions are on the ledger" if not unrecorded else
-          "; ".join(f"{s} '{sub[:52]}'" for s, sub in unrecorded),
-          "append the compressed row (headline, the operator's own words, a "
-          "pointer) to docs/SENTENCES.md — or, if it is already there, cite the "
-          "commit hash in that row so the decision can be traced to what was said")
+# ── retired 2026-08-21: the SENTENCES decision gate ──────────────────────────
+# `gate_sentences_record_decisions` blocked any commit whose message declared
+# an operator decision unless that commit also wrote `docs/SENTENCES.md` or was
+# cited by it. It did its job — it was written after a real decision went into
+# eight files and never reached the ledger — but the ledger is CLOSED now
+# (operator, 2026-08-21) and `CHANGELOG.md` is the forward record.
+#
+# ⚠ Do not rebuild this against CHANGELOG.md. The gate's cost was never the
+# check, it was that a second home for decisions existed at all and every doc
+# resolved against it. A decision is recorded where the work is recorded.
+#
+# Its helpers went with it — DECISION_RE, DECISION_LOOKBACK_DAYS, HEX_RUN_RE
+# and `_git` had no other caller. Recover from git history, not from scratch.
 
 
 # The two dialects this repo publishes, and the one thing they share: the tree.
@@ -2152,7 +2095,6 @@ def main():
     gate_posted_destinations()
     gate_custody()
     gate_holder_faucet()
-    gate_sentences_record_decisions()
 
     if a.json:
         print(json.dumps(RESULTS, indent=1))

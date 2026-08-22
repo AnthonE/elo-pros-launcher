@@ -84,7 +84,11 @@ contract EloFeeConverter is ReentrancyGuard {
 
     constructor(IERC20 _reserve, IERC20 _coin, ISwapRouter _router, uint24 _convertFee, address _payee, address _steward) {
         require(address(_reserve) != address(0) && address(_coin) != address(0), "zero token");
-        require(address(_reserve) != address(_coin), "elo cannot be the coin");
+        // ⚠ ROLE, NOT TICKER. This refusal is about the RESERVE — the asset the
+        // converter pays out in — and it outlives whatever the reserve is
+        // called. The SCRY -> ELO sweep wrote a ticker into it; the same sweep
+        // is why `_reserve` beside it is not named `_elo` either.
+        require(address(_reserve) != address(_coin), "reserve cannot be the coin");
         require(address(_router) != address(0), "zero router");
         require(_payee != address(0), "zero payee");
         require(_steward != address(0), "zero steward");

@@ -110,14 +110,38 @@ check("no private key, mnemonic or keystore path is read from elo.env",
 
 # ── 2 · the welded knobs have no defaults ────────────────────────────────────
 print("\n[a welded knob has no default — the SEAT_SCRY lesson, executed]")
-WELDED = ("ELO_BUYBACK_ENABLED", "ELO_CREATOR_TAX_BPS", "ELO_OPENING_BUY_ETH")
+# ⚠ TWO LISTS, AND THE SPLIT IS THE POINT. `DEMANDED` is every knob
+# `require_knobs` refuses to default — blank is refused for all three, because
+# false/0 being the RECOMMENDATION is exactly why a blank must not silently
+# become it. `WELDED` is the subset the launch transaction makes permanent.
+#
+# ⚠ ELO_BUYBACK_ENABLED WAS IN BOTH UNTIL 2026-08-21 AND BELONGED IN ONE.
+# `setBuybackEnabled(address,bool)` is on the verified factory ABI, so it is a
+# setter (SENTENCES.md 2026-08-21; pons' docs: creator-only to turn ON). The law
+# below therefore inverts for it: an ANSWERED decision must look answered, so
+# the template STAGES `false` and a blank template is the failure. The
+# still-welded two keep the original law — an unmade decision must look unmade.
+DEMANDED = ("ELO_BUYBACK_ENABLED", "ELO_CREATOR_TAX_BPS", "ELO_OPENING_BUY_ETH")
+WELDED = ("ELO_CREATOR_TAX_BPS", "ELO_OPENING_BUY_ETH")
+STAGED = {"ELO_BUYBACK_ENABLED": "false"}
 for k in WELDED:
     check(f"{k} is present in the template and BLANK — an unmade decision must "
           f"look unmade", re.search(rf"(?m)^{k}=\s*$", TPL) is not None)
+for k, v in STAGED.items():
+    check(f"{k} is STAGED at {v!r} in the template — a decision that HAS been "
+          f"made must look made (SENTENCES.md 2026-08-21)",
+          re.search(rf"(?m)^{k}={v}\s*$", TPL) is not None)
 
 with tempfile.TemporaryDirectory() as td:
     blank = Path(td) / "blank.env"
-    blank.write_text(TPL)
+    # ⚠ The template no longer refuses BY ITSELF on every knob: buyback is
+    # staged now, so a "fresh template" for the purpose of this law is the
+    # template with the STAGED answers cleared back out. Writing TPL verbatim
+    # would test that a staged file refuses, which is the opposite law.
+    blank_txt = TPL
+    for k in STAGED:
+        blank_txt = re.sub(rf"(?m)^{k}=.*$", f"{k}=", blank_txt)
+    blank.write_text(blank_txt)
     r = run(["knobs"], {"ELO_ENV": str(blank)})
     check("`knobs` on a fresh template REFUSES (exit 1) rather than defaulting",
           r.returncode == 1)
@@ -142,6 +166,21 @@ with tempfile.TemporaryDirectory() as td:
     check("a fully-typed elo.env passes `knobs`", r3.returncode == 0)
     check("…and prints the welded set under a heading that says so",
           "WELDED BY THIS TRANSACTION" in r3.stdout)
+
+    # ⚠ THE HEADING IS THE PRODUCT HERE. This screen is what the operator reads
+    # in the minutes before an unpatchable transaction, and it listed
+    # buybackEnabled under "no setter, at any price" for a knob that has one.
+    # A figure filed under the wrong permanence is worse than an unlisted one:
+    # it makes a reversible decision feel final and a final one feel routine.
+    welded_block = r3.stdout.split("WELDED BY THIS TRANSACTION")[-1]
+    welded_block = welded_block.split("SETTERS")[0]
+    check("…and buybackEnabled is NOT in it — it is a setter "
+          "(setBuybackEnabled, verified factory ABI; SENTENCES.md 2026-08-21)",
+          "buybackEnabled" not in welded_block)
+    check("…it is filed under SETTERS instead, named with the call that moves it",
+          "SETTERS" in r3.stdout and "setBuybackEnabled" in r3.stdout)
+    for k in ("creatorTaxBps", "opening buy", "salt"):
+        check(f"…and {k} is still under the welded heading", k in welded_block)
 
     # ── 3 · an ABSOLUTE ELO_ENV works ────────────────────────────────────────
     print("\n[the ledger path]")

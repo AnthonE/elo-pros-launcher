@@ -309,7 +309,9 @@ contract EloLaunchpad is ReentrancyGuard {
         nonReentrant
         returns (uint256 reserveOut)
     {
-        require(tokenIn != address(reserve), "already elo");
+        // ⚠ ROLE, NOT TICKER — the raise is denominated in the reserve, and a
+        // ticker in a revert string outlives the ticker (SCRY -> ELO, once).
+        require(tokenIn != address(reserve), "already reserve");
         require(tokenIn != address(coin), "the coin side is not the raise");
         require(amountIn > 0, "nothing in");
         require(minEloOut > 0, "name a floor");

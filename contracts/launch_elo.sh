@@ -215,9 +215,11 @@ require_knobs() {
 
     case "${ELO_BUYBACK_ENABLED:-}" in
         true|false) ;;
-        *) printf '   UNSPOKEN [WELDED]  ELO_BUYBACK_ENABLED  -> write true or false.\n'
+        *) printf '   UNSPOKEN [setter]  ELO_BUYBACK_ENABLED  -> write true or false.\n'
            printf '            Blank is NOT false. It decides whether WE or pons own the\n'
-           printf '            timing of every fee sweep, forever. ONE-SHOT.md §3b says false.\n'
+           printf '            timing of every fee sweep at launch; `setBuybackEnabled` can\n'
+           printf '            move it after (creator-only to turn ON). SENTENCES.md 08-21\n'
+           printf '            says false: sweep timing stays ours, feeding our own 1/14 loop.\n'
            bad=1 ;;
     esac
 
@@ -373,11 +375,19 @@ knobs)
     printf '   %-26s %s\n' "quote asset" "${ELO_PAIR_TOKEN:-native ETH (0x0)}"
     printf '   %-26s %s\n' "launch config id" "${ELO_LAUNCH_CONFIG_ID:-0}"
     printf '\n   WELDED BY THIS TRANSACTION - no setter, at any price:\n'
-    printf '   %-26s %s\n' "buybackEnabled" "$ELO_BUYBACK_ENABLED"
     printf '   %-26s %s bps\n' "creatorTaxBps" "$ELO_CREATOR_TAX_BPS"
     printf '   %-26s %s ETH\n' "opening buy" "$ELO_OPENING_BUY_ETH"
     printf '   %-26s %s\n' "snipe exemptions" "${ELO_SNIPE_EXEMPTIONS:-none (deployer + creator are automatic)}"
     printf '   %-26s %s\n' "salt" "${ELO_SALT:-fresh random, chosen at plan time}"
+    # ⚠ buybackEnabled PRINTED UNDER "WELDED - no setter, at any price" until
+    # 2026-08-21, and this screen is the one the operator reads on the day. It
+    # is `setBuybackEnabled(address,bool)` on the verified factory ABI - a
+    # setter - and pons' docs say only the creator can ever turn it ON. It is
+    # still DEMANDED rather than defaulted (require_knobs), because false being
+    # the recommendation is exactly why a blank must not silently become it.
+    printf '\n   SETTERS - decided now, changeable later:\n'
+    printf '   %-26s %s\n' "buybackEnabled" "$ELO_BUYBACK_ENABLED"
+    printf '   %-26s %s\n' "  " "setBuybackEnabled(address,bool); creator-only to turn ON"
     printf '\n   TIMELOCKED, not welded:\n'
     printf '   %-26s %s\n' "creatorFeeRecipient" "${ELO_CREATOR_FEE_RECIPIENT:-<the deployer>}"
     printf '\n   Path: %s\n' "$([ "${ELO_ATOMIC:-true}" = false ] && echo 'DIRECT - the opening buy is a SECOND transaction' || echo 'atomic launchAndBuy')"
@@ -789,8 +799,8 @@ PY
      2. watchtower/listings/listings.json - same, for listing rows.
      3. Untracked files pass every local gate and the release does not have
         them:   git status --porcelain | grep '^??'
-     4. Release, then verify AT THE ORIGIN - /api/reserve, /api/curve,
-        /api/launch all 404 there today:
+     4. Release, then verify AT THE ORIGIN - /api/reserve, /api/curve and
+        /api/launch all answer 200 there and will start naming this token:
           cd /data/apps/scry-deploy && git pull && pm2 restart scry-meter \\
             && python3 meter/smoke_test.py
      5. Check /pubkey against the origin - it must stay
