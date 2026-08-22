@@ -772,6 +772,19 @@ def main(argv=None) -> int:
             h, n = line.split("  ", 1)
             sums[n] = h
         bad = []
+        # ⚠ MAC_NAME is checked WHEN PRESENT and NAMED when absent, and the
+        # difference matters. It is the one artifact built on hardware this box
+        # does not have — a GitHub macos runner — so it is the one whose bytes
+        # arrived over a wire, and therefore the one most worth hashing. It was
+        # simply left out of this loop until 2026-08-22, so the file that
+        # travelled furthest was the only file nobody checked.
+        #
+        # It cannot be REQUIRED like the other three: the mac build lags by
+        # design (it lands when its CI job runs), and a hard failure for a
+        # lagging mac would make this whole check red on every ordinary
+        # release — the failure mode that teaches people to skip it. So an
+        # absent mac artifact prints a line saying so and does not fail; a
+        # PRESENT one is verified exactly as strictly as the rest.
         for name in (DEB_NAME, TGZ_NAME, ZIP_NAME):
             p = OUT / name
             if not p.is_file():
@@ -782,6 +795,16 @@ def main(argv=None) -> int:
                 bad.append(f"{name}: bytes disagree with SHA256SUMS")
             else:
                 print(f"ok   {name}  {p.stat().st_size:>9,}B  sha256 {sums[name]}")
+        mac = OUT / MAC_NAME
+        if not mac.is_file():
+            print(f"--   {MAC_NAME}: not published yet — the mac build lands "
+                  f"when its CI job runs, and nothing here checked it")
+        elif MAC_NAME not in sums:
+            bad.append(f"{MAC_NAME}: on disk but not in SHA256SUMS — run --sums")
+        elif hashlib.sha256(mac.read_bytes()).hexdigest() != sums[MAC_NAME]:
+            bad.append(f"{MAC_NAME}: bytes disagree with SHA256SUMS")
+        else:
+            print(f"ok   {MAC_NAME}  {mac.stat().st_size:>9,}B  sha256 {sums[MAC_NAME]}")
         for line in bad:
             print("FAIL " + line, file=sys.stderr)
         return 1 if bad else 0

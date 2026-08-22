@@ -8,7 +8,7 @@ about: "sign the website in with the launcher's account — the device-code pair
 # SIGN-IN.md — the website signs in with the launcher
 
 > The purse's only signer used to be a browser extension, and the away state
-> said so: *"install any EIP-1193 wallet"*. But `scry account new` already
+> said so: *"install any EIP-1193 wallet"*. But `elo account new` already
 > writes a real wallet — a V3 keystore every Ethereum tool reads — and a
 > player who made theirs in the launcher had no way to prove it to a page.
 > This is the bridge. **The reframe that unblocks it: that player does not
@@ -124,7 +124,7 @@ would be weaker than what exists** — four digits against a rig is an
 afternoon; the passphrase through scrypt is the real wall, so runtime got the
 hardening instead:
 
-- **the CLI unlocks per command and forgets at exit** (`scry account sign`,
+- **the CLI unlocks per command and forgets at exit** (`elo account sign`,
   `scry entitle`, `scry signin` — one passphrase prompt each);
 - **the GUI relocks an idle key**: every signature refreshes `last_used`, and
   an unlocked account nobody has used for `SCRY_RELOCK_MINUTES` (default 30,

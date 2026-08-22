@@ -1261,6 +1261,36 @@ string. ⚠ Read the scope — that run drove the **app**, and on 2026-08-05 the
 app was not what the internet could reach. It says the digest does not drift
 through this code; it never said a player could fetch it. §11e.)*
 
+⚠ **The cost of that rule is a domain move, and it was not theoretical.** A
+depot packaged before 2026-08-20 bakes `root` on `scry.moreright.xyz`, which
+answers **410 Gone** for every file. Nothing may correct it: the string is
+inside the digest the notary holds. So the failure presents with every signal
+green — a current client, a manifest row marked `published`, a computable
+digest that matches the chain, every file present on the origin's disk — and a
+download that cannot complete. Gates' 0.5.0 depots shipped in exactly that
+state and a player found it before any gate did.
+
+Three things changed and they sit at different layers:
+
+* **The client heals it.** `Depot::heal_retired_root` (elo-depot) fetches from
+  the origin that served the *document* when the baked root names a host on
+  `RETIRED_ORIGINS`. The digest is untouched — `raw` is not edited, so the
+  number still resolves against the notary — because `root` is a **locator**
+  and the per-file `sha256` inside that digest is what secures the bytes. The
+  heal is narrow on purpose: an unrecognised host is left exactly as packaged
+  and fails loudly, since naming a CDN is a publisher's right and overriding it
+  would buy nothing. It is never silent — `elo install` names the dead host
+  before any byte moves.
+* **The gate catches it.** `deploy/launch_preflight.py` FAILs a depot whose
+  root is not on `$SCRY_ORIGIN`. Every other depot check passed on this defect,
+  which is why it needed its own.
+* **The origin says it.** A native row whose depot points off-origin carries
+  `root_origin` and `root_why` (`meter/launcher.py`).
+
+**The durable fix is still a re-package and a re-notarize**, per title, on the
+origin box. The heal keeps players installing in the meantime; it does not make
+a stale root correct, and a client older than the heal is not helped by it.
+
 **A build goes live when `published.json` names it — never because a directory
 appeared.** An upload in flight is a half-written tree, and "newest directory
 wins" would flip the live build to it mid-copy. Publishing is therefore one

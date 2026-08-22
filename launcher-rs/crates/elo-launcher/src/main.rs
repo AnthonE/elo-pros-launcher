@@ -1460,6 +1460,19 @@ fn do_install(depot: &Depot, games: &Path, a: &args::Args) -> Result<PathBuf, De
         plan(depot, games)
     };
     println!("build {} — {}", depot.build, p.line());
+    // Never silent. This depot was packaged against a host the platform has
+    // retired, and the files are coming from somewhere its document does not
+    // name — which a player is entitled to be told BEFORE the bytes move, not
+    // in a changelog. The digest printed on the way out is unaffected.
+    if let Some(was) = &depot.healed_from {
+        println!(
+            "note: this build names its files on {}, which is retired and answers 410.\n\
+             \x20     downloading from {} instead — every file is still checked against\n\
+             \x20     the sha256 in the notarized depot.",
+            elo_depot::origin_of(was),
+            elo_depot::origin_of(&depot.root)
+        );
+    }
     if a.has("--dry-run") {
         return Ok(games.join(&depot.slug).join(&depot.build));
     }
@@ -1794,7 +1807,7 @@ fn load_manifest(source: &str, host: &str) -> Result<Manifest, DepotError> {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
 
     let (from, base) = if is_url {
-        (source.to_string(), origin_of(source))
+        (source.to_string(), elo_depot::origin_of(source))
     } else if Path::new(source).is_file() {
         // A file's relative urls have no origin to complete them against, so
         // the host flag is the only sensible base — and it is the one the rest
@@ -1871,18 +1884,6 @@ fn use_cached_grant(games: &Path, slug: &str, host: &str) {
             "ELO_GRANT_ORIGIN",
             row.get("origin").and_then(Value::as_str).unwrap_or(host),
         );
-    }
-}
-
-/// `scheme://host[:port]` of a url, with no url crate. Everything after the
-/// third `/` is dropped, which is all a base needs to be.
-fn origin_of(url: &str) -> String {
-    let Some(rest) = url.find("://").map(|i| i + 3) else {
-        return url.trim_end_matches('/').to_string();
-    };
-    match url[rest..].find('/') {
-        Some(i) => url[..rest + i].to_string(),
-        None => url.trim_end_matches('/').to_string(),
     }
 }
 

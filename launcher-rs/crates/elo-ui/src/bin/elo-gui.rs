@@ -1091,6 +1091,20 @@ impl wiring::Storefront for Front {
                 Err(e) => kept_back.push(format!("{} ({e})", old.build)),
             }
         }
+        // Same notice the CLI prints, for the same reason: the bytes came from
+        // a host this build's own document does not name, and that is a thing
+        // to say out loud rather than a convenience to hide. The depot was
+        // packaged before a domain move; see `Depot::heal_retired_root`.
+        let healed = match &depot.healed_from {
+            Some(was) => format!(
+                "\n\nnote: this build names its files on {}, which is retired. They \
+                 were downloaded from {} instead, and every file was still checked \
+                 against the sha256 in the notarized depot.",
+                elo_depot::origin_of(was),
+                elo_depot::origin_of(&depot.root)
+            ),
+            None => String::new(),
+        };
         let sweep = match (swept, kept_back.is_empty()) {
             (0, true) => String::new(),
             (n, true) => format!("\n\n{n} older build(s) removed."),
@@ -1100,7 +1114,7 @@ impl wiring::Storefront for Front {
             ),
         };
         Ok(format!(
-            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}\n\n\
+            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}{healed}\n\n\
              It is in Games now, with a Play button.",
             m.name,
             depot.build,
