@@ -95,6 +95,22 @@ pub type Ask = Rc<dyn Fn(&str, &str) -> Option<String>>;
 /// How it reports back — a message, and an alert for a refusal.
 pub type Tell = Rc<dyn Fn(Told, &str)>;
 
+/// A finished step that HAS a next step — offered on the notice, not described
+/// on it. Returns whether the player took it.
+///
+/// Operator, 2026-08-23: *"when we install a game it would be nice if it just
+/// showed a play button or something. menu navigation is kinda odd after you
+/// complete a step."* The install notice already ended *"It is in Games now,
+/// with a Play button"* — which is a set of directions, and directions are the
+/// thing being complained about. [`windows::notice`]'s own header had the rule
+/// written down for restarts since 2026-08-12: a notice that names a next step
+/// and leaves the player to go find it "has told them a chore, not offered
+/// one." This is that rule with the restart-shaped hole widened.
+///
+/// Injected like [`Tell`] and [`Ask`] rather than called straight through, so
+/// a harness can answer it without a display.
+pub type Then = Rc<dyn Fn(&str, &str) -> bool>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Told {
     Done,
@@ -114,13 +130,18 @@ pub fn real_ask() -> Ask {
     Rc::new(ask_in_window)
 }
 
+/// The real offer: the client's own notice, with the next step on it.
+pub fn real_then() -> Then {
+    Rc::new(|body, label| show_notice(Note::Done, "Done", body, Some(label)))
+}
+
 pub fn real_tell() -> Tell {
     Rc::new(|kind, text| {
         let (note, title) = match kind {
             Told::Done => (Note::Done, "Done"),
             Told::Refused => (Note::Refused, "That did not work"),
         };
-        show_notice(note, title, text, false);
+        show_notice(note, title, text, None);
     })
 }
 
@@ -168,15 +189,15 @@ pub fn ask_in_window(title: &str, prompt: &str) -> Option<String> {
 ///
 /// Returns whether the player asked for a restart, which is only ever `true`
 /// when the caller offered one.
-pub fn show_notice(kind: Note, title: &str, body: &str, offer_restart: bool) -> bool {
-    let mut win = windows::notice(kind, title, body, offer_restart);
+pub fn show_notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> bool {
+    let mut win = windows::notice(kind, title, body, action);
     let wants = Rc::new(std::cell::Cell::new(false));
 
     let mut ok = win.ok.clone();
     let mut w = win.window.clone();
     ok.set_callback(move |_| w.hide());
 
-    if let Some(b) = win.restart.clone() {
+    if let Some(b) = win.action.clone() {
         let mut b = b;
         let (flag, mut w) = (Rc::clone(&wants), win.window.clone());
         b.set_callback(move |_| {
@@ -379,11 +400,13 @@ pub fn wire_games(
     games_w: &crate::windows::GamesWindow,
     front: Rc<dyn Storefront>,
     tell: Tell,
+    then: Then,
 ) {
     for row in &games_w.rows {
         let (slug, build) = (row.slug.clone(), row.build.clone());
         let updating = row.act.label() == "Update";
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let then_c = Rc::clone(&then);
         let mut act = row.act.clone();
         act.set_callback(move |b| {
             b.deactivate();
@@ -399,8 +422,13 @@ pub fn wire_games(
                 Ok(said) => {
                     b.set_label(if updating { "Play" } else { "Running" });
                     b.activate();
-                    if updating {
-                        tell_c(Told::Done, &said);
+                    // An update finishes on the row the player is already
+                    // looking at, so the offer is the same one the Store makes:
+                    // the step after "it updated" is playing it.
+                    if updating && then_c(&said, "Play now") {
+                        if let Err(e) = front_c.play(&slug) {
+                            tell_c(Told::Refused, &e);
+                        }
                     }
                 }
                 Err(e) => {
@@ -455,6 +483,7 @@ pub fn wire_store(
     store_w: &crate::windows::StoreWindow,
     front: Rc<dyn Storefront>,
     tell: Tell,
+    then: Then,
     after_install: Rc<dyn Fn()>,
 ) {
     use crate::windows::Act;
@@ -462,6 +491,7 @@ pub fn wire_store(
         let slug = row.slug.clone();
         let act = row.act;
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
+        let then_c = Rc::clone(&then);
         let after = Rc::clone(&after_install);
         let mut button = row.button.clone();
         button.set_callback(move |b| match act {
@@ -473,8 +503,15 @@ pub fn wire_store(
                 match front_c.install(&slug) {
                     Ok(said) => {
                         b.set_label("Installed");
-                        tell_c(Told::Done, &said);
+                        // The shelves are re-read BEFORE the notice, not after:
+                        // if the player takes the Play offer, the library it
+                        // starts from has to be the one holding this install.
                         after();
+                        if then_c(&said, "Play now") {
+                            if let Err(e) = front_c.play(&slug) {
+                                tell_c(Told::Refused, &e);
+                            }
+                        }
                     }
                     Err(e) => {
                         b.set_label("Install");
@@ -493,10 +530,15 @@ pub fn wire_store(
                     );
                 }
             }
-            Act::Installed => tell_c(
-                Told::Done,
-                "You already have this one — it is in Games, with a Play button.",
-            ),
+            // Already yours — so the next step is playing it, not being told
+            // which window to go and look in.
+            Act::Installed => {
+                if then_c("You already have this one.", "Play now") {
+                    if let Err(e) = front_c.play(&slug) {
+                        tell_c(Told::Refused, &e);
+                    }
+                }
+            }
             // Not pressable, so this is unreachable by a click. Kept as a real
             // arm rather than a catch-all so adding a sixth `Act` fails to
             // compile instead of silently doing nothing.
@@ -844,6 +886,41 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
     let mut b = b;
     let host = host.trim_end_matches('/').to_string();
     let note = account_w.pair_note.clone();
+    let row = account_w.pair_row.clone();
+
+    // Copy puts the code on the clipboard and SAYS it did. A button that
+    // silently succeeds is one a player presses three times and then retypes
+    // the code anyway, which is the state this whole row was added to end.
+    if let Some(r) = row.clone() {
+        let (c, mut cb) = (r.code.clone(), r.copy.clone());
+        cb.set_callback(move |btn| {
+            let v = c.value();
+            if v.is_empty() {
+                return;
+            }
+            app::copy(&v);
+            btn.set_label("Copied");
+            app::redraw();
+        });
+    }
+    // The PAGE, never the code. `{host}/pair.html` carries nothing, so what
+    // reaches the form is still only what the player carried there themselves
+    // — `SIGN-IN.md` §1 intact.
+    if let Some(r) = row.clone() {
+        let mut ob = r.open.clone();
+        let (host_o, tell_o) = (host.clone(), Rc::clone(&tell));
+        ob.set_callback(move |_| {
+            let url = format!("{host_o}/pair.html");
+            let opened = if cfg!(target_os = "windows") {
+                std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
+            } else {
+                std::process::Command::new("xdg-open").arg(&url).spawn()
+            };
+            if opened.is_err() {
+                tell_o(Told::Refused, &format!("Could not open a browser.\n\nGo to:\n{url}"));
+            }
+        });
+    }
     // One at a time. Without this, a second press mints a second code and the
     // first poller keeps running against a pairing nobody will ever claim —
     // two timeouts, two codes, and a window that reports whichever finishes.
@@ -863,9 +940,16 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
             code.clone()
         };
         let mut note = note.clone();
-        note.set_label(&format!(
-            "type  {show}  at {host}/pair.html\nnobody legitimate will ever send you a code"
-        ));
+        // Both the code AND its warning belong to the row now, so this label
+        // is status only and stays empty until there is something to report.
+        note.set_label("");
+        if let Some(mut r) = row.clone() {
+            r.code.set_value(&show);
+            // A second press mints a second code, so the button goes back to
+            // "Copy" — leaving "Copied" there would name the old one.
+            r.copy.set_label("Copy");
+            r.show();
+        }
         let mut btn = btn.clone();
         btn.deactivate();
         waiting.set(true);
@@ -873,6 +957,10 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
 
         let (host, waiting) = (host.clone(), Rc::clone(&waiting));
         let tell = Rc::clone(&tell);
+        // The poller outlives this press, so it takes its own handles to the
+        // three widgets rather than borrowing the ones this closure keeps for
+        // the NEXT press.
+        let row = row.clone();
         let began = std::time::Instant::now();
         app::add_timeout3(PAIR_POLL, move |handle| {
             match elo_net::pairing::poll_claim(&net, &host, &code, &secret) {
@@ -881,10 +969,17 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
                     match elo_net::pairing::save(&path, &p) {
                         Ok(()) => {
                             note.set_label(&format!(
-                                "paired with {}\nit approves one message at a time; \
-                                 close the tab to end it",
+                                "paired with {} — it approves one message at a \
+                                 time; close the tab to end it",
                                 p.address
                             ));
+                            // The code is spent. Take the row away rather than
+                            // leave a stale code sitting under a Copy button
+                            // that would hand someone eight dead characters.
+                            if let Some(mut r) = row.clone() {
+                                r.code.set_value("");
+                                r.hide();
+                            }
                             tell(Told::Done, &format!(
                                 "Paired with {}.\n\nThe launcher will ask that browser \
                                  to sign, one message at a time. Nothing that can sign \

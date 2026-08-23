@@ -41,6 +41,22 @@ gap.** A clickable pairing is the classic device-code phish: a stranger pastes
 *their* code into a chat window dressed as a free-mint link, and the victim's
 approval signs the stranger's browser in as them. A code that must be read off
 your own screen and typed into your own launcher cannot be somebody else's.
+
+⚠ **A Copy button on a code THIS launcher minted is not a relaxation of this,
+and the difference is the whole rule rather than a concession to it.** What §1
+forbids is a code that ARRIVES — a deep link, a stranger's code pasted into a
+chat — because a code you did not mint is the phish. The launcher's own pairing
+code fails that description in the only way that matters: it was minted here,
+it is shown here, and the player carries it to a page they opened themselves.
+Copying is not clicking. What stays forbidden is unchanged: no `elo://pair/…`
+scheme, and the *Open the pairing page* button opens `{host}/pair.html` and
+never a url with the code in it — the moment a link carries the code, it is the
+deep link this section refuses. The field a code is typed INTO (the §0
+direction) gets no copy affordance at all, because there the code is somebody
+else's until proven otherwise.
+(Operator, 2026-08-23: *"i couldnt even copy my code"* — it was a frame label
+FLTK cannot select, so the only way to move eight characters was to retype
+them.)
 The page says it in as many words ("nobody legitimate will ever send you one
 to enter"), the launcher shows the full message before the passphrase prompt,
 and a code lives ten minutes and works once. If a deep link is ever added it

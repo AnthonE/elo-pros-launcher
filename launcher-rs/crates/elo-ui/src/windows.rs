@@ -927,6 +927,8 @@ pub struct AccountWindow {
     /// the reflection of §1's rule, and the reason this is a frame the player
     /// reads rather than a link they press.
     pub pair_note: frame::Frame,
+    /// The code row, present in both states. See [`PairRow`].
+    pub pair_row: Option<PairRow>,
 }
 
 /// Account — the address the launcher watches, and the two ways to get one.
@@ -962,7 +964,8 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     // Plain, never gold and never green: making a key on your own machine is
     // an ordinary act, and the reserved fill belongs to something that moves
     // money (`SITE-PLATFORM.md` §14b).
-    let (make, import, signin_code, signin, pair, pair_note, base) = if address.is_none() {
+    let (make, import, signin_code, signin, pair, pair_note,
+         pair_row, base) = if address.is_none() {
         let mut make = chrome::button(16, 180, 168, 28, "Make an account…", Tone::Plain);
         make.set_align(enums::Align::Center | enums::Align::Inside);
         let mut import = chrome::button(196, 180, 168, 28, "Import a key…", Tone::Plain);
@@ -974,10 +977,19 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
         // for me" — and not a lesser answer to it.
         let mut pair = chrome::button(376, 180, 188, 28, "Use my browser wallet…", Tone::Plain);
         pair.set_align(enums::Align::Center | enums::Align::Inside);
-        let note = chrome::label(16, 214, 548, 30,
+        // The code field is built in BOTH branches now. A player with no
+        // account is the likeliest presser of "Use my browser wallet…" — that
+        // door exists for exactly them — so building the copyable code only in
+        // the has-an-account branch left the common case retyping again.
+        let note = chrome::label(16, 214, 548, 16,
                       "the browser wallet keeps its key — this machine stores nothing that can sign",
                       theme::DIM, 11);
-        (Some(make), Some(import), None, None, Some(pair), note, 264)
+        // Under the note, so the reserved blank the hidden row leaves sits at
+        // the bottom of this section rather than as a hole punched through the
+        // middle of it.
+        let row = pair_code_row(16, 240);
+        (Some(make), Some(import), None, None, Some(pair),
+         note, Some(row), 322)
     } else {
         // Unlocking lives in Signing, deliberately: it is the act that puts a
         // key in memory, and it belongs beside the window that says what can
@@ -989,9 +1001,17 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
         chrome::label(16, 206, 548, 16,
                       "sign a website in — type the code the page shows:",
                       theme::MUTED, 11);
-        let mut code = input::Input::new(16, 226, 150, 26, None);
-        code.set_text_size(13);
-        let mut b = chrome::button(178, 226, 190, 26, "Sign the browser in…", Tone::Plain);
+        // ⚠ This field was the ONE input in the client with no colours set, so
+        // it drew as FLTK's stock white box in an olive window — the same
+        // mismatch the stock dialogs were removed for on 2026-08-12, surviving
+        // in the field this whole flow is typed into. Operator, 2026-08-23:
+        // the sign-in "didnt seem to treat it like a first class citizen."
+        let mut code = input::Input::new(16, 226, 150, 28, None);
+        code.set_text_size(16);
+        code.set_color(theme::WELL);
+        code.set_text_color(theme::INK);
+        code.set_selection_color(theme::SEL);
+        let mut b = chrome::button(178, 226, 190, 28, "Sign the browser in…", Tone::Plain);
         b.set_align(enums::Align::Center | enums::Align::Inside);
         chrome::label(16, 256, 548, 14,
                       "type it yourself, off your own screen — nobody legitimate sends you a code",
@@ -1004,8 +1024,15 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
                       theme::MUTED, 11);
         let mut pair = chrome::button(16, 302, 240, 26, "Use my browser wallet…", Tone::Plain);
         pair.set_align(enums::Align::Center | enums::Align::Inside);
-        let note = chrome::label(16, 332, 548, 30, "", theme::DIM, 11);
-        (None, None, Some(code), Some(b), Some(pair), note, 372)
+        // The code, then the warning about it — in that order. Drawn the other
+        // way round the wall arrived before the thing it guards, and a reader
+        // met "nobody will ever send you a code" above a blank space.
+        let row = pair_code_row(16, 334);
+        // Status only — "paired with 0x…". The anti-phish line belongs to the
+        // row now, so this stays empty until there is something to report.
+        let note = chrome::label(16, 402, 548, 16, "", theme::DIM, 11);
+        (None, None, Some(code), Some(b), Some(pair),
+         note, Some(row), 428)
     };
 
     chrome::label(16, base, 548, 16, "elo never sees a key.", theme::INK, 12);
@@ -1030,7 +1057,96 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     w.set_size(580, base + 116);
     w.end();
     AccountWindow { window: w, make, import, address: addr_line, note: note_line,
-                    signin_code, signin, pair, pair_note }
+                    signin_code, signin, pair, pair_note,
+                    pair_row }
+}
+
+/// The minted pairing code, in a row a player can act on rather than transcribe.
+///
+/// **One unit, shown and hidden together.** It is built hidden and switched on
+/// by [`crate::wiring::wire_pair`] when a code actually exists: an empty
+/// copyable field beside a Copy button is an offer to copy nothing, and a page
+/// link with no code to carry sends someone to a form they cannot fill.
+///
+/// ⚠ Every piece belongs to the row, INCLUDING the two lines of prose. Hiding
+/// the widgets and leaving the hint was the first bug the capture caught —
+/// "your code — copy it" standing over an empty gap, which is every state
+/// before the button is pressed. Grouping them is what stops that recurring:
+/// there is one `show`, one `hide`, and nothing to forget.
+#[derive(Clone)]
+pub struct PairRow {
+    pub hint: frame::Frame,
+    /// The code, in a field the player can SELECT and COPY.
+    ///
+    /// ⚠ **This does not relax `SIGN-IN.md` §1, and the distinction is the
+    /// whole reason it is allowed.** §1 forbids a code that ARRIVES — a deep
+    /// link, a stranger's code pasted from a chat — because a code you did not
+    /// mint yourself is the phish. A code this launcher minted, on this
+    /// screen, carried by this player to a page they opened themselves, has
+    /// exactly the property §1 protects: it came from nobody else. Copying is
+    /// not clicking.
+    ///
+    /// Operator, 2026-08-23: *"i couldnt even copy my code."* It was a
+    /// `frame::Frame` label, which FLTK cannot select, so the only way to move
+    /// eight characters was to retype them off the screen.
+    pub code: input::Input,
+    pub copy: button::Button,
+    /// Opens `{host}/pair.html` — the PAGE, never the code. A url carrying the
+    /// code would be the deep link §1 refuses; a url carrying nothing is the
+    /// address this note used to ask the player to retype into a browser bar.
+    pub open: button::Button,
+    /// The anti-phish wall, and it lives BELOW the code rather than above it.
+    /// Drawn the other way round the warning arrived before the thing it
+    /// guards, and a reader met "nobody will ever send you a code" over a
+    /// blank space.
+    pub warn: frame::Frame,
+}
+
+impl PairRow {
+    pub fn show(&mut self) {
+        self.hint.show();
+        self.code.show();
+        self.copy.show();
+        self.open.show();
+        self.warn.show();
+    }
+    pub fn hide(&mut self) {
+        self.hint.hide();
+        self.code.hide();
+        self.copy.hide();
+        self.open.hide();
+        self.warn.hide();
+    }
+}
+
+fn pair_code_row(x: i32, y: i32) -> PairRow {
+    let hint = chrome::label(x, y, 548, 14,
+                  "your code — copy it, then type or paste it on the page:",
+                  theme::MUTED, 11);
+    let mut code = input::Input::new(x, y + 18, 150, 28, None);
+    code.set_text_size(16);
+    code.set_readonly(true);
+    // The code is the one thing on this window a player has to carry somewhere
+    // else, so it is drawn in the ink the eye lands on and not the muted grey
+    // the surrounding advice uses.
+    //
+    // ⚠ Both colours or neither. Setting the ink and leaving the background
+    // was measured on 2026-08-23 as the WORST of the three states: INK is
+    // light because it is meant for olive, so on FLTK's stock white field the
+    // code came out washed to near-invisible — the least legible thing on a
+    // window whose entire job was to show it.
+    code.set_color(theme::WELL);
+    code.set_text_color(theme::INK);
+    code.set_selection_color(theme::SEL);
+    let mut copy = chrome::button(x + 160, y + 18, 96, 28, "Copy", Tone::Plain);
+    copy.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut open = chrome::button(x + 264, y + 18, 190, 28, "Open the pairing page", Tone::Plain);
+    open.set_align(enums::Align::Center | enums::Align::Inside);
+    let warn = chrome::label(x, y + 52, 548, 14,
+                  "nobody legitimate will ever send you a code", theme::DIM, 11);
+    let mut row = PairRow { hint, code, copy, open, warn };
+    row.hide();
+    row
 }
 
 /// Signing — which backend signs, and what that means.
@@ -1415,13 +1531,20 @@ pub enum Note {
 pub struct NoticeWindow {
     pub window: window::Window,
     pub ok: button::Button,
-    /// Present only when the caller asked for it. See [`notice`].
-    pub restart: Option<button::Button>,
+    /// The next step, present only when the caller named one. See [`notice`].
+    ///
+    /// ⚠ This was `restart: Option<Button>` and only a restart could use it.
+    /// Generalising it is the whole of the fix for a complaint that was never
+    /// about restarts: operator, 2026-08-23, *"menu navigation is kinda odd
+    /// after you complete a step so anything would be helpful."* The doc below
+    /// had already written the principle down for restarts alone.
+    pub action: Option<button::Button>,
 }
 
 /// Tell the player something, in the client's own skin.
 ///
-/// `restart` offers a **Restart elo now** button beside the dismissal.
+/// `action` offers one next step beside the dismissal — **Restart elo now**,
+/// **Play Gates now**, whatever the finished step leads to.
 /// Operator, 2026-08-12: *"if we need the user to reboot say so and try to
 /// self reboot or something."* Two halves, and the first one matters more:
 ///
@@ -1440,7 +1563,7 @@ pub struct NoticeWindow {
 /// control always and `wiring::adopt` activates it in place. Offer a restart
 /// where a restart is genuinely the fix; do not use it to paper over a window
 /// that could refresh itself.
-pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindow {
+pub fn notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> NoticeWindow {
     let lines = body.lines().count().max(1) as i32;
     let text_h = (lines * 17 + 8).clamp(40, 320);
     let win_h = 58 + text_h + 56;
@@ -1468,8 +1591,11 @@ pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindo
         y += 17;
     }
 
-    let restart_b = restart.then(|| {
-        let mut b = chrome::button(16, win_h - 44, 160, 30, "Restart elo now", Tone::Plain);
+    // Width from the label: "Play Gates now" and "Restart elo now" are not the
+    // same length, and a fixed 160 clipped the longer ones into a lie.
+    let action_b = action.map(|label| {
+        let w = (label.chars().count() as i32 * 8 + 36).clamp(140, 260);
+        let mut b = chrome::button(16, win_h - 44, w, 30, label, Tone::Plain);
         b.set_align(enums::Align::Center | enums::Align::Inside);
         b
     });
@@ -1478,7 +1604,7 @@ pub fn notice(kind: Note, title: &str, body: &str, restart: bool) -> NoticeWindo
 
     w.end();
     w.make_modal(true);
-    NoticeWindow { window: w, ok, restart: restart_b }
+    NoticeWindow { window: w, ok, action: action_b }
 }
 
 /// The lock screen and its controls.

@@ -541,7 +541,7 @@ fn main() {
              because nothing can ask this launcher who is playing or for a signature.\n\n\
              The usual cause is another copy of elo already running.\n\n\
              Nothing retries this while the program is open, so a restart is the fix.",
-            true,
+            Some("Restart elo now"),
         );
         if restart {
             // `restart_now` never returns on success — it re-execs and exits —
@@ -551,7 +551,7 @@ fn main() {
                 windows::Note::Refused,
                 "Could not restart",
                 &format!("{e}\n\nClose this program and start it again yourself."),
-                false,
+                None,
             );
         }
     }
@@ -738,7 +738,7 @@ fn main() {
         // doesnt match anything else"*, surviving in the one window a player
         // sees before they have touched anything. `Note::Done` and not
         // `Refused`: a published update is news, not a fault.
-        wiring::show_notice(
+        if wiring::show_notice(
             windows::Note::Done,
             "A newer elo is published",
             &format!(
@@ -749,8 +749,22 @@ fn main() {
                  itself would need absolute trust, so the swap happens in the\n\
                  open, where you can see it."
             ),
-            false,
-        );
+            // Same rule as the restart notice one screen up: the step after
+            // "a newer one is out" is going to get it, so offer that rather
+            // than print an address and leave the player to carry it. The
+            // program still does not replace itself — this opens a page.
+            Some("Open the download page"),
+        ) {
+            let url = format!("{host}/download.html");
+            if let Err(e) = ui.front.open(&url) {
+                wiring::show_notice(
+                    windows::Note::Refused,
+                    "Could not open a browser",
+                    &format!("{e}\n\nOpen it yourself:\n{url}"),
+                    None,
+                );
+            }
+        }
     }
 
     a.run().unwrap();
@@ -1013,7 +1027,8 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
             })
         }) as Rc<dyn Fn()>
     };
-    wiring::wire_store(&store_w, Rc::clone(&ui.front), wiring::real_tell(), after);
+    wiring::wire_store(&store_w, Rc::clone(&ui.front), wiring::real_tell(),
+                       wiring::real_then(), after);
 
     let mut refresh = store_w.refresh.clone();
     let ui_c = Rc::clone(ui);
@@ -1048,7 +1063,8 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
         ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
         ui.drift,
     );
-    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell());
+    wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell(),
+                       wiring::real_then());
 
     let mut refresh = games_w.refresh.clone();
     let ui_c = Rc::clone(ui);
@@ -1193,7 +1209,7 @@ impl wiring::Storefront for Front {
         };
         Ok(format!(
             "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}{healed}\n\n\
-             It is in Games now, with a Play button.",
+             It is in Games, and Play now starts it.",
             m.name,
             depot.build,
             at.display()

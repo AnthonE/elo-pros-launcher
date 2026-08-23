@@ -83,12 +83,23 @@ fn main() {
         "notice" => windows::notice(windows::Note::Done, "Account created",
             "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf\n\n\
              The keystore is the only copy of this key.\n\
-             Back it up. The passphrase cannot be reset.", false).window,
+             Back it up. The passphrase cannot be reset.", None).window,
         "notice2" => windows::notice(windows::Note::Refused, "The game door did not open",
             "Games will still install and start — they will just play anonymously.\n\n\
              The usual cause is another copy of elo already running.\n\n\
              Nothing retries this while the program is open, so a restart is the fix.",
-            true).window,
+            Some("Restart elo now")).window,
+        // The install notice, with the step after it ON it. Operator,
+        // 2026-08-23: *"when we install a game it would be nice if it just
+        // showed a play button."* The body used to end with directions to
+        // another window; the button is those directions, taken.
+        "notice3" => windows::notice(windows::Note::Done, "Done",
+            "Gates 0.5.0-g6e4103edb is installed.\n\n\
+             /home/you/.local/share/elo/games/gates/0.5.0-g6e4103edb\n\n\
+             depot digest\n\
+             0xf577e208150f846c59127ca9d3cef3ece17f5b5ba023c8c451224bfee150492f\n\n\
+             It is in Games, and Play now starts it.",
+            Some("Play now")).window,
         "lock" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
             "unlock the account on this machine to carry on").window,
         "lock2" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
@@ -134,6 +145,22 @@ fn main() {
             "https://elopros.com",
         )
         .window,
+        // The pairing row with a code IN it — the state that only exists after
+        // a press, and the one worth a picture: a code a player has to carry
+        // to a browser must be legible, selectable, and sitting next to the
+        // two buttons that move it. Hidden until minted, so a capture has to
+        // put it there.
+        "account3" => {
+            let a = windows::account(
+                Some("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"),
+                "https://elopros.com",
+            );
+            if let Some(mut r) = a.pair_row.clone() {
+                r.code.set_value("ABCD-2345");
+                r.show();
+            }
+            a.window
+        }
         "signing" => windows::signing("none",
             "no signer is configured — acts that need a signature will be refused",
             None, false).window,
