@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-22
+updated: 2026-08-23
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
