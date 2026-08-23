@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "elo-broker"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "elo-vault",
  "serde_json",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "elo-depot"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "elo-vault",
  "serde",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "elo-hive"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "bech32",
  "elo-depot",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "elo-launcher"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "elo-broker",
  "elo-depot",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "elo-net"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "elo-broker",
  "elo-depot",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "elo-ui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "elo-broker",
  "elo-depot",
@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "elo-vault"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "aes",
  "ctr",

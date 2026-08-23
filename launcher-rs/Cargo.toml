@@ -37,7 +37,7 @@ members = ["crates/elo-depot", "crates/elo-net", "crates/elo-hive", "crates/elo-
 # That is exactly how 0.1.0 sat on /download.html for five days and eighteen
 # commits — the artifacts were stale and nothing could say so. Bump this in
 # the same commit as any republish.
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
