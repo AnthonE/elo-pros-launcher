@@ -23,7 +23,7 @@ grammar):
 | step | who | what |
 |---|---|---|
 | 1 | the page | `POST /api/signin/start` → a short code (`ABCD-2345`) and a poll secret |
-| 2 | the player | **types** the code into the launcher: `scry signin ABCD-2345`, or Account → *sign a website in* in the window |
+| 2 | the player | **types** the code into the launcher: `elo signin ABCD-2345`, or Account → *sign a website in* in the window |
 | 3 | the launcher | fetches the challenge, composes the EIP-4361 text ITSELF, shows it, one passphrase, signs, delivers the proof |
 | 4 | the origin | recovers the signer, **recomposes the message from what it knows** — its domain, the code it issued — and compares byte-for-byte |
 | 5 | the page | its poll returns `{address, message, signature}` — the purse flips to *proven yours* |
@@ -65,7 +65,7 @@ keeps offering it.
 
 ## 3 · The relay — the launcher as the page's signer
 
-After the pairing, `scry signin` stays attached (unless `--no-watch`) and the
+After the pairing, `elo signin` stays attached (unless `--no-watch`) and the
 same code carries signature requests the other way:
 
     the page    POST /api/signin/{code}/ask   {secret, text}
@@ -125,7 +125,7 @@ afternoon; the passphrase through scrypt is the real wall, so runtime got the
 hardening instead:
 
 - **the CLI unlocks per command and forgets at exit** (`elo account sign`,
-  `scry entitle`, `scry signin` — one passphrase prompt each);
+  `elo entitle`, `elo signin` — one passphrase prompt each);
 - **the GUI relocks an idle key**: every signature refreshes `last_used`, and
   an unlocked account nobody has used for `SCRY_RELOCK_MINUTES` (default 30,
   0 disables) locks itself — an afternoon of play never trips it, a launcher
@@ -161,7 +161,7 @@ scry-broker --test cross_language`, `watchtower/test_site.py`.
 
 - **the GUI pairs and does not watch.** Account's code field signs a browser
   in; approving a page's relayed signature requests is a stream of prompts,
-  and the CLI attach (`scry signin`, in a terminal) is the surface built for
+  and the CLI attach (`elo signin`, in a terminal) is the surface built for
   that. A code works once, so the watch wants its own code, typed there. A
   GUI watch would ride the consent-window machinery — owed, not started.
 - **`wallet.html` and `vow.html` include `js/launcher-signin.js`** — the

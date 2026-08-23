@@ -642,7 +642,7 @@ Twelve of them, browser-native, and the client opens them.
 > It checks every operator act below that a launch actually turns on — depot
 > built, **published** (`published.json` naming the build, not a directory
 > appearing), every file the depot names present on disk, the digest computed
-> and **notarized on chain**, `ScryGameTicket` deployed and armed, and the
+> and **notarized on chain**, `EloGameTicket` deployed and armed, and the
 > listing's own fields coherent with all of it.
 >
 > **It reports three states, not two.** `UNKNOWN` — no depot root on this box,

@@ -11,7 +11,6 @@ read the source of:
 |---|---|
 | [`launcher-rs/`](launcher-rs/) | the desktop client. Rust, two binaries, no runtime to install |
 | [`sdk/`](sdk/) | what a game links to get identity and a signature **without holding a key** |
-| [`contracts/`](contracts/) | the Solidity — tickets, pools, fees, settlement, the notary |
 | [`docs/`](docs/) | the designs of record for all three |
 
 Live at **[elopros.com](https://elopros.com)**.
@@ -25,8 +24,9 @@ the command line and does **not** link FLTK, because a headless box, a CI job
 and an RL harness have no use for one.
 
 **Download:** [elopros.com/download.html](https://elopros.com/download.html)
-— a `.deb`, a `.tar.gz` and a Windows `.zip`, with `SHA256SUMS` covering all of
-them. The published version and every artifact hash are served as JSON at
+— a `.deb`, a Linux `.tar.gz`, a Windows `.zip` and a macOS universal
+`.tar.gz`, with `SHA256SUMS` covering all four. The published version and
+every artifact hash are served as JSON at
 [`/api/launcher`](https://elopros.com/api/launcher), so you can check
 what you got against what we published without trusting this page.
 
@@ -100,38 +100,69 @@ anyone, fits every game shape) · `replay` (a sealed hash-chained segment,
 recomputable by anyone) · `attested` (a recognized shard's signature). MMOs,
 FPS, MOBAs, survival — the platform takes them.
 
+### And a model is declared, never barred
+
+Over the last year, "no gen AI" clauses went from unusual to standard in game
+publishing agreements, and the advice a studio now gets is *don't touch it*.
+That advice is sound for the deal it describes: a publisher is buying rights,
+and work with no human author carries no copyright to sell. **It is not the
+deal here.**
+
+Every listing is open source before its card goes up, so nothing on this
+platform was ever gated by a copyright in the assets. What a copy buys is a
+token you hold, the servers it opens, and settlement into a real coin — a
+contract on chain, a signature at the door, and who holds the mint. So:
+
+- **No listing is refused, downranked or charged more for using a model.**
+  There is no clause to sign, because the store takes no rights in your game.
+- **A listing says where a model was used** — one field, a fixed list (art,
+  code, audio, writing, translation, QA), plus a sentence if you want one.
+- **Saying "none" and saying nothing are different answers**, and a card
+  renders them differently. Nobody puts a claim in your mouth in either
+  direction.
+- **It is your word and the card says so.** No one clones your repo to work out
+  which pixels a model made, so this is a declaration, never a measurement.
+- **We check the shape and never the taste.** No review of whether your human
+  involvement was *enough*, no quality bar, no badge for restraint.
+
+We are not telling you AI-generated art is copyrightable — it is not, without a
+human author — and listing here is not a way around a contract you signed
+somewhere else. We are saying a listing here does not stop working without that
+copyright. The rule is `GATES.md` §3 rule 9; the page is
+[elopros.com/ai.html](https://elopros.com/ai.html).
+
+The same goes for the labor: work is posted on a board at a standing price, and
+you claim it, deliver it and get paid whether you are a person, an agent, or a
+person running one. The payee is a wallet, so nobody has to be a natural person
+before money moves.
+
 ---
 
 ## The contracts
 
-Solidity under [`contracts/src/`](contracts/src/), built and tested with
-[Foundry](https://book.getfoundry.sh/). `forge-std` is vendored in
-`contracts/lib/`, so this clones and tests with no submodule step:
+**The Solidity is not in this repository, and the explorer is the better door
+anyway.** Everything is deployed on **RH-Chain (chain 4663)** and
+**source-verified**, so
+[the verified-contract list](https://robinhoodchain.blockscout.com/verified-contracts)
+shows you what is actually *running* at each address rather than what is
+sitting in a source tree. Read, diff, or call any of it from there without
+cloning anything.
 
-```bash
-cd contracts
-forge test
-```
-
-Deployed on **RH-Chain (chain 4663)** and source-verified. The full record —
-every address, pool and claim root — is
-[`contracts/deployments.json`](contracts/deployments.json), which is canonical
-because Foundry's `broadcast/` is not committed. The load-bearing ones:
+The load-bearing ones:
 
 | contract | address |
 |---|---|
-| `SCRY` | `0xDa2a4b23459e9ca88183e990802be644AcA7C4B0` |
-| `ScryNotary` | `0x0C15fA7829458118e3d26229F58FE0443f8b792c` |
-| `ScryFeeSplitter` | `0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996` |
-| `ScryBank` | `0xac3227F678D30BEDc7F50176fC78E55e13E58de4` |
-| `ScryVowRegistry` | `0x08131e7660639bbd086dffa9375c2a563f1d3590` |
+| `SCRY` | [`0xDa2a4b23459e9ca88183e990802be644AcA7C4B0`](https://robinhoodchain.blockscout.com/address/0xDa2a4b23459e9ca88183e990802be644AcA7C4B0) |
+| `ScryNotary` | [`0x0C15fA7829458118e3d26229F58FE0443f8b792c`](https://robinhoodchain.blockscout.com/address/0x0C15fA7829458118e3d26229F58FE0443f8b792c) |
+| `ScryFeeSplitter` | [`0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996`](https://robinhoodchain.blockscout.com/address/0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996) |
+| `ScryBank` | [`0xac3227F678D30BEDc7F50176fC78E55e13E58de4`](https://robinhoodchain.blockscout.com/address/0xac3227F678D30BEDc7F50176fC78E55e13E58de4) |
+| `ScryVowRegistry` | [`0x08131e7660639bbd086dffa9375c2a563f1d3590`](https://robinhoodchain.blockscout.com/address/0x08131e7660639bbd086dffa9375c2a563f1d3590) |
 
 ⚠ **RH-Chain is Arbitrum Nitro, so Solidity's `block.number` is the *parent*
 chain's** — it advances once per ~12s while the real chain runs at 101ms. Pace
 durations in `block.timestamp`, or use `ArbSys(0x64).arbBlockNumber()` for true
 L2 height. This has already turned a "~10 second" reveal into ~20 minutes in a
-shipped contract, with every test passing. `contracts/RUNBOOK.md` §0c carries
-the full rules.
+shipped contract, with every test passing.
 
 ### What the buy actually is
 

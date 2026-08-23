@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-12
+updated: 2026-08-22
 about: "who a person is on Elo Pros and what their picture is — the wallet is the identity, a vow is a name you may add, and the face resolves seat → hive picture → mark → tile"
 ---
 
@@ -69,7 +69,7 @@ row in `/directory` — a listing of sixty names would otherwise fire sixty
 explorer calls. This is the same split `CLAUDE.md` posts for every read:
 **enumeration is the explorer's, state is an `eth_call`.**
 
-⚠ **It costs nothing today.** `ScrySeat` is undeployed, `seat_address()` is an
+⚠ **It costs nothing today.** `EloSeat` is undeployed, `seat_address()` is an
 env read, and the rung short-circuits before any RPC. It lights up on the
 deploy with no code change here.
 
@@ -93,7 +93,7 @@ signed statement of how they operate. Three rules travel with it:
 Every game action is one EIP-191 message the wallet signs:
 
 ```
-scry play
+elo play
 action: {action}
 wallet: {wallet}        ← lowercase, always
 day: {UTC yyyy-mm-dd}
@@ -114,6 +114,12 @@ Two rules for anyone building the text (`sdk/PROTOCOL.md`):
 The pre-2026-08-12 vow-keyed text is **still accepted** for a caller that has a
 vow (`playauth.legacy_play_message`, verification only — nothing hands it out).
 It is a transition, not a second dialect.
+
+**The first line was `scry play` until 2026-08-21** and that wording is still
+verified the same way (`playauth.play_message_legacy`, verification only). A
+signed string is a re-sign and never a find-and-replace: the client renames in
+one commit, an INSTALLED client renames when its owner downloads a new one, so
+the origin has to accept both until nobody runs a pre-0.5.0 build.
 
 ## 4 · What is still vow-gated, and it is one thing
 
