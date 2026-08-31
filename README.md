@@ -138,32 +138,6 @@ before money moves.
 
 ---
 
-## The contracts
-
-**The Solidity is not in this repository, and the explorer is the better door
-anyway.** Everything is deployed on **RH-Chain (chain 4663)** and
-**source-verified**, so
-[the verified-contract list](https://robinhoodchain.blockscout.com/verified-contracts)
-shows you what is actually *running* at each address rather than what is
-sitting in a source tree. Read, diff, or call any of it from there without
-cloning anything.
-
-The load-bearing ones:
-
-| contract | address |
-|---|---|
-| `SCRY` | [`0xDa2a4b23459e9ca88183e990802be644AcA7C4B0`](https://robinhoodchain.blockscout.com/address/0xDa2a4b23459e9ca88183e990802be644AcA7C4B0) |
-| `ScryNotary` | [`0x0C15fA7829458118e3d26229F58FE0443f8b792c`](https://robinhoodchain.blockscout.com/address/0x0C15fA7829458118e3d26229F58FE0443f8b792c) |
-| `ScryFeeSplitter` | [`0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996`](https://robinhoodchain.blockscout.com/address/0xcB8f6Ec8A7A2a7d55E7e5dD9B2c5CcC4707e7996) |
-| `ScryBank` | [`0xac3227F678D30BEDc7F50176fC78E55e13E58de4`](https://robinhoodchain.blockscout.com/address/0xac3227F678D30BEDc7F50176fC78E55e13E58de4) |
-| `ScryVowRegistry` | [`0x08131e7660639bbd086dffa9375c2a563f1d3590`](https://robinhoodchain.blockscout.com/address/0x08131e7660639bbd086dffa9375c2a563f1d3590) |
-
-⚠ **RH-Chain is Arbitrum Nitro, so Solidity's `block.number` is the *parent*
-chain's** — it advances once per ~12s while the real chain runs at 101ms. Pace
-durations in `block.timestamp`, or use `ArbSys(0x64).arbBlockNumber()` for true
-L2 height. This has already turned a "~10 second" reveal into ~20 minutes in a
-shipped contract, with every test passing.
-
 ### What the buy actually is
 
 A player pays once for a **copy of a game**. That payment mints the title's
