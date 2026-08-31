@@ -159,9 +159,9 @@ generated from the platform monorepo and pushed, so a commit made directly here
 is overwritten by the next publish.
 
 - **Found a defect?** [Open an issue](https://github.com/AnthonE/elo-pros-launcher/issues).
-  Fixes to games and to the platform are **paid work in SCRY, in public** — an
+  Fixes to games and to the platform are **paid work in ELO, in public** — an
   accepted PR to [Gates](https://github.com/AnthonE/Gates), the first title,
-  pays 100,000 SCRY flat and standing.
+  pays 10,000 ELO flat and standing.
 - **[`AnthonE/scry`](https://github.com/AnthonE/scry)** is a different
   repository and carries a different half — the measurement instrument: the
   ward, the meter math, the adapters and the agent skills.
