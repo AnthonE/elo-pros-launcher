@@ -382,6 +382,10 @@ pub trait Storefront {
     fn verify(&self, slug: &str, build: &str) -> Result<String, String>;
     /// Start what is installed.
     fn play(&self, slug: &str) -> Result<String, String>;
+    /// Is a game this launcher started for `slug` still running?
+    fn running(&self, _slug: &str) -> bool {
+        false
+    }
     /// Open a url in the player's browser. The buy step and the store page
     /// both come through here, because this client holds no wallet.
     fn open(&self, url: &str) -> Result<(), String>;
@@ -404,33 +408,44 @@ pub fn wire_games(
 ) {
     for row in &games_w.rows {
         let (slug, build) = (row.slug.clone(), row.build.clone());
-        let updating = row.act.label() == "Update";
+        // Read when the button is pressed, never captured once at wiring. It
+        // was a plain `bool`, so after an update the button said Play and kept
+        // updating: a press while playing (Space on the focused button counts)
+        // re-downloaded the build the game was running from.
+        let updating = Rc::new(std::cell::Cell::new(row.act.label() == "Update"));
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
         let then_c = Rc::clone(&then);
         let mut act = row.act.clone();
+        if !updating.get() && front.running(&slug) {
+            hold_while_running(&act, Rc::clone(&front), slug.clone());
+        }
         act.set_callback(move |b| {
+            let update = updating.get();
             b.deactivate();
-            b.set_label(if updating { "Updating…" } else { "Starting…" });
+            b.set_label(if update { "Updating…" } else { "Starting…" });
             app::redraw();
             app::flush();
-            let done = if updating {
+            let done = if update {
                 front_c.install(&slug)
             } else {
                 front_c.play(&slug)
             };
             match done {
-                Ok(said) => {
-                    b.set_label(if updating { "Play" } else { "Running" });
+                Ok(said) if update => {
+                    updating.set(false);
+                    b.set_label("Play");
                     b.activate();
                     // An update finishes on the row the player is already
                     // looking at, so the offer is the same one the Store makes:
                     // the step after "it updated" is playing it.
-                    if updating && then_c(&said, "Play now") {
-                        if let Err(e) = front_c.play(&slug) {
-                            tell_c(Told::Refused, &e);
+                    if then_c(&said, "Play now") {
+                        match front_c.play(&slug) {
+                            Ok(_) => hold_while_running(b, Rc::clone(&front_c), slug.clone()),
+                            Err(e) => tell_c(Told::Refused, &e),
                         }
                     }
                 }
+                Ok(_) => hold_while_running(b, Rc::clone(&front_c), slug.clone()),
                 Err(e) => {
                     // Said on the control the player pressed AND in a window.
                     // A failure reported only to a console nobody is reading
@@ -465,6 +480,32 @@ pub fn wire_games(
             app::redraw();
         });
     }
+}
+
+/// How often a Running button checks whether its game has exited, in seconds.
+const RUNNING_POLL: f64 = 1.0;
+
+/// Show `Running` on a row's button and keep it off until the game exits,
+/// then put Play back. While it is off nothing can start a second copy or an
+/// install under the running one.
+fn hold_while_running(b: &fltk::button::Button, front: Rc<dyn Storefront>, slug: String) {
+    let mut b = b.clone();
+    b.set_label("Running");
+    b.deactivate();
+    app::add_timeout3(RUNNING_POLL, move |handle| {
+        // A refreshed Games window drops this button; its replacement row
+        // checks `running` for itself when it is wired.
+        if b.was_deleted() {
+            return;
+        }
+        if front.running(&slug) {
+            app::repeat_timeout3(RUNNING_POLL, handle);
+        } else {
+            b.set_label("Play");
+            b.activate();
+            app::redraw();
+        }
+    });
 }
 
 /// Give the Store's rows their behaviour.

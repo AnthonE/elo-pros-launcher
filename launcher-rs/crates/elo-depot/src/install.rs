@@ -18,6 +18,11 @@ pub const RECEIPT_NAME: &str = ".elo-install.json";
 /// network stack and every rule in it is testable offline.
 pub trait Fetcher {
     fn fetch(&self, url: &str, dest: &Path) -> Result<()>;
+    /// The same fetch, told how big the file is so a network fetcher can give
+    /// a large file a deadline to match. `install` calls this one.
+    fn fetch_sized(&self, url: &str, dest: &Path, _bytes: i64) -> Result<()> {
+        self.fetch(url, dest)
+    }
 }
 
 impl<F> Fetcher for F
@@ -167,7 +172,7 @@ pub fn install(
                     true
                 }
                 None => {
-                    fetcher.fetch(&depot.file_url(&f.path), &dest)?;
+                    fetcher.fetch_sized(&depot.file_url(&f.path), &dest, f.bytes)?;
                     false
                 }
             };

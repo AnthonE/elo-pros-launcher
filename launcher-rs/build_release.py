@@ -291,9 +291,11 @@ exit 0
 # carries `launcher-rs/` without the site, so the favicon half of the weld is
 # skipped where there is no favicon to weld to.
 #
-# ⚠ The mark is a 32x32 PIXEL GRID now (the Elo Pros seat, `art/seat/sprites.py`
-# via `watchtower/art/make_logo.py`), not the green glass orb it was until
-# 2026-08-20. The asset was renamed `orb.svg` -> `mark.svg` with the picture.
+# The mark is a lime tile with two chevrons, drawn by
+# `watchtower/art/make_logo.py`, which writes this file and the favicon from one
+# string (2026-10-12). It was the Elo Pros seat, a 32x32 pixel grid, from
+# 2026-08-20, and a green glass orb before that; the asset was renamed
+# `orb.svg` -> `mark.svg` with the first change of picture.
 ICON_PATH = HERE / "crates" / "elo-ui" / "assets" / "mark.svg"
 
 # The two platform icons `build.rs` and the .app bundle read.
@@ -325,11 +327,10 @@ def _client_icons() -> None:
     and the first report is a screenshot from a player. Check at the top of a
     packaging run instead, where it costs nothing.
 
-    ⚠ This checks the SHAPE, never the picture. Whether these still match
-    `sprites.EMBLEM` is `watchtower/art/make_logo.py --check`'s question, and
-    it is asked where the renderer lives — the public repo carries
-    `launcher-rs/` without `art/seat/`, exactly as it carries it without the
-    favicon to weld `mark.svg` against.
+    ⚠ This checks the SHAPE, never the picture. The picture is
+    `watchtower/art/make_logo.py`'s, and it is cut where the generator lives —
+    the public repo carries `launcher-rs/` without `watchtower/`, exactly as it
+    carries it without the favicon to weld `mark.svg` against.
     """
     ico, icns = ASSETS / "elo.ico", ASSETS / "elo.icns"
     for f in (ico, icns):

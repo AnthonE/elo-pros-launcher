@@ -21,6 +21,18 @@ use std::time::Duration;
 pub const USER_AGENT: &str = concat!("elo-launcher/", env!("CARGO_PKG_VERSION"));
 pub const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The slowest link a depot file is allowed to arrive over, in bytes a second.
+/// A file's deadline is [`TIMEOUT`] plus its size at this rate, because
+/// ureq's timeout runs to the last byte of the body: at a flat sixty seconds
+/// the 87 MB Gates binary needed about 12 Mbit/s held the whole way, and one
+/// slow stretch threw the whole install away.
+pub const DEPOT_FLOOR_BYTES_PER_SEC: u64 = 64 * 1024;
+
+/// How long one depot file of `bytes` may take, end to end.
+pub fn depot_file_deadline(bytes: i64) -> Duration {
+    TIMEOUT + Duration::from_secs(bytes.max(0) as u64 / DEPOT_FLOOR_BYTES_PER_SEC)
+}
+
 /// How long a shard's `/status.json` may take before it is abandoned.
 ///
 /// Far shorter than [`TIMEOUT`], and the difference is the point: a status
@@ -422,7 +434,22 @@ impl elo_depot::JsonSource for Net {
 /// in memory, because a depot file is a game asset and not a document.
 impl Fetcher for Net {
     fn fetch(&self, url: &str, dest: &Path) -> Result<(), DepotError> {
-        let mut req = self.agent_for(url).get(url);
+        self.fetch_within(url, dest, TIMEOUT)
+    }
+
+    fn fetch_sized(&self, url: &str, dest: &Path, bytes: i64) -> Result<(), DepotError> {
+        self.fetch_within(url, dest, depot_file_deadline(bytes))
+    }
+}
+
+impl Net {
+    fn fetch_within(&self, url: &str, dest: &Path, deadline: Duration) -> Result<(), DepotError> {
+        let mut req = self
+            .agent_for(url)
+            .get(url)
+            .config()
+            .timeout_global(Some(deadline))
+            .build();
         if let Some(g) = self.grant_for(url) {
             req = req.header("x-elo-grant", g);
         }

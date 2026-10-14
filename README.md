@@ -161,7 +161,8 @@ is overwritten by the next publish.
 - **Found a defect?** [Open an issue](https://github.com/AnthonE/elo-pros-launcher/issues).
   Fixes to games and to the platform are **paid work in ELO, in public** — an
   accepted PR to [Gates](https://github.com/AnthonE/Gates), the first title,
-  pays 10,000 ELO flat and standing.
+  pays the board's posted price, flat and standing
+  ([elopros.com/build.html](https://elopros.com/build.html)).
 - **[`AnthonE/scry`](https://github.com/AnthonE/scry)** is a different
   repository and carries a different half — the measurement instrument: the
   ward, the meter math, the adapters and the agent skills.

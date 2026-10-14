@@ -17,7 +17,7 @@ use crate::theme::{self, Tone};
 use fltk::{button, enums, frame, image, input, prelude::*, window};
 use elo_depot::{shardlist::Shard, Install};
 
-/// The mark — the same Nu the site serves at `/favicon.svg`. Compiled in rather
+/// The mark — the same tile the site serves at `/favicon.svg`. Compiled in rather
 /// than read from `watchtower/`, because the public repo carries `launcher-rs/`
 /// without the site; `build_release.py` refuses to package when this copy and
 /// the site's drift, which is the same weld the masthead CSS is under
@@ -26,7 +26,9 @@ use elo_depot::{shardlist::Shard, Install};
 /// The file was `orb.svg` until 2026-08-20, when the green glass orb it held was
 /// replaced by the Elo Pros seat the collection uses as its own face. The name
 /// moved with the picture: a constant called `ORB` holding a gold creature is
-/// the kind of thing a reader trusts and should not.
+/// the kind of thing a reader trusts and should not. Since 2026-10-12 it is a
+/// lime tile with two chevrons, drawn by `watchtower/art/make_logo.py`, which
+/// writes this file and the favicon from one string.
 const MARK: &str = include_str!("../assets/mark.svg");
 
 /// Dress a top-level so the desktop knows whose window it is: the mark as the
@@ -1564,7 +1566,8 @@ pub struct NoticeWindow {
 /// where a restart is genuinely the fix; do not use it to paper over a window
 /// that could refresh itself.
 pub fn notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> NoticeWindow {
-    let lines = body.lines().count().max(1) as i32;
+    let body = wrap_lines(body, NOTICE_COLS);
+    let lines = body.len().max(1) as i32;
     let text_h = (lines * 17 + 8).clamp(40, 320);
     let win_h = 58 + text_h + 56;
 
@@ -1584,7 +1587,7 @@ pub fn notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> Noti
     chrome::label(16, 12, 488, 22, head, head_ink, 15);
 
     let mut y = 44;
-    for line in body.lines() {
+    for line in &body {
         // A refusal quotes an origin, a vault or a game, so every line of it
         // is drawn clipped.
         chrome::label_untrusted(16, y, 488, 16, line, theme::MUTED, 11);
@@ -1605,6 +1608,32 @@ pub fn notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> Noti
     w.end();
     w.make_modal(true);
     NoticeWindow { window: w, ok, action: action_b }
+}
+
+/// How many characters of 11px text fit on one 488px notice line.
+const NOTICE_COLS: usize = 78;
+
+/// Break a notice's text into lines that fit, so an error's reason is read
+/// rather than clipped. Each line is drawn clipped, and a fetch error is one
+/// long line — a url, then the reason — so the reason was the part cut off.
+/// Breaks after a space or a `/` where it can, mid-word where it cannot.
+fn wrap_lines(body: &str, cols: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in body.lines() {
+        let mut rest: Vec<char> = line.chars().collect();
+        while rest.len() > cols {
+            let cut = (cols / 2..cols)
+                .rev()
+                .find(|&i| rest[i] == ' ' || rest[i] == '/')
+                .map(|i| i + 1)
+                .unwrap_or(cols);
+            let head: String = rest[..cut].iter().collect();
+            out.push(head.trim_end().to_string());
+            rest.drain(..cut);
+        }
+        out.push(rest.into_iter().collect());
+    }
+    out
 }
 
 /// The lock screen and its controls.
@@ -1689,8 +1718,20 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::MARK;
+    use super::{wrap_lines, MARK};
     use fltk::{image, prelude::*};
+
+    #[test]
+    fn a_long_error_wraps_and_keeps_its_reason() {
+        let e = "could not fetch https://elopros.com/api/launcher/depot/gates/\
+                 0.8.0-gca7362d19/linux-x86_64/files/gates: timeout: global";
+        let lines = wrap_lines(e, 78);
+        assert!(lines.len() > 1, "{lines:?}");
+        assert!(lines.iter().all(|l| l.chars().count() <= 78), "{lines:?}");
+        assert_eq!(lines.concat().replace(' ', ""), e.replace(' ', ""));
+        assert!(lines.last().unwrap().ends_with("timeout: global"));
+        assert_eq!(wrap_lines("short\n\nlines", 78), ["short", "", "lines"]);
+    }
 
     /// The mark has to decode, and it has to decode as something with pixels.
     ///

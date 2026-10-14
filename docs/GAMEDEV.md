@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-15
+updated: 2026-10-08
 about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
@@ -21,6 +21,10 @@ nothing about crypto beyond *a player has an Ethereum address.*
 |---|---|---|
 | **the launcher**, over a local socket | a running client on the player's machine signs for them | `sdk/PROTOCOL.md` |
 | **the origin**, over plain HTTPS | public reads about any address | this page, §3 |
+
+**A browser game on its own domain swaps the first row** for the web SDK,
+`https://elopros.com/sdk/elo-1.js`: it connects the player's own wallet and
+signs them in to your server with the same SIWE message (§5).
 
 Nothing here needs an API key, a partner agreement, or an account with us. Every
 read below is public and works from `curl`.
@@ -177,7 +181,7 @@ renders as *"no address on this chain yet"* rather than vanishing.
 That block is the whole integration. `GET /api/holdings/{wallet}` resolves each
 symbol to an address and groups it under your title's name; `GET /api/holdings`
 answers the same book with no balances, for a surface that has no wallet yet.
-`wallet.html` renders whatever comes back, so **your coins appear in every
+The terminal's coins pane (`terminal.html#coins`) renders whatever comes back, so **your coins appear in every
 player's purse, under your game's name, with no code change anywhere in this
 repo and no deploy** — the listing lands and they are there.
 
@@ -237,15 +241,50 @@ Naming these up front is faster than discovering them:
 
 ## 5 · Being listed
 
-Curation is a hand act and **there is no queue** — no submission form, no vote,
-no fee to be considered (`docs/GATES.md` §3). A listed game keeps its own repo,
-its own issues and its own agents; the only thing that lives in ours is its
-listing row.
+**There is no queue, in either lane** (`docs/GATES.md` §1). A listed game keeps
+its own repo, its own issues and its own agents; the only thing that lives in
+ours is its listing row.
 
-What a listing needs: an open-source repo, a manifest, and a depot if you ship a
-native build (`docs/client/LAUNCHER.md` §3). Games ship free for now — the buy step
-lands when there is something worth charging for, and gating is net-new work
-rather than a switch (`SENTENCES.md` 2026-08-06).
+**List it yourself — the community lane.** Free, one wallet signature, and the
+page is up (`docs/GATES.md` §3b). Use *list your game* on
+`https://elopros.com/manage.html#list`, or the API: `POST /api/store/claim/prepare`,
+sign the text with your wallet (EIP-191 — it carries a warranty that you have
+the rights to the game and accepts the community terms), then
+`POST /api/store/claim`. That wallet is the row's steward on the dev desk from
+then on. The page is marked *community*, it runs on your own host
+(`play_url`, https, opened in a new tab), and it rises on the shelves only by
+copies sold. To sell copies, the desk's *sell copies* makes you a ticket whose
+money lands in a sale split: **95% to you, 5% to us**.
+
+A community game is **web-only**: the launcher opens its `play_url` and never
+serves it a depot build. Link the web SDK instead:
+
+```html
+<script src="https://elopros.com/sdk/elo-1.js"></script>
+<script type="module">
+  const wallet = await Elo.connect();                       // the player's own wallet
+  await Elo.ensureChain();                                  // Robinhood Chain, 4663
+  const { message, signature } = await Elo.signIn({ nonce }); // nonce from YOUR server
+  const owned = await Elo.owns("your-slug", wallet);        // true | false | null
+</script>
+```
+
+Verify `message` + `signature` on your server with viem's
+`publicClient.verifySiweMessage({ message, signature })`: it checks plain keys
+and smart-contract wallets alike (Safe, Coinbase Smart Wallet, Robinhood's
+EIP-7702 wallets), where a bare `ecrecover` refuses every smart wallet. For
+phone wallets, pass your own WalletConnect project ID:
+`Elo.config({ walletconnectProjectId: "…" })`. `owns()` is for your UI; **the real gate is your server**, at join and
+on an interval: `POST /api/ticket/{slug}/check {"wallets": [...]}`. Kick on
+`false` only — `null` means the read failed, and a failed read never kicks a
+player.
+
+**Get picked — an Elo Pros original.** Our own shelf is placed by hand, and a
+game there runs the whole stack: open source at listing, a coin paired with the
+reserve, the launch curve, native builds through the launcher (a manifest and a
+depot — `docs/client/LAUNCHER.md` §3). There is no form for that one either.
+Made it in an AI game maker? `docs/builders/PORT-BOUNTY.md` is the paid port —
+optional help, never the door.
 
 ---
 

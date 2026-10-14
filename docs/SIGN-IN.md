@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-23
+updated: 2026-09-24
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
@@ -92,7 +92,7 @@ same code carries signature requests the other way:
 Site side, `js/launcher-signin.js` wraps `Deck.wallet.sign`: on a page that
 includes the script, a signature request with no extension present rides the
 relay when a pairing is live. Pages opt in by the script tag —
-`wallet.html` carries it today; a signing page adopts by adding one line.
+the terminal (its coins pane) carries it today; a signing page adopts by adding one line.
 
 Four walls, and each is enforced rather than asked:
 
@@ -180,7 +180,7 @@ scry-broker --test cross_language`, `watchtower/test_site.py`.
   and the CLI attach (`elo signin`, in a terminal) is the surface built for
   that. A code works once, so the watch wants its own code, typed there. A
   GUI watch would ride the consent-window machinery — owed, not started.
-- **`wallet.html` and `vow.html` include `js/launcher-signin.js`** — the
+- **`terminal.html` (the coins pane) and `vow.html` include `js/launcher-signin.js`** — the
   remaining signing pages adopt by adding the script tag and letting their
   address come from `Deck.launcher.pairing()`.
 - **no deep link, on purpose** (§1). Re-read before "fixing".

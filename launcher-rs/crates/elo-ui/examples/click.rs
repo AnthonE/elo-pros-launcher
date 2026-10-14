@@ -339,12 +339,83 @@ fn main() {
               allowed.get("family").and_then(|f| f.as_str()) == Some("play"));
     }
 
+    // ── 9 · a Games row after an update plays, and holds while it runs ──────
+    // The row used to remember "Update" forever, so after updating, its Play
+    // button downloaded the build again — while the player was in it.
+    {
+        let fake = Rc::new(FakeFront::default());
+        let front: Rc<dyn wiring::Storefront> = fake.clone();
+        let row = windows::Row {
+            slug: "gates".into(),
+            build: "0.1.0-gold".into(),
+            bytes: 1,
+            digest: "old".into(),
+            stale: Some(true),
+            name: None,
+            icon: None,
+            why: None,
+        };
+        let gw = windows::games(&[row]);
+        let take_it: wiring::Then = Rc::new(|_, _| true);
+        wiring::wire_games(&gw, front, Rc::new(|_, _| {}), take_it);
+        let mut act = gw.rows[0].act.clone();
+        check(&mut failures, "a stale row says Update", act.label() == "Update");
+        act.do_callback();
+        check(&mut failures, "Update installs once and Play now starts it",
+              fake.installs.get() == 1 && fake.plays.get() == 1);
+        check(&mut failures, "while the game runs the button says Running and is off",
+              act.label() == "Running" && !act.active());
+        fake.live.set(false);
+        let until = std::time::Instant::now() + std::time::Duration::from_millis(1600);
+        while std::time::Instant::now() < until {
+            let _ = app::wait_for(0.05);
+        }
+        check(&mut failures, "when the game exits the button is Play again",
+              act.label() == "Play" && act.active());
+        act.do_callback();
+        check(&mut failures, "pressing Play after an update plays and never re-installs",
+              fake.installs.get() == 1 && fake.plays.get() == 2);
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
     if failures == 0 {
         println!("\nclick: every control does what it says");
     } else {
         println!("\nclick: {failures} FAILED");
         std::process::exit(1);
+    }
+}
+
+/// A storefront that counts what it was asked to do and says a game is
+/// running from the moment it is played until `live` is cleared.
+#[derive(Default)]
+struct FakeFront {
+    installs: std::cell::Cell<u32>,
+    plays: std::cell::Cell<u32>,
+    live: std::cell::Cell<bool>,
+}
+
+impl wiring::Storefront for FakeFront {
+    fn install(&self, _: &str) -> Result<String, String> {
+        self.installs.set(self.installs.get() + 1);
+        Ok("updated".into())
+    }
+    fn verify(&self, _: &str, _: &str) -> Result<String, String> {
+        Ok("verified".into())
+    }
+    fn play(&self, _: &str) -> Result<String, String> {
+        self.plays.set(self.plays.get() + 1);
+        self.live.set(true);
+        Ok("started".into())
+    }
+    fn running(&self, _: &str) -> bool {
+        self.live.get()
+    }
+    fn open(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn page_url(&self, _: &str) -> String {
+        String::new()
     }
 }
 

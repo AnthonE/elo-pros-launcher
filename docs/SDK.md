@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-10
+updated: 2026-10-08
 about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), and the reference clients Gates links"
 ---
 
@@ -460,6 +460,26 @@ drives it against the same server. **A protocol whose two halves are only ever
 tested separately is a protocol with no test** — and that is not a slogan here,
 it is the post-mortem: `prove` was dark to half the players for exactly that
 reason until the second broker was deleted.
+
+### 5b · A browser game links `elo-1.js`
+
+Everything above speaks to the launcher over a local socket, and a game in a
+browser tab has no socket. A web game — every community game is one
+(`GATES.md` §3b) — links the web SDK instead:
+`https://elopros.com/sdk/elo-1.js` (`watchtower/sdk/elo-1.js`), no
+dependencies, versioned: once a game ships against a version it is not edited
+in place. `Elo.connect()` finds every wallet in the browser (EIP-6963, then
+`window.ethereum`) and asks which when there are several, `Elo.ensureChain()`
+switches it to chain 4663, `Elo.signIn({nonce})` composes the same SIWE
+(EIP-4361) message `prove` does, for **the game's own server** to verify with
+viem's `verifySiweMessage`, which checks smart-contract wallets too (ERC-1271,
+ERC-6492; a bare `ecrecover` refuses them), and `Elo.owns(slug, wallet)`
+answers `true`, `false` or `null`. Phone wallets come on with the game's own
+WalletConnect project ID: `Elo.config({ walletconnectProjectId })`. The wall is unchanged: the key stays in the player's wallet, the game
+never touches it, and the real gate is server-side —
+`POST /api/ticket/{slug}/check`, kick on `false` and never on `null`. The
+public reads it calls answer with CORS `*` (`meter/cors_public.py`). A desktop
+build keeps linking `sdk/`.
 
 ## 6 · How Gates uses it, concretely
 

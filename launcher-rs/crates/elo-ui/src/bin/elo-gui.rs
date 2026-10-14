@@ -576,6 +576,7 @@ fn main() {
     let front: Rc<dyn wiring::Storefront> = Rc::new(Front {
         host: host.clone(),
         root: root.clone(),
+        started: Default::default(),
     });
 
     // Gates' shards, read at startup the same way the catalog is. The whole
@@ -1099,6 +1100,9 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
 struct Front {
     host: String,
     root: std::path::PathBuf,
+    /// The games Play started, so their rows can say Running and nothing
+    /// installs under them. Reaped as they exit.
+    started: std::cell::RefCell<Vec<(String, std::process::Child)>>,
 }
 
 impl wiring::Storefront for Front {
@@ -1111,6 +1115,13 @@ impl wiring::Storefront for Front {
     /// this change does not do. The button says `Installing…` before it
     /// starts, so the freeze reads as the install and not as a crash.
     fn install(&self, slug: &str) -> Result<String, String> {
+        // An update replaces the files the game is running from and then
+        // removes the old build, so it waits until the game has exited.
+        if self.running(slug) {
+            return Err(format!(
+                "{slug} is running. Quit it first, then update."
+            ));
+        }
         let net = elo_net::Net::new();
         let url = format!("{}/api/launcher/manifest/{slug}", self.host);
         let got = net.get_json(&url);
@@ -1154,6 +1165,11 @@ impl wiring::Storefront for Front {
             }
             elo_depot::UpdateState::Unknown { why } => {
                 return Err(format!("refusing to install — {why}"))
+            }
+            // `check` hands back the depot for a current build too, and this
+            // used to download all of it again into the build being played.
+            elo_depot::UpdateState::Current { build, .. } => {
+                return Ok(format!("{} is already up to date (build {build}).", m.name))
             }
             _ => {}
         }
@@ -1252,7 +1268,16 @@ impl wiring::Storefront for Front {
         }
     }
 
+    fn running(&self, slug: &str) -> bool {
+        let mut started = self.started.borrow_mut();
+        started.retain_mut(|(_, child)| matches!(child.try_wait(), Ok(None)));
+        started.iter().any(|(s, _)| s == slug)
+    }
+
     fn play(&self, slug: &str) -> Result<String, String> {
+        if self.running(slug) {
+            return Err(format!("{slug} is already running."));
+        }
         // The most recently INSTALLED build, by directory mtime — see
         // `newest_of`. A build id ends in a hex sha, so name order is noise.
         let Some(i) = elo_depot::newest_of(&self.root, slug) else {
@@ -1280,7 +1305,9 @@ impl wiring::Storefront for Front {
         );
         let launch = elo_depot::launch::resolve(&i, &values, &std::collections::BTreeMap::new())
             .map_err(|e| e.to_string())?;
-        let pid = elo_depot::launch::spawn(&launch).map_err(|e| e.to_string())?;
+        let child = elo_depot::launch::spawn_supervised(&launch).map_err(|e| e.to_string())?;
+        let pid = child.id();
+        self.started.borrow_mut().push((slug.to_string(), child));
         Ok(format!("{slug} started (pid {pid})."))
     }
 

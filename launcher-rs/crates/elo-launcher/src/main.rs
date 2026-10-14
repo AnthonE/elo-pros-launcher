@@ -53,6 +53,9 @@ elo — the desktop client
   elo hive say <text>             speak in the town stream or --room
   elo hive presence               hold this voice online until interrupted
   elo who [handle]                one identity — name, face, and who checked
+  elo seat [--wallet ADDR]        the characters a wallet holds, and whether
+                                   it may still mint — one call, no key
+  elo seat card                   the collection: contract, supply, doors
   elo sessions                    what has been played, and what is running
   elo account                     the account on this machine (exit 3 if none)
   elo account new                 make one — generated here, transmitted nowhere
@@ -970,6 +973,173 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     println!("  a native row missing here means UNKNOWN, not unpublished.");
                     return Ok(3);
                 }
+            }
+            Ok(0)
+        }
+
+
+        // ── the characters ───────────────────────────────────────────────────
+        //
+        // `/api/seat/of/{wallet}` answers "what does this wallet hold" and "may
+        // it still mint" in ONE call, so this verb has no second half. That
+        // shape is the origin's rather than a convenience invented here: a
+        // client asking the two questions separately can render one against a
+        // stale read of the other, and the mint answer is the half that moves.
+        //
+        // ⚠ The wallet is the SIGNER's address, not the keystore's — the same
+        // reading `elo dev` takes, for the same reason. A paired player's
+        // characters sit in the wallet in their browser, and a keystore read
+        // would report an empty roster for a wallet holding a full one.
+        // `--wallet` overrides both, because reading a roster needs no key at
+        // all: this whole verb is unauthenticated.
+        "seat" => {
+            let net = Net::new();
+
+            if a.positional.first().map(String::as_str) == Some("card") {
+                let got = net.get_json(&format!("{host}/api/seat"));
+                let Some(v) = got.value else {
+                    return Err(DepotError::new(if got.reachable {
+                        got.why
+                    } else {
+                        format!("could not reach {host} — {}", got.why)
+                    }));
+                };
+                if json_out {
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                    return Ok(0);
+                }
+                if v.get("deployed").and_then(Value::as_bool) != Some(true) {
+                    println!("{host} has no collection deployed");
+                    return Ok(3);
+                }
+                let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("—").to_string();
+                println!("collection  {} ({})", s("name"), s("symbol"));
+                println!("contract    {}", s("contract"));
+                // A supply we could not read and a supply of zero are different
+                // sentences; only one of them is a fact about the collection.
+                match v.get("supply") {
+                    Some(sup) => {
+                        let n = |k: &str| sup.get(k).and_then(Value::as_u64);
+                        match (n("minted"), n("max")) {
+                            (Some(m), Some(cap)) => println!("minted      {m} of {cap}"),
+                            _ => println!("minted      unknown — the origin could not read it"),
+                        }
+                    }
+                    None => println!("minted      unknown — the origin served no supply"),
+                }
+                for d in v.get("doors").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+                    let name = d.get("name").and_then(Value::as_str).unwrap_or("?");
+                    let num = d.get("door").and_then(Value::as_u64).unwrap_or(0);
+                    let open = d.get("open").and_then(Value::as_bool).unwrap_or(false);
+                    let left = d.get("left").and_then(Value::as_u64);
+                    println!(
+                        "door {num:<7} {name:<10} {:<7} {}",
+                        if open { "open" } else { "closed" },
+                        match left {
+                            Some(l) => format!("{l} left"),
+                            None => "left unknown".into(),
+                        }
+                    );
+                }
+                return Ok(0);
+            }
+
+            let wallet = match a.flag("--wallet") {
+                Some(w) => w.to_string(),
+                None => match signer::choose(a, &host).ok().and_then(|s| s.address()) {
+                    Some(addr) => addr,
+                    None => {
+                        return Err(DepotError::new(
+                            "no wallet — pass `--wallet 0x…`, or `elo pair` to reach \
+                             the wallet in your browser, or `elo account new` to make \
+                             one here. Reading a roster needs no key, only an address."
+                                .to_string(),
+                        ))
+                    }
+                },
+            };
+
+            let got = net.get_json(&format!("{host}/api/seat/of/{wallet}"));
+            let Some(v) = got.value else {
+                return Err(DepotError::new(if got.reachable {
+                    got.why
+                } else {
+                    format!("could not reach {host} — {}", got.why)
+                }));
+            };
+            if json_out {
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                return Ok(0);
+            }
+            if v.get("deployed").and_then(Value::as_bool) != Some(true) {
+                println!("{host} has no collection deployed");
+                return Ok(3);
+            }
+
+            let seats = v.get("seats").and_then(Value::as_array).cloned().unwrap_or_default();
+            let holds = v.get("holds").and_then(Value::as_u64);
+            println!("wallet      {wallet}");
+            match holds {
+                Some(n) => println!("holds       {n}"),
+                // `holds` absent is "we could not count", never zero. An agent
+                // that prints 0 here has invented the most damaging number in
+                // the response.
+                None => println!("holds       unknown — the origin could not count"),
+            }
+            for s in &seats {
+                let id = s.get("token_id").and_then(Value::as_u64).unwrap_or(0);
+                let tier = s.get("tier").and_then(Value::as_u64);
+                let door = s.get("door").and_then(Value::as_str).unwrap_or("?");
+                let live = s.get("activated").and_then(Value::as_bool).unwrap_or(false);
+                println!(
+                    "  #{id:<6} {:<8} {door:<10} {}",
+                    match tier {
+                        Some(t) => format!("tier {t}"),
+                        None => "tier ?".into(),
+                    },
+                    if live { "unlocked" } else { "sealed" }
+                );
+            }
+
+            // The other half of the same call. A door a wallet is in but has
+            // spent is still printed — "you had three and took three" is the
+            // answer to "may I mint", and silence would read as "we did not
+            // check".
+            let eligible = v.get("eligible").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut stale = false;
+            if eligible.is_empty() {
+                println!("eligible    no open door lists this wallet");
+            } else {
+                println!("eligible");
+                for e in &eligible {
+                    let num = e.get("door").and_then(Value::as_u64).unwrap_or(0);
+                    let name = e.get("door_name").and_then(Value::as_str).unwrap_or("?");
+                    let allow = e.get("allowance").and_then(Value::as_u64);
+                    let took = e.get("already_taken").and_then(Value::as_u64);
+                    let now = e.get("claimable_now").and_then(Value::as_u64);
+                    let fmt = |o: Option<u64>| o.map(|n| n.to_string()).unwrap_or("?".into());
+                    println!(
+                        "  door {num} ({name})  allowance {}  taken {}  claimable now {}",
+                        fmt(allow), fmt(took), fmt(now)
+                    );
+                    if e.get("window_closed").and_then(Value::as_bool) == Some(true) {
+                        println!("    the window is closed");
+                    }
+                    // The one field to branch on. The door's list is rebuilt
+                    // every Monday; when the served root and the chain's have
+                    // drifted, the proof does not spend — it costs gas and
+                    // reverts for a reason the receipt never names.
+                    if e.get("root_matches_chain").and_then(Value::as_bool) == Some(false) {
+                        stale = true;
+                        println!("    ⚠ this list and the chain's root disagree — the proof \
+                                  will NOT spend; re-read before minting");
+                    }
+                }
+                println!("\n`elo seat card` is the collection; minting is prepared at");
+                println!("{host}/api/seat/prepare?wallet={wallet}&door=<n> — your wallet signs it.");
+            }
+            if stale {
+                return Ok(3);
             }
             Ok(0)
         }

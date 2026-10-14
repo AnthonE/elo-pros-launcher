@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-22
+updated: 2026-10-12
 about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
 ---
 
@@ -416,6 +416,30 @@ and the manifest's browser row fills itself (`meter/launcher.py::_play_url`)
 — the client's Play button lights, zero launcher work. The wiring is live
 and dormant; it is not Gates' path.
 
+**A community game is web-only, and the launcher keeps it so** (2026-10-08,
+`GATES.md` §3b). `meter/launcher.py` never serves a depot build for a slug the
+community lane claimed — even one somehow dropped on disk — because a depot
+build runs as the player's own user, unsandboxed, beside the local keystore.
+Its manifest carries the browser row alone and Play opens the developer's
+`play_url`. Such
+a game reaches identity and ownership through the web SDK, `elo-1.js`
+(`SDK.md` §5b), not through this client.
+
+⚠ **It is Gates' path since 2026-09-12, and the paragraph above is why
+nothing here had to move.** Gates compiles its Rust client for wasm32 —
+the same `ClientCore`, the same handshake, WebGL2 (AnthonE/Gates #132;
+operator, 2026-09-09: *"people dont wanna download gates"*) — and the desktop
+build stays. What the platform owes it is one static location:
+`deploy/nginx/elopros.com.conf`, `location ^~ /games/gates/play/` (the play
+tab of the game's area, since 2026-10-11), serving
+`/data/apps/scry-data/gates-web/current/` under a CSP of its own, because
+the site's refuses WebAssembly (`'wasm-unsafe-eval'`) and names no shard in
+`connect-src` (WebTransport is governed by it). `Gates/ci/publish_web.sh`
+lands a build and flips `current`; **`play_url` is flipped after the first
+publish and not before** — that field is the promise that the game runs, and
+the desk or `listings.json` sets it in one edit. Everything the launcher
+does then follows from the paragraph above.
+
 **The desktop build landed, and so did its packager** (2026-08-05). Gates'
 `crates/client` is a native Bevy client, and `Gates/ci/depot.py` turns it into
 a depot: compile, stage, hash, write the index. It is one command and the
@@ -574,6 +598,20 @@ This is §6's rule one layer down, not a hole in it. The launcher still does not
 invent, cache or rank anything — it asks each shard about itself, exactly as it
 asks each title's origin about its list. Nothing is intermediated; everyone
 measures. A shard that does not answer keeps whatever the row said.
+
+### For a page — `GET /api/launcher/servers/{slug}/live`
+
+A web page cannot ask a shard itself: the site's CSP connects only to its own
+origin. So the origin asks for it, at most once per 30 s per url, and only what
+the title's own list names: each row's `status_url`, then the `standings.json`
+beside it (or the row's `standings_url`). It fetches https only, from a host
+the list names in an `addr`, through `netutil.refuse_reason` with the
+connection pinned to the checked address, 3 s and a byte cap per read.
+Per row: `up`, `players`, `agents`, `humans` (`players - agents`, only when
+the shard reports `agents`), `max_players`, `proto`, `next_wipe`. A shard that
+did not answer is `up: null` with a `why`, never a zero, and the totals are
+null until one has answered. `standings` is the first answering shard's file,
+shape-checked, or null with `standings_why`. `meter/test_launcher_api.py` §17.
 
 ## 6b · Join links — `elo://join/<title>/<host:port>`
 
@@ -955,8 +993,9 @@ page's version and the committed artifacts are gated by `test_site.py`, so a
 version bump made with the change goes red until the release runs.
 
 **The `.deb` also furnishes the desktop it lands on.** The menu icon is
-the site's green orb — one file, compiled into every window the client opens
-(`crates/elo-ui/assets/orb.svg`, `windows::mark`) and byte-welded to
+the site's mark (a lime tile with two chevrons since 2026-10-12) — one file,
+compiled into every window the client opens (`crates/elo-ui/assets/mark.svg`,
+`windows::mark`), written by `watchtower/art/make_logo.py` and byte-welded to
 `watchtower/favicon.svg` by `build_release.py --check`, so the dock, the menu
 and the browser tab cannot show three different marks. An AppStream metainfo
 file is what GNOME Software / KDE Discover render an installed program's page
@@ -1350,6 +1389,7 @@ GET /api/launcher/manifest/{slug}                     one, with builds MEASURED
 GET /api/launcher/depot/{slug}/{build}                the depot index
 GET /api/launcher/depot/{slug}/{build}/files/{path}   the bytes
 GET /api/launcher/servers/{slug}                      the title's shard list
+GET /api/launcher/servers/{slug}/live                 who is on each shard, and its standings
 ```
 
 So `elo install gates` works, and `elo games` says what there is to install.
