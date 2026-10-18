@@ -104,6 +104,15 @@ pub trait Host: Send {
         ))
     }
 
+    /// The name to sign a proof for `server` under, when it is not `server`
+    /// itself — [`protocol::prove_message_for`]. `Some` only when a browser
+    /// wallet will sign and the server sits under the page that asks it; the
+    /// `URI:` line still names the server. The default is the launcher's own
+    /// form.
+    fn prove_domain(&self, _server: &str) -> Option<String> {
+        None
+    }
+
     /// A name and a face for one address — Steam's `GetPlayerSummaries`.
     ///
     /// Reads `/api/who`, the origin's own join across sworn name, npub, vow and
@@ -339,7 +348,15 @@ impl Session {
                 };
                 // `game` is the name from `hello`, never a field on this
                 // request — a game cannot prove as somebody else's title.
-                let message = protocol::prove_message(server, &address, &game, nonce, &issued_at);
+                let message = match host.prove_domain(server) {
+                    Some(page) => {
+                        if let Err(r) = protocol::check_domain(&page) {
+                            return r.to_json();
+                        }
+                        protocol::prove_message_for(&page, server, &address, &game, nonce, &issued_at)
+                    }
+                    None => protocol::prove_message(server, &address, &game, nonce, &issued_at),
+                };
                 match host.prove(&message) {
                     Ok(mut v) => {
                         // ⚠ SIWE binds the address into the signed bytes, so the

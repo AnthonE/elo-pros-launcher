@@ -80,6 +80,36 @@ fn a_pairing_round_trips_and_drops_what_it_does_not_know() {
     }
 }
 
+/// **Which servers a paired browser wallet can sign in to, and as whom.**
+///
+/// The origin's own host and anything under it, signed as the origin's host:
+/// that is the page the wallet signs on, so the wallet's sign-in check
+/// passes. A look-alike suffix or another site gets `None` — the origin
+/// would refuse to relay it anyway, and the launcher says so without asking.
+#[test]
+fn a_pairing_signs_in_under_its_own_origin_and_nowhere_else() {
+    let p = Pairing {
+        host: "https://elopros.com".into(),
+        code: "ABCD2345".into(),
+        secret: "0123456789abcdef0123456789abcdef".into(),
+        address: "0x00000000000000000000000000000000000000ab".into(),
+        expires: 4_000_000_000,
+    };
+    let as_page = Some("elopros.com".to_string());
+    assert_eq!(p.signs_for("game.elopros.com"), as_page);
+    assert_eq!(p.signs_for("game.elopros.com:61234"), as_page);
+    assert_eq!(p.signs_for("GAME.ELOPROS.COM"), as_page);
+    assert_eq!(p.signs_for("elopros.com"), as_page);
+    assert_eq!(p.signs_for("notelopros.com"), None, "a suffix is not a subdomain");
+    assert_eq!(p.signs_for("elopros.com.evil.example"), None);
+    assert_eq!(p.signs_for("play.example"), None);
+    assert_eq!(p.signs_for(""), None);
+    assert_eq!(p.site(), "elopros.com");
+
+    let local = Pairing { host: "http://127.0.0.1:3600/".into(), ..p };
+    assert_eq!(local.signs_for("127.0.0.1:61234"), Some("127.0.0.1".to_string()));
+}
+
 #[test]
 fn an_expired_pairing_reads_as_none_unless_you_ask_for_it() {
     let dir = std::env::temp_dir().join(format!("elo-pair-{}", std::process::id()));

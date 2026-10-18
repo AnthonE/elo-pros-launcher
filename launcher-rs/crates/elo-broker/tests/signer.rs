@@ -70,7 +70,7 @@ fn the_browser_hands_off_rather_than_failing() {
 fn an_unplaceable_family_goes_somewhere_that_exists() {
     assert_eq!(BrowserSigner::page_for("elo play\n…"), "play.html");
     assert_eq!(BrowserSigner::page_for("elo review\n…"), "reviews.html");
-    assert_eq!(BrowserSigner::page_for("elo braid\n…"), "hive.html");
+    assert_eq!(BrowserSigner::page_for("elo braid\n…"), "chat.html");
     assert_eq!(BrowserSigner::page_for("elo somethingnew\n…"), "wallet.html");
     assert_eq!(BrowserSigner::page_for("not even an elo message"), "wallet.html");
 }

@@ -47,11 +47,12 @@ elo — the desktop client
   elo join    <link>              follow a friend's elo://join/… link
   elo servers <title>             the shards that title is serving, live
   elo digest  <depot>             the bytes32 a notary would commit
-  elo hive [rooms|read|voice]     the town's talk annex, read
-  elo hive whoami                 the voice this machine speaks with
-  elo hive voice-new              make one (schnorr, kept here, never sent)
-  elo hive say <text>             speak in the town stream or --room
-  elo hive presence               hold this voice online until interrupted
+  elo chat [rooms|read|voice]     the Elo Pros chat rooms, read
+  elo chat whoami                 the chat key this machine speaks with
+  elo chat voice-new              make one (schnorr, kept here, never sent)
+  elo chat say <text>             say something in #general or --room
+  elo chat presence               show as online until interrupted
+                                  (`elo hive …` still works)
   elo who [handle]                one identity — name, face, and who checked
   elo seat [--wallet ADDR]        the characters a wallet holds, and whether
                                    it may still mint — one call, no key
@@ -84,11 +85,11 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
 
   --games PATH        install root (default ~/.local/share/elo/games)
   --host URL          the origin to read (default https://elopros.com)
-  --room ID           which hive room; omit for the town stream
+  --room NAME         which chat room, by name (gates) or id; omit for #general
   --limit N           how many messages
   --detach            start a game without watching it — no playtime recorded
-  --status ONLINE     online | away, for hive presence
-  --quiet             do not hold hive presence while playing
+  --status ONLINE     online | away, for chat presence
+  --quiet             do not show as online in chat while playing
   --platform TAG      override this machine's platform tag
   --server ADDR       passed to the game as {server}
   --wallet ADDR       passed to the game as {wallet}
@@ -498,49 +499,66 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             // never verify.
             let path = elo_vault::keystore_path();
             let mut signer = elo_vault::LocalSigner::at(&path);
-            if !signer.exists() {
-                // ⚠ `prove` is the one signing verb a browser pairing cannot
-                // serve, and a paired player must be told WHY rather than sent
-                // to make a key with no reason given. `prove_message` is
-                // EIP-4361, the relay refuses SIWE so it can never phish a
-                // login, and that wall has no exception shaped like us.
-                if let Some(p) = elo_net::pairing::load(&elo_vault::pairing_path()) {
+            let (message, out) = if !signer.exists() {
+                // A paired browser wallet signs instead, when the server is on
+                // the pairing's own site: signed under that site's name, the
+                // form a wallet's sign-in check passes and Gates' shards
+                // accept (`Pairing::signs_for`). Anywhere else, the reason.
+                let Some(p) = elo_net::pairing::load(&elo_vault::pairing_path()) else {
                     return Err(DepotError::new(format!(
-                        "proving to a game server is the one act a browser \
-                         pairing cannot do. The message is a sign-in \
-                         (EIP-4361), and sign-ins do not ride the relay — \
-                         that is what stops the door being used to phish a \
-                         login. {} stays paired for everything else; this \
-                         wants an account here (`elo account new`) or a \
-                         wallet in the browser the game opens.",
-                        p.address
+                        "no account at {} — `elo account new` makes one, or \
+                         `elo pair` uses the wallet in your browser",
+                        path.display()
                     )));
+                };
+                let Some(page) = p.signs_for(server) else {
+                    return Err(DepotError::new(format!(
+                        "{server} is not on {}, so your browser wallet can't sign \
+                         in there — the wallet would warn that it is a different \
+                         site. `elo account new` makes an account here that can.",
+                        p.site()
+                    )));
+                };
+                let message = elo_broker::protocol::prove_message_for(
+                    &page,
+                    server,
+                    &p.address,
+                    game,
+                    nonce,
+                    &elo_broker::protocol::now_iso8601(),
+                );
+                if a.has("--statement") {
+                    print!("{message}");
+                    return Ok(0);
                 }
-                return Err(DepotError::new(format!(
-                    "no account at {} — `elo account new` makes one",
-                    path.display()
-                )));
-            }
-            let address = signer
-                .address()
-                .ok_or_else(|| DepotError::new("the keystore names no address"))?;
-            let message = elo_broker::protocol::prove_message(
-                server,
-                &address,
-                game,
-                nonce,
-                &elo_broker::protocol::now_iso8601(),
-            );
-            if a.has("--statement") {
-                print!("{message}");
-                return Ok(0);
-            }
-            warn_if_echoing();
-            let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
-            signer.unlock(&pass).map_err(DepotError::new)?;
-            let out = signer
-                .sign(&message, "prove identity")
-                .map_err(|r| DepotError::new(r.reason))?;
+                let mut s = elo_net::pairing::PairedBrowserSigner::new(p).telling(signer::tell);
+                let out = s
+                    .sign(&message, "sign in to the game server")
+                    .map_err(|r| DepotError::new(r.reason))?;
+                (message, out)
+            } else {
+                let address = signer
+                    .address()
+                    .ok_or_else(|| DepotError::new("the keystore names no address"))?;
+                let message = elo_broker::protocol::prove_message(
+                    server,
+                    &address,
+                    game,
+                    nonce,
+                    &elo_broker::protocol::now_iso8601(),
+                );
+                if a.has("--statement") {
+                    print!("{message}");
+                    return Ok(0);
+                }
+                warn_if_echoing();
+                let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
+                signer.unlock(&pass).map_err(DepotError::new)?;
+                let out = signer
+                    .sign(&message, "prove identity")
+                    .map_err(|r| DepotError::new(r.reason))?;
+                (message, out)
+            };
             if json_out {
                 let mut v = out.clone();
                 if let Some(m) = v.as_object_mut() {
@@ -1145,7 +1163,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
 
-        "hive" => {
+        // `hive` was the verb until 2026-10-17; installed scripts still say it.
+        "chat" | "hive" => {
             let net = Net::new();
             let hive = Hive::new(&net, &host);
             let limit: usize = a.flag("--limit").and_then(|v| v.parse().ok()).unwrap_or(20);
@@ -1158,12 +1177,12 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                         return Err(DepotError::new(if got.reachable {
                             got.why
                         } else {
-                            format!("could not reach the hive — {}", got.why)
+                            format!("could not reach chat — {}", got.why)
                         }));
                     };
                     println!("relay {}", c.relay.as_deref().unwrap_or("none posted"));
                     if c.channels.is_empty() {
-                        println!("the hive posted no rooms");
+                        println!("no chat rooms are posted");
                         return Ok(0);
                     }
                     for room in &c.channels {
@@ -1179,7 +1198,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 "whoami" => {
                     let dir = voice_dir();
                     if !Voice::exists(&dir) {
-                        println!("no voice on this machine — `elo hive voice-new` makes one");
+                        println!("no chat key on this machine — `elo chat voice-new` makes one");
                         return Ok(0);
                     }
                     let v = Voice::load(&dir).map_err(DepotError::from)?;
@@ -1190,7 +1209,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     // both halves of that matter.
                     println!("\nThis is a SPEAKING key, not a wallet — it holds no funds and signs");
                     println!("no transaction. It sits at 0600 unencrypted, so anyone who can read");
-                    println!("your home directory can speak as you in the hive. elo never sees it.");
+                    println!("your home directory can speak as you in chat. elo never sees it.");
                     Ok(0)
                 }
                 "voice-new" => {
@@ -1199,7 +1218,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                         // Overwriting a voice loses the identity everything
                         // said under it, so it takes an explicit act.
                         return Err(DepotError::new(format!(
-                            "a voice already exists at {} — `--yes` replaces it, and \
+                            "a chat key already exists at {} — `--yes` replaces it, and \
                              everything said under the old npub stays under the old npub",
                             dir.join(elo_hive::voice::KEY_NAME).display()
                         )));
@@ -1210,8 +1229,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     println!("saved   {}", path.display());
                     println!("\nBack it up as an nsec if you want this identity to survive this");
                     println!("machine. It is a speaking key: no funds, no transactions, and elo");
-                    println!("never sees it. Bind it to a wallet later with the hive page if you");
-                    println!("want a sworn name rather than a bare key.");
+                    println!("never sees it.");
                     Ok(0)
                 }
                 "presence" => {
@@ -1243,10 +1261,12 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 "say" => {
                     let text = need(a.positional.get(1), "something to say")?;
                     let v = Voice::load(&voice_dir()).map_err(DepotError::from)?;
-                    let url = relay_url(&hive)?;
-                    let room = a.flag("--room");
+                    let rooms = channels_of(&hive)?;
+                    let url = rooms.relay.clone().filter(|r| !r.is_empty())
+                        .ok_or_else(|| DepotError::new("the house has posted no relay"))?;
+                    let room = rooms.resolve(a.flag("--room")).map_err(DepotError::new)?;
                     let event = v
-                        .sign(note_for(room, text, clock::now()))
+                        .sign(note_for(room.as_deref(), text, clock::now()))
                         .map_err(DepotError::from)?;
                     if a.has("--dry-run") {
                         println!("{}", serde_json::to_string_pretty(&event.to_json()).unwrap_or_default());
@@ -1267,10 +1287,10 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                         return Err(DepotError::new(if got.reachable {
                             got.why
                         } else {
-                            format!("could not reach the hive — {}", got.why)
+                            format!("could not reach chat — {}", got.why)
                         }));
                     };
-                    println!("the beekeeper's outbox — {} composed, {} queued", v.composed, v.queued);
+                    println!("the house's outbox — {} composed, {} queued", v.composed, v.queued);
                     let now = clock::now();
                     for n in &v.notes {
                         println!(
@@ -1287,15 +1307,22 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     Ok(0)
                 }
                 // `read` is the default verb, so an unknown word reads the
-                // town stream rather than erroring — a chat client should not
+                // landing room rather than erroring — a chat client should not
                 // punish a typo by refusing to show the room.
                 _ => {
-                    let got = hive.room(a.flag("--room"), limit);
+                    // a NAME is resolved here; no --room is left to the origin,
+                    // which lands it in #general (an old origin: the town wire)
+                    let asked = match a.flag("--room") {
+                        Some(r) => channels_of(&hive)?.resolve(Some(r)).map_err(DepotError::new)?
+                            .or_else(|| Some("town".into())),
+                        None => None,
+                    };
+                    let got = hive.room(asked.as_deref(), limit);
                     let Some(r) = got.value else {
                         return Err(DepotError::new(if got.reachable {
                             got.why
                         } else {
-                            format!("could not reach the hive — {}", got.why)
+                            format!("could not reach chat — {}", got.why)
                         }));
                     };
                     println!("{} · relay {}", r.scope, r.relay.as_deref().unwrap_or("none"));
@@ -1322,7 +1349,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                             )
                         );
                     }
-                    println!("\n~ = a name nobody checked; blank = sworn on the register");
+                    println!("\n~ = a name the speaker gave themselves");
                     Ok(0)
                 }
             }
@@ -1870,11 +1897,11 @@ fn hold_presence_while_playing(a: &args::Args, host: &str, slug: &str) -> Option
     let mut held = match Presence::hold(&url, voice, Status::Online) {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("elo: hive presence unavailable ({e}) — playing anyway");
+            eprintln!("elo: chat presence unavailable ({e}) — playing anyway");
             return None;
         }
     };
-    println!("hive: {} online while you play {slug}", held.npub());
+    println!("chat: {} online while you play {slug}", held.npub());
 
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -1900,18 +1927,21 @@ fn hold_presence_while_playing(a: &args::Args, host: &str, slug: &str) -> Option
     Some((stop, joiner))
 }
 
+/// The origin's room list, or why it could not be read.
+fn channels_of(hive: &Hive) -> Result<elo_hive::Channels, DepotError> {
+    let got = hive.channels();
+    got.value.ok_or_else(|| DepotError::new(if got.reachable {
+        got.why
+    } else {
+        format!("could not reach chat — {}", got.why)
+    }))
+}
+
 /// The relay the house posted. Never typed by us — one place, so a fork or a
 /// local origin moves it for every verb at once.
 fn relay_url(hive: &Hive) -> Result<String, DepotError> {
-    let got = hive.channels();
-    let Some(c) = got.value else {
-        return Err(DepotError::new(if got.reachable {
-            got.why
-        } else {
-            format!("could not reach the hive — {}", got.why)
-        }));
-    };
-    c.relay
+    channels_of(hive)?
+        .relay
         .filter(|r| !r.is_empty())
         .ok_or_else(|| DepotError::new("the house has posted no relay"))
 }

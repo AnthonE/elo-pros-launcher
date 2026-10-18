@@ -120,10 +120,27 @@ where
     H: crate::Host + Send + 'static,
     F: Fn() -> H + Send + 'static,
 {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    serve_forever_counted(listener, Default::default(), make_host)
+}
+
+/// [`serve_forever`], with the count of open connections kept where the caller
+/// can read it.
+///
+/// A game holds its boot connection for as long as it runs, so a count above
+/// zero means a game is running. The window reads it to know the player is
+/// playing rather than away (`elo_ui::wiring::serve_relock`), and the count
+/// was already here for [`MAX_OPEN`].
+pub fn serve_forever_counted<H, F>(
+    listener: Listener,
+    open: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    make_host: F,
+) where
+    H: crate::Host + Send + 'static,
+    F: Fn() -> H + Send + 'static,
+{
+    use std::sync::atomic::Ordering;
     use std::sync::Arc;
 
-    let open = Arc::new(AtomicUsize::new(0));
     loop {
         match listener.accept() {
             Ok(conn) => {

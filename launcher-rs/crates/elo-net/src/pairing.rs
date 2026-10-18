@@ -43,13 +43,13 @@
 //! whole security story and it is why `CLAUDE.md` invariant 7 is not merely
 //! unbroken here but trivially true: there is no key on this machine at all.
 //!
-//! ⚠ **`prove` does not work on this backend, and the refusal is not a gap.**
-//! `prove_message` is EIP-4361, the origin refuses SIWE on the relay so this
-//! door can never be used to phish a login, and that wall does not have an
-//! exception shaped like us. A player proving to a game server wants a local
-//! account or a wallet in that browser. `arca` and `external` cannot prove
-//! either, for a neighbouring reason — this is the third member of that set,
-//! not a new limitation.
+//! ⚠ **`prove` works here for a game server on the pairing's own site, and
+//! nowhere else.** The origin relays exactly one sign-in: a game server's,
+//! signed under the site's own name with the server in the `URI:` line
+//! ([`Pairing::signs_for`], `elo_broker::protocol::prove_message_for`) — the
+//! form a wallet's sign-in check passes and Gates' shards already accept from
+//! their browser build. A login to any other site still never rides the relay,
+//! which is what stops this door being used to phish one.
 
 use crate::Net;
 use elo_broker::protocol::Refusal;
@@ -109,6 +109,42 @@ impl Pairing {
 
     pub fn expired(&self, now: u64) -> bool {
         self.expires != 0 && now >= self.expires
+    }
+
+    /// The host of the site this pairing was made on — `elopros.com` for
+    /// `https://elopros.com`. Lowercase, no scheme, port or path.
+    pub fn site(&self) -> String {
+        self.host
+            .trim_end_matches('/')
+            .rsplit("://")
+            .next()
+            .unwrap_or("")
+            .split(['/', ':'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    }
+
+    /// The name this pairing signs a game-server sign-in under, or `None`.
+    ///
+    /// The browser wallet signs on the pairing page, and a wallet warns when a
+    /// sign-in's domain is not that page's host. So a server that IS the
+    /// origin's host or sits under it (`game.elopros.com` under `elopros.com`)
+    /// is signed as the origin's host, with the server in the `URI:` line —
+    /// the form Gates' browser build already signs and its shards accept.
+    /// Anything else gets `None`: the origin refuses to relay a sign-in for a
+    /// domain that is not its own, so a pairing cannot be used to log in to
+    /// some other site.
+    pub fn signs_for(&self, server: &str) -> Option<String> {
+        let page = self.site();
+        let host = server.split(':').next().unwrap_or("").to_ascii_lowercase();
+        if page.is_empty() || host.is_empty() {
+            return None;
+        }
+        let under = host.len() > page.len() + 1
+            && host.ends_with(&page)
+            && host.as_bytes()[host.len() - page.len() - 1] == b'.';
+        (host == page || under).then_some(page)
     }
 
     pub fn show_code(&self) -> String {

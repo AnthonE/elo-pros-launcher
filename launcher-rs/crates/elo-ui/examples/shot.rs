@@ -101,9 +101,9 @@ fn main() {
              It is in Games, and Play now starts it.",
             Some("Play now")).window,
         "lock" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
-            "unlock the account on this machine to carry on").window,
+            "unlock the account on this machine, or use the wallet in your browser").window,
         "lock2" => windows::lock("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
-            "it locked itself while you were away — every signature resets that clock").window,
+            "it locked itself while you were away — playing or signing resets that clock").window,
         // All four shard states are capturable, because a reader must be able
         // to tell them apart at a glance — and three of them are the ones that
         // get drawn wrong. `unreadable` in particular must never look like
@@ -159,6 +159,13 @@ fn main() {
                 r.code.set_value("ABCD-2345");
                 r.show();
             }
+            a.window
+        }
+        // No account here, and a browser wallet paired: the well names the
+        // paired wallet, because that is who games are told is playing.
+        "account4" => {
+            let a = windows::account(None, "https://elopros.com");
+            elo_ui::wiring::show_pairing(&a, "0x24445EFddB08d4938E3E3627042B2Cf4063d9092");
             a.window
         }
         "signing" => windows::signing("none",

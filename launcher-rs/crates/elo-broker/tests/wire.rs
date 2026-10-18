@@ -726,3 +726,64 @@ fn prove_message_is_pinned_for_the_servers_that_recompute_it() {
          Issued At: 2026-02-02T02:40:00Z"
     );
 }
+
+/// A host whose browser wallet signs: it asks for proofs to be signed under
+/// the page's site rather than the server's own name.
+#[derive(Default)]
+struct PageProver(Prover);
+impl elo_broker::Host for PageProver {
+    fn address(&self) -> Option<String> { self.0.address() }
+    fn signer_name(&self) -> String { "browser-paired".into() }
+    fn host_url(&self) -> String { self.0.host_url() }
+    fn ask_consent(&mut self, g: &str, f: &str, t: &str, w: &str) -> Option<u32> {
+        self.0.ask_consent(g, f, t, w)
+    }
+    fn sign(&mut self, t: &str, w: &str) -> Result<serde_json::Value, elo_broker::protocol::Refusal> {
+        self.0.sign(t, w)
+    }
+    fn prove(&mut self, m: &str) -> Result<serde_json::Value, elo_broker::protocol::Refusal> {
+        self.0.prove(m)
+    }
+    fn prove_domain(&self, server: &str) -> Option<String> {
+        server.ends_with(".elopros.com").then(|| "elopros.com".to_string())
+    }
+    fn title_url(&self, s: &str, w: elo_broker::What) -> Option<String> { self.0.title_url(s, w) }
+    fn open(&mut self, u: &str) -> Result<(), elo_broker::protocol::Refusal> { self.0.open(u) }
+}
+
+/// **A paired browser wallet signs the page form, and only for its own site.**
+///
+/// The domain line is the site the wallet signs on, so the wallet's sign-in
+/// check passes, and the `URI:` line still names the shard — the bytes Gates'
+/// shards rebuild for a browser login (`siwe_message_for`, `siwe_domains`).
+/// A server elsewhere keeps the launcher's own form, and no consent is spent
+/// on either: the launcher still writes every word.
+#[test]
+fn a_browser_wallet_proves_under_its_own_site_with_the_shard_in_the_uri() {
+    let mut s = elo_broker::Session::default();
+    let mut host = PageProver::default();
+    s.handle(&mut host, &serde_json::json!({"op":"hello","game":"gates","protocol":1}));
+    let at = now_secs() - 5;
+    let out = s.handle(&mut host, &serde_json::json!(
+        {"op":"prove","nonce":"8f14e45fceea167a","server":"game.elopros.com","issued_at":at}));
+    assert_eq!(out["ok"], serde_json::json!(true), "{out}");
+    let page_form = elo_broker::protocol::prove_message_for(
+        "elopros.com",
+        "game.elopros.com",
+        "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+        "gates",
+        "8f14e45fceea167a",
+        &elo_broker::protocol::iso8601(at),
+    );
+    assert_eq!(host.0.seen.borrow()[0], page_form);
+    assert!(page_form.starts_with("elopros.com wants you to sign in"), "{page_form}");
+    assert!(page_form.contains("\nURI: https://game.elopros.com\n"), "{page_form}");
+    assert_eq!(out["message"], serde_json::json!(page_form), "the echo is what was signed");
+
+    let out = s.handle(&mut host, &serde_json::json!(
+        {"op":"prove","nonce":"8f14e45fceea167a","server":"play.example","issued_at":at}));
+    assert_eq!(out["ok"], serde_json::json!(true), "{out}");
+    assert!(host.0.seen.borrow()[1].starts_with("play.example wants you to sign in"),
+            "a server elsewhere keeps the launcher's own form");
+    assert_eq!(*host.0.consents.borrow(), 0, "prove spends no consent either way");
+}

@@ -134,7 +134,7 @@ class Profile:
 
     @property
     def handle(self) -> str | None:
-        """The SWORN name — in the locked index, and it cost SCRY to change."""
+        """The SWORN name — in the locked index, and it costs ELO to change."""
         return self.raw.get("handle")
 
     @property
@@ -371,8 +371,8 @@ class Overlay:
         network problem from an anonymous player.
 
         ⚠ **`display_name` is self-declared and `handle` is not.** The handle
-        is in the locked index and cost SCRY to change; the display name is
-        whatever its owner typed. Draw them differently — the town's
+        is in the locked index and costs ELO to change; the display name is
+        whatever its owner typed. Draw them differently — the platform's
         convention is a `~` prefix on the unchecked one — or draw only the
         handle.
 

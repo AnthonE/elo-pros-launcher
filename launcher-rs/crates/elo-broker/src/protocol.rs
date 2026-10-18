@@ -368,6 +368,29 @@ pub fn prove_message(
     nonce: &str,
     issued_at: &str,
 ) -> String {
+    prove_message_for(domain, domain, address, game, nonce, issued_at)
+}
+
+/// [`prove_message`] signed under a different name than the server's: the
+/// domain line is the PAGE that will ask the wallet, and the `URI:` line still
+/// names the server.
+///
+/// This is the form a browser wallet signs. A wallet compares a sign-in's
+/// domain with the page asking (MetaMask's and Phantom's sign-in checks) and
+/// warns when they differ, so a page on `elopros.com` signing
+/// `game.elopros.com` would show every player a phishing warning on their own
+/// login. Gates' browser build already signs this way and its shards accept
+/// it (`protocol::siwe_message_for` and `siwe_domains` in AnthonE/gates); a
+/// launcher paired with a browser wallet signs the same bytes. With `domain`
+/// equal to `uri_host` it is [`prove_message`] exactly.
+pub fn prove_message_for(
+    domain: &str,
+    uri_host: &str,
+    address: &str,
+    game: &str,
+    nonce: &str,
+    issued_at: &str,
+) -> String {
     // EIP-4361 §Message Format. The blank lines around `statement` are part of
     // the grammar, not formatting — a parser reads them.
     format!(
@@ -376,7 +399,7 @@ pub fn prove_message(
          \n\
          {}\n\
          \n\
-         URI: https://{domain}\n\
+         URI: https://{uri_host}\n\
          Version: 1\n\
          Chain ID: {CHAIN_ID}\n\
          Nonce: {nonce}\n\

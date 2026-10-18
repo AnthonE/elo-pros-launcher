@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-09-24
+updated: 2026-10-17
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
@@ -29,14 +29,14 @@ grammar):
 | 5 | the page | its poll returns `{address, message, signature}` — the purse flips to *proven yours* |
 
 One implementation of the message per side, pinned against each other:
-`scry-broker`'s `signin_message` composes, `meter/signin.py` recomposes, and
+`elo-broker`'s `signin_message` composes, `meter/signin.py` recomposes, and
 `sdk/testdata/signin_fixture.json` is the vector both suites assert
 (`cross_language.rs`, `meter/test_signin.py`). Neither side moves without it —
 the `prove` lesson, applied before the drift instead of after.
 
 ## 1 · Typed, never clicked
 
-There is no `scry://signin/…` deep link, **and that is a decision, not a
+There is no `elo://signin/…` deep link, **and that is a decision, not a
 gap.** A clickable pairing is the classic device-code phish: a stranger pastes
 *their* code into a chat window dressed as a free-mint link, and the victim's
 approval signs the stranger's browser in as them. A code that must be read off
@@ -100,7 +100,7 @@ Four walls, and each is enforced rather than asked:
    coin. Buying a copy or swapping still wants an extension or hardware
    signer — the launcher growing `eth_sendTransaction` would be a separate
    operator decision, not an extension of this.
-2. **A relayed text's first line is `scry <family>`** — the broker's own
+2. **A relayed text's first line is `elo <family>`** (the legacy `scry <family>` still relays) — the broker's own
    `sign_family` rule, applied by the origin (`_guard_ask_text`). The relay
    carries platform signables and nothing else.
 3. **No SIWE rides the relay.** Any text carrying EIP-4361's "wants you to
@@ -142,10 +142,12 @@ hardening instead:
 
 - **the CLI unlocks per command and forgets at exit** (`elo account sign`,
   `elo entitle`, `elo signin` — one passphrase prompt each);
-- **the GUI relocks an idle key**: every signature refreshes `last_used`, and
-  an unlocked account nobody has used for `SCRY_RELOCK_MINUTES` (default 30,
-  0 disables) locks itself — an afternoon of play never trips it, a launcher
-  left open on a shared desk stops being a live signer;
+- **the GUI relocks an idle key**: an unlocked account nobody has used for
+  `ELO_RELOCK_MINUTES` (default 30, 0 disables) locks itself, and a launcher
+  left open on a shared desk stops being a live signer. A signature counts as
+  use, and so does a **running game** (one holding the door, or one Play
+  started) — a game signs once at join and then not again, so counting only
+  signatures put the gate up over the game half an hour in (2026-10-17);
 - **Lock now** sits beside Unlock in the Signing window — forgetting the key
   is one press, and undoing it costs the passphrase, which is exactly the
   cost it is supposed to impose;
@@ -167,11 +169,11 @@ says it first and stays right — rung 2's answer is the arca, not a timer.
 | code lifetime | `SCRY_SIGNIN_PENDING_TTL` | 600 s |
 | pairing lifetime | `SCRY_SIGNIN_PAIR_TTL` | 43200 s |
 | rate gates | `SCRY_SIGNIN_START_PER_DAY` · `_PROOF_PER_DAY` · `_ASK_PER_DAY` | 60 · 60 · 200 |
-| GUI idle relock | `SCRY_RELOCK_MINUTES` | 30 (0 = never) |
+| GUI idle relock | `ELO_RELOCK_MINUTES` | 30 (0 = never) |
 
 Derive, don't quote: `curl -s elopros.com/api/signin` is the card.
 Tests: `meter/test_signin.py` (the venv rule applies), `cargo test -p
-scry-broker --test cross_language`, `watchtower/test_site.py`.
+elo-broker --test cross_language`, `watchtower/test_site.py`.
 
 ## 7 · Owed, and known not-built
 
@@ -216,14 +218,16 @@ here. Reading `approver` as "the launcher" is the mistake worth naming twice.
 stranger's code, pasted in a chat, would point your wallet at their launcher's
 queue rather than sign their browser in as you.
 
-§3's four walls hold too, and one of them decides something: **no SIWE rides
-the relay**, and `prove_message` IS EIP-4361, so `elo prove` cannot use this
-door. That is a consequence of the wall rather than an exception carved into
-it, and `meter/test_browser_signer.py` pins it against the text `protocol.rs`
-actually composes. The family wall gained one thing: it accepts `scry
-<family>` beside `elo <family>`, because `tickets.entitle_message` still writes
-`scry entitle` — refusing it would have refused the first act this seam was
-built to carry.
+§3's four walls hold too, with one sign-in let through on purpose: **a game
+server's, on this site.** `prove_message_for` signs it under the origin's own
+name (the page the wallet signs on, so MetaMask's and Phantom's sign-in checks
+pass) with the server in the `URI:` line, naming the paired wallet — the bytes
+Gates' browser build already signs and its shards accept. Every other sign-in
+is refused, including this website's own, and `meter/test_browser_signer.py`
+pins both directions against the text `protocol.rs` composes. The family wall
+gained one thing: it accepts `scry <family>` beside `elo <family>`, because
+`tickets.entitle_message` still writes `scry entitle` — refusing it would have
+refused the first act this seam was built to carry.
 
 **Custody, restated for this direction:** the browser's key is MetaMask's and
 was never ours. The launcher holds `pairing.json` — a code, a poll secret, an
@@ -247,13 +251,21 @@ pairing**, which is the reverse of the CLI's order and the same rule stated
 once in `LAUNCHER.md` §4: prefer the signer that can answer without
 interrupting, break ties toward the newer deliberate act. A game asking
 mid-play should not be bounced to a browser tab by a launcher that already
-holds an unlocked key.
+holds an unlocked key. **`identity` follows the same order** — unlocked
+account, then live pairing, then locked account — so a game is never told one
+address and handed a signature from another (it named a locked keystore first
+until 2026-10-17).
 
-- **`prove` has no keyless path** (§8). A player with only a browser wallet can
-  buy, download, run the dev desk and sign platform messages, and cannot prove
-  to a game server. That is the honest edge of this feature and should be said
-  wherever it is sold — both `elo prove` and the window's `prove` name the
-  reason rather than sending their reader off to make a key.
+- **the lock screen has a third button, *Use my browser wallet*.** It leaves
+  the key on this machine locked and opens Account, where the pairing starts.
+  Before it, a player with an account here could not reach the pairing
+  without that account's passphrase.
+
+- **`prove` signs in to game servers on this site** (§8, 2026-10-17). A player
+  with only a browser wallet can sign in to an `elopros.com` shard; the pair
+  tab opens the wallet as the request arrives, because a shard waits about a
+  minute. A server on another site still wants a local account, and both
+  `elo prove` and the window's `prove` say so by name.
 - **the GUI does not watch the OTHER relay** (§7's item, unchanged): approving
   a page's signature requests from the launcher is still the CLI's `elo signin`.
 - **no deep link, on purpose** (§1, and it applies to both directions).

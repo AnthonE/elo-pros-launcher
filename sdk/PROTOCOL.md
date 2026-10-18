@@ -1,8 +1,7 @@
 # the elo overlay protocol — v1
 
 What a game says to the running launcher. This is the whole wire; the
-reference clients in `sdk/python/` and `sdk/rust/` are each about two hundred
-lines and implement all of it.
+reference clients in `sdk/python/` and `sdk/rust/` implement all of it.
 
 Design of record: `docs/client/SDK.md`. The server is
 `launcher-rs/crates/elo-broker`.
@@ -85,11 +84,12 @@ Reply carries `protocol`, `launcher`, `host`, `capabilities` (the verb list),
 and `signer` (which backend holds the key: `local` · `arca` · `external` ·
 `browser` · `none`).
 
-⚠ **Only `local` can `prove`.** `prove` bypasses the signer's family allowlist
-by construction, and the other backends do not implement it — `browser` cannot,
-because it finishes in a browser tab rather than in this round trip. A player
-whose launcher has an account gets `local`; one with no account gets `none` and
-a refusal that says so. Anonymous is a supported state.
+⚠ **`local` and `browser-paired` can `prove`.** `prove` bypasses the signer's
+family allowlist by construction. A player whose launcher has an account gets
+`local`. One paired with a browser wallet gets `browser-paired`, which proves
+only to a server on the pairing's own site, signed under that site's name with
+your server in the `URI:` line (see `prove` below). One with neither gets
+`none` and a refusal that says so. Anonymous is a supported state.
 
 Every other verb refuses until `hello` has named the game, because a consent
 prompt with no name in it is not consent.
@@ -231,6 +231,20 @@ request — so a title cannot prove as another title. A signature over this
 message authorises nothing; it says *the holder of this address was here, for
 this domain, on this challenge*.
 
+#### A browser wallet signs under the page's name
+
+When the player's launcher is paired with a browser wallet (MetaMask, or the
+Ethereum account in Phantom or Backpack), the wallet signs on a page at the
+launcher's origin, and a wallet warns when a sign-in's domain is not the page
+asking. So for a `server` on that site or under it, the first line names the
+**site** (`elopros.com wants you to sign in…`) and the `URI:` line names your
+server (`URI: https://game.elopros.com`). Everything else is the same message.
+
+Accept the site's name as a domain and check the URI is yours: Gates does it
+with `siwe_domains = "game.elopros.com, elopros.com"`. A server on any other
+site never gets this form; that player is refused with a reason and plays as a
+guest. The reply's `message` shows which form was signed.
+
 #### The two fields, and their rules are the standard's
 
 | field | rule | why |
@@ -303,7 +317,7 @@ is the machine-readable half; the `reason` says the same thing in words.
 
 #### ⚠ `handle` is sworn and `display_name` is not
 
-`handle` is the NIP-05 name out of the locked index — it cost SCRY to change.
+`handle` is the NIP-05 name out of the locked index — it costs ELO to change.
 `display_name` is whatever its owner typed into a face. **Never show a claimed
 name in the clothes of a checked one.** Both reference clients expose a `label`
 that does this for you: a sworn name renders bare, anything self-declared gets

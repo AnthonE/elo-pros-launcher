@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-08
+updated: 2026-10-16
 about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
@@ -34,19 +34,19 @@ read below is public and works from `curl`.
 ## 0 · The five-minute version
 
 ```rust
-// vendor sdk/rust/scry_overlay.rs — one file, std only, no crates
-let mut scry = Overlay::connect("your-game", "1.0.0")?;   // Err is NORMAL
+// vendor sdk/rust/elo_overlay.rs — one file, std only, no crates
+let mut elo = Overlay::connect("your-game", "1.0.0")?;   // Err is NORMAL
 
 // who is playing, in a form your SERVER can check
-let proof = scry.prove("shard-3.yourgame.example", &nonce_you_issued)?;
+let proof = elo.prove("shard-3.yourgame.example", &nonce_you_issued)?;
 // → send proof.message + proof.signature to your backend
 
 // a name and a face for the scoreboard
-let p = scry.profile("").unwrap();
+let p = elo.profile("").unwrap();
 println!("{}", p.label());       // "moss" if sworn, "~moss" if self-declared
 ```
 
-On your backend, with **no scry-specific code at all**:
+On your backend, with **no Elo-specific code at all**:
 
 ```js
 import { SiweMessage } from 'siwe'
@@ -108,7 +108,7 @@ Anything in §3. The common shapes:
 One call gives you what a HUD draws. Full shape in `sdk/PROTOCOL.md` §`profile`.
 
 ⚠ **The one rule that matters: `handle` is checked and `display_name` is not.**
-A handle lives in a locked index and cost SCRY to change. A display name is
+A handle lives in a locked index and costs ELO to change. A display name is
 whatever its owner typed. Both SDK clients expose `label()`, which renders a
 sworn name bare and prefixes anything self-declared with `~`. **Use it, or use
 `handle` alone.** Showing a claimed name in the clothes of a checked one is the
@@ -138,7 +138,7 @@ Base: `https://elopros.com`
 | what achievements exist | `/api/achievements` | the catalog and its evidence kinds |
 | **items (NFTs)** | `/api/items/of/{wallet}` | ERC-721 on 4663. ⚠ answers `configured: false` today — see below |
 | how an item's traits are derived | `/api/items/provenance` | published spec; needs no contract, recomputable by anyone |
-| **token balances** | `/api/holdings/{wallet}` | SCRY and each game's own coins, read by `balanceOf`. ⚠ a null balance is a **failed read**, never a zero |
+| **token balances** | `/api/holdings/{wallet}` | the reserve and each game's own coins, read by `balanceOf`. ⚠ a null balance is a **failed read**, never a zero |
 | **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
 | **reputation** | `/api/reputation/{address}` | soulbound; earned or slashed by outcomes, never bought |
 | a leaderboard | *(your game's own)* | the platform served one from the arena until that room was deleted 2026-08-15. A ladder is the game's to keep — the platform verifies outcomes, it does not rank them for you |
@@ -147,16 +147,13 @@ Base: `https://elopros.com`
 
 ### Your game brings its own coins
 
-Operator, 2026-08-07: *"scry only has SCRY! myrrh and obol are actually gates
-now"* · *"its up to games to decide what to do with the 'MYRHH' btc type coin."*
-
-**Elo has exactly one coin — the reserve.** OBOL and MYRRH are what
+**Elo has exactly one coin — the reserve.** JUNK and ORBS are what
 **Gates** happens to use; they are a worked example, not a platform currency
 you inherit.
 
 So: **a coin policy is your design, and the platform does not dictate design**
 (`docs/GATES.md` §3.4). The one rule that does not bend is §2.1 — **every game
-coin pairs against SCRY and only there.** That is what makes the reserve the
+coin pairs against the reserve and only there.** That is what makes the reserve the
 counter every title shares instead of a pile of unrelated tokens.
 
 #### How your coin reaches a player's purse
@@ -172,7 +169,7 @@ surface reads:
 ] }
 ```
 
-`role` is one of `reserve · earn · spend · premium`. Declare SCRY as `reserve`
+`role` is one of `reserve · earn · spend · premium`. Declare ELO as `reserve`
 if you want it on your screen — it is the platform's, so it is never grouped
 under your name. **A coin you have not deployed is declared with
 `address: null`**; that is a complete answer, not a missing field, and it
@@ -189,7 +186,7 @@ Two things worth knowing before you write it. `disclosure` is **not** a dev-desk
 field: unlike `blurb` or `capsule`, it arrives through a commit someone reads,
 because an address that decides which contract a purse calls `balanceOf` on is
 not a thing to let a signature change at 3am. And a title may **not** declare a
-coin named `SCRY` or `xSCRY` as its own — those are the platform's two, and a
+coin named `ELO` or `xELO` as its own — those are the platform's two, and a
 listing claiming one is dropped rather than rendered.
 
 ### ⚠ Three honest-zero traps, and each is a real endpoint answering truthfully

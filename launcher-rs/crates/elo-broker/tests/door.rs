@@ -108,3 +108,33 @@ fn a_hung_up_connection_does_not_take_the_door_with_it() {
     let (_s, reply) = hello(&path, "gates").expect("the door still answers");
     assert!(reply.get("ok").is_some() || reply.get("hello").is_some(), "{reply}");
 }
+
+/// **The open count says a game is running for as long as it holds the door.**
+///
+/// The window reads it so the idle relock does not put the passphrase gate up
+/// over a game in play (`elo_ui::wiring::serve_relock`). It must rise while
+/// the boot connection is held and fall back to zero when the game leaves,
+/// or the relock either fires mid-game or never fires again.
+#[test]
+fn the_open_count_follows_a_game_holding_the_door() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("launcher.sock");
+    let listener = transport::Listener::bind(path.to_str().unwrap()).expect("bind");
+    let open = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&open);
+    std::thread::spawn(move || transport::serve_forever_counted(listener, counted, || Quiet));
+
+    assert_eq!(open.load(Ordering::Relaxed), 0, "nobody is playing yet");
+    let (boot, _) = hello(&path, "gates").expect("the boot connection is answered");
+    assert_eq!(open.load(Ordering::Relaxed), 1, "a game holding the door is counted");
+
+    drop(boot);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while open.load(Ordering::Relaxed) != 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(open.load(Ordering::Relaxed), 0, "a game that left is not counted");
+}

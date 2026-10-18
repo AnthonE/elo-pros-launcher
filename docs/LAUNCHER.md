@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-12
+updated: 2026-10-17
 about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
 ---
 
@@ -31,7 +31,7 @@ about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: 
 ## 0 · One screen
 
 A desktop program that opens Elo's games, browses the curated catalog,
-shows what a wallet holds, reads the hive, watches the origin and the chain,
+shows what a wallet holds, reads chat, watches the origin and the chain,
 and — when a title publishes one — installs, hash-verifies and starts a native
 build.
 
@@ -181,7 +181,7 @@ manifest.builds[] ─┬─ kind: browser  → url        → xdg-open, nothing 
 **A build row with no `url` and no `depot` is a SLOT, not a build.** The
 client renders it as *"no desktop build published yet"* and offers nothing to
 click. This is the honest shape for a game that has announced a desktop build
-and not shipped it, and it is exactly Gates' shape today.
+and not shipped it.
 
 Installing is: fetch each file, hash it, and **only then** move the whole
 build into place from a staging directory. A killed or corrupted install
@@ -277,7 +277,8 @@ keystore sits on disk forever. In the window an **unlocked** account answers a
 game mid-play with no round trip at all, which is why `prove` has no prompt
 either; bouncing that player to a browser tab would be strictly worse for them.
 So the window prefers an unlocked local key and falls through to the pairing,
-and both files carry the sentence. `elo pair forget` and `--local` are the two
+and both files carry the sentence. `identity` names the same signer `sign` will
+use, so a locked keystore does not shadow a live pairing (2026-10-17). `elo pair forget` and `--local` are the two
 ways to say it plainly instead.
 
 **Nothing reads a manifest, a catalog, a depot, or a game to decide this**, and
@@ -359,18 +360,18 @@ many words.
 **Four walls, each enforced at the origin rather than asked for:** messages
 only (nothing here can move a coin); first line `elo <family>` — and `scry
 <family>` too, because `tickets.entitle_message` still writes `scry entitle`
-and dropping it would refuse the one signable this seam was built for; **no
-SIWE**, which is what keeps a login phish off the door; and a returned
-signature must recover to the paired address.
+and dropping it would refuse the one signable this seam was built for; **one
+sign-in only**, a game server's on this site (below), which is what keeps a
+login phish off the door; and a returned signature must recover to the paired
+address.
 
-⚠ **`elo prove` therefore does not ride it, and that is a consequence rather
-than a carve-out.** `prove_message` IS EIP-4361, so the SIWE wall settles it
-with no special case — a paired launcher gets a readable refusal, and proving
-to a game server still wants a local account or a wallet in that browser.
-`arca` and `external` cannot prove either; this is the third member of that
-set. `meter/test_browser_signer.py` asserts it against the REAL text
-`protocol.rs` composes, so if `prove` ever stops being SIWE the decision gets
-made on purpose instead of discovered.
+**`elo prove` rides it for a game server on the pairing's own site**
+(2026-10-17). The launcher signs it under the site's name with the server in
+the `URI:` line (`prove_message_for`), because a wallet warns when a sign-in's
+domain is not the page asking — the same bytes Gates' browser build signs and
+its shards accept (`siwe_domains`). A server on any other site gets a readable
+refusal and still wants a local account. `meter/test_browser_signer.py`
+asserts the relay's rule against the text `protocol.rs` composes.
 
 **What lands on disk is `pairing.json` beside the keystore** — a code, a poll
 secret and an address, 0600, `elo pair forget` deletes it. None of the three
@@ -402,14 +403,14 @@ local key when it has one.
 
 ## 5 · Gates on it
 
-Gates is `in-build` and **desktop-native** — a native Rust (Bevy) client
-against the authoritative Rust server, one binary through the depot. It was
-browser-native here until 2026-08-06 (*"We use desktop build no more web"* —
-the three.js client is deleted), and the alpha is the desktop build: **there
-is no browser alpha** (operator, 2026-08-09). Its manifest ships with **both
-rows empty**, and that is the correct state, not an omission — the native
-row fills the day `published.json` names a build (§8 row 1b), and the
-browser row is the slot that stays empty for this title.
+Gates is live in Early Access and free. One Rust client against the
+authoritative Rust server, built two ways: the browser build (the same client
+compiled for wasm32, served at `/games/gates/play/`) and the native depots
+for Linux and Windows that this launcher installs. The three.js client of
+2026 was deleted on 2026-08-06; everything a player runs is the one Rust
+client. Its manifest rows are read, never typed: `GET /api/launcher/manifests`
+→ `builds[].depot_state`, and the browser row fills from the listing's
+`play_url`.
 
 **If any title ships a browser build:** set `play_url` on its catalog row
 and the manifest's browser row fills itself (`meter/launcher.py::_play_url`)
@@ -541,8 +542,7 @@ them — **the shard list is the game's to serve.** Until a title publishes one,
 the window names the field that would fill it rather than showing an empty
 grid, which is the same discipline every dark panel on the site follows.
 
-The shape (`elo-shardlist-v1`, and it is a **(knob)** until Gates has shards
-to list):
+The shape (`elo-shardlist-v1`):
 
 ```json
 {"servers": [{"id": "eu-1", "name": "…", "addr": "host:port",
@@ -660,7 +660,7 @@ client prints it rather than hiding it.
 |---|---|---|
 | the pass block in the Store | **gold, "NOT ARMED"** | a pass contract and a price (`GATES.md` §10 row 1) |
 | items, skins, keys in the Library | **dark** | a catalog arming |
-| Servers | **dark, and now only for want of the url** | any title publishing `servers.url`. The window is built: it fetches the list, polls each shard's `status_url` for a live count, and offers Join and Invite per row (§6, §6b). Gates' manifest still ships `servers.url: null`, so the panel draws its unpublished state — one operator act away from rows |
+| Servers | **lit** — Gates' manifest names `servers.url` (`/api/launcher/servers/gates`), so the window fetches the list, polls each shard's `status_url` for a live count, and offers Join and Invite per row (§6, §6b) | — |
 | Gates' Play button | **not dark any more** — the listing is `state: "live"` and a build is published, so the row draws lit. It still reads **gold, "In build"** on any origin with nothing published | `published.json` naming a build — the row is measured, not typed, so this row answers itself per origin |
 | native installs | **not dark any more** — two depots published and notarized 2026-08-10 (§8 rows 1b–2). Read the row, never this cell: `GET /api/launcher/manifests` → `builds[].depot_state`. ⚠ the `win-x86_64` build is **cross-compiled and has never been started on a real Windows machine** — it builds, links, hash-verifies and installs, and that is all anyone has seen it do; its manifest row says so, because a player reads that row | — |
 | the browser rooms | **live, and measured every load** | — they work today |
@@ -766,7 +766,7 @@ By pointer, because restating a wall weakens it:
   the amount change any bit of any output?* No. A launcher installs, opens and
   reads; it grades nothing, and there is no output here to buy.
 - **We hold no user keys.** §1 and §4 are the implementation.
-- **SCRY is the only reserve**, and this client mints, prices and pairs
+- **ELO is the only reserve**, and this client mints, prices and pairs
   nothing.
 - **The register rule.** The windows say what you put in, what you get back,
   and what is not built yet. "Depot", "manifest", "shard" are the words the
@@ -1021,7 +1021,12 @@ argument-parsing crate.
 else's code running as you. The lock stops the bytes changing under you; it
 does not make the bytes good.
 
-### 10d · The hive, ripped into the client
+### 10d · Chat (the hive), ripped into the client
+
+**The verb is `elo chat` since 2026-10-17** (`elo hive` stays an alias, since
+installed scripts say it). `--room` takes a room's name (`gates`) or its id,
+and with no `--room` both `read` and `say` mean #general — `say` used to post
+to the town stream, which no room shows anymore.
 
 > Operator, 2026-08-05: *"can we also check out the hive page we already have
 > and like rip the basics out into the app or what not?"*
@@ -1038,7 +1043,7 @@ is a **schnorr (BIP-340)** key, a different scheme from the launcher's
 secp256k1 ECDSA signers, so it is its own decision and not a transport
 problem. Reading is free today and reading is the basics.
 
-**The thing a browser was doing for us.** `hive.html` writes into a DOM, where
+**The thing a browser was doing for us.** `chat.html` writes into a DOM, where
 the browser escapes text and a CSP bounds it. A terminal has neither, and hive
 content is **written by strangers** — the stream carries whatever anyone
 signed. A raw escape sequence in a chat line can clear the screen and paint a

@@ -47,7 +47,7 @@ const WHATS: [(&str, &str); 5] = [
     ("library", "every installed build, read off its own receipt"),
     ("status", "is a newer build published for an installed title"),
     ("sessions", "measured playtime, and what is running now"),
-    ("rooms", "the hive's open rooms"),
+    ("rooms", "the chat's open rooms"),
     ("talk", "recent messages — the town stream, or `room` by id"),
 ];
 
@@ -73,7 +73,7 @@ fn tool_schema() -> Value {
                 "slug": {"type": "string",
                          "description": "a title's slug, for what=status"},
                 "room": {"type": "string",
-                         "description": "a hive room id, for what=talk"},
+                         "description": "a chat room id or name, for what=talk"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             },
             "additionalProperties": false
@@ -317,7 +317,7 @@ impl Server {
             if got.reachable {
                 got.why.clone()
             } else {
-                format!("could not reach the hive — {}. This is NOT 'no rooms'.", got.why)
+                format!("could not reach chat — {}. This is NOT 'no rooms'.", got.why)
             }
         })?;
         let mut out = format!("relay {}\n", c.relay.as_deref().unwrap_or("none posted"));
@@ -340,7 +340,7 @@ impl Server {
             if got.reachable {
                 got.why.clone()
             } else {
-                format!("could not reach the hive — {}. This is NOT 'nothing said'.", got.why)
+                format!("could not reach chat — {}. This is NOT 'nothing said'.", got.why)
             }
         })?;
         let now = clock::now();

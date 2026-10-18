@@ -60,10 +60,10 @@ elo prune   <slug>            remove builds superseded by the newest
 elo uninstall <slug> <build>  remove one build
 elo play    <title>           start the newest installed build (and watch it)
 elo digest  <depot>           the bytes32 a notary would commit
-elo hive [rooms|read|voice]   the town's talk annex, read
-elo hive whoami               the voice this machine speaks with
-elo hive voice-new            make one (schnorr, kept here, never sent)
-elo hive say <text>           speak — town stream, or --room
+elo chat [rooms|read|voice]   the Elo Pros chat rooms, read
+elo chat whoami               the chat key this machine speaks with
+elo chat voice-new            make one (schnorr, kept here, never sent)
+elo chat say <text>           say something in #general, or --room gates
 elo sessions                  what has been played, and what is running
 elo mcp                       serve these reads over MCP on stdio
 ```
@@ -133,7 +133,7 @@ properties, and the last is the one this repo has to be careful about:
 
 ## The hive, ripped
 
-`watchtower/hive.html` is the browser client for the town's talk annex. The
+`watchtower/chat.html` is the browser client for Elo Pros chat. The
 basics move into the app for **less than the last session estimated**: reading
 needs no key, no WebSocket and no Nostr implementation, because the meter
 already mirrors the relay server-side.
@@ -186,7 +186,7 @@ correct pair.
 
 ### What the browser gave us that a terminal does not
 
-`hive.html` writes into a DOM, where the browser escapes text and a CSP bounds
+`chat.html` writes into a DOM, where the browser escapes text and a CSP bounds
 it. A terminal has neither, and **hive content is written by strangers.** A raw
 escape sequence in a chat line can clear the screen and paint a fake
 *"depot digest verified"* above itself; `\r` can rewrite the visible line so it

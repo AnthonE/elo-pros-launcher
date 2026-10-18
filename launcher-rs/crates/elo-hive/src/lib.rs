@@ -1,4 +1,4 @@
-//! The hive, read — the town's talk annex, ripped out of `watchtower/hive.html`.
+//! The hive, read — Elo Pros chat, ripped out of `watchtower/chat.html`.
 //!
 //! Operator, 2026-08-05: *"can we also check out the hive page we already have
 //! and like rip the basics out into the app or what not?"*
@@ -11,7 +11,7 @@
 //! | | |
 //! |---|---|
 //! | `GET /api/hive/channels` | the relay's own open rooms |
-//! | `GET /api/hive/room` | recent messages, town stream or one room |
+//! | `GET /api/hive/room` | recent messages in one room (#general by default) |
 //! | `GET /api/hive/voice` | the beekeeper's outbox — the house's own notes |
 //!
 //! All three are plain JSON over HTTP, need **no key**, and are the basics.
@@ -35,7 +35,7 @@
 //!
 //! ## What a browser gave us that a terminal does not
 //!
-//! `hive.html` renders into a DOM, where the browser escapes text and a CSP
+//! `chat.html` renders into a DOM, where the browser escapes text and a CSP
 //! bounds what it can do. A terminal has neither. Hive content is **written by
 //! strangers** — the town stream carries anything anyone signed — and a raw
 //! `\x1b[` sequence in a chat line can clear the screen, move the cursor, or
@@ -75,6 +75,30 @@ pub struct Channels {
     pub relay: Option<String>,
     #[serde(default)]
     pub channels: Vec<Channel>,
+    /// The room a walk-in lands in (`#general`), or `"town"` for the old
+    /// kind:1 wire on an origin that predates the rooms.
+    #[serde(default)]
+    pub default: Option<String>,
+}
+
+impl Channels {
+    /// Which room a verb means. `--room` takes a UUID or a room's name (with or
+    /// without `#`, any case); no `--room` means the landing room. `Ok(None)`
+    /// is the old town wire, which only an origin without rooms still names.
+    pub fn resolve(&self, asked: Option<&str>) -> std::result::Result<Option<String>, String> {
+        let Some(asked) = asked.map(str::trim).filter(|s| !s.is_empty()) else {
+            return Ok(self.default.clone().filter(|d| d != "town"));
+        };
+        if asked == "town" {
+            return Ok(None);
+        }
+        let name = asked.trim_start_matches('#').to_ascii_lowercase();
+        if let Some(c) = self.channels.iter().find(|c| c.id == asked || c.name.to_ascii_lowercase() == name) {
+            return Ok(Some(c.id.clone()));
+        }
+        let names: Vec<String> = self.channels.iter().map(|c| format!("#{}", c.name)).collect();
+        Err(format!("no room {asked:?} — the rooms are {}", names.join(", ")))
+    }
 }
 
 /// One message in a room.
@@ -223,3 +247,43 @@ fn decode<T: for<'de> Deserialize<'de>>(got: Fetched<serde_json::Value>) -> Fetc
     }
 }
 
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    fn rooms() -> Channels {
+        let c = |id: &str, name: &str| Channel { id: id.into(), name: name.into(), about: String::new() };
+        Channels {
+            posted: true,
+            relay: Some("wss://r".into()),
+            channels: vec![c("g-1", "general"), c("c-2", "crypto")],
+            default: Some("g-1".into()),
+        }
+    }
+
+    #[test]
+    fn no_room_means_the_landing_room() {
+        assert_eq!(rooms().resolve(None), Ok(Some("g-1".into())));
+        assert_eq!(rooms().resolve(Some("  ")), Ok(Some("g-1".into())));
+    }
+
+    #[test]
+    fn a_room_by_name_or_id() {
+        assert_eq!(rooms().resolve(Some("#Crypto")), Ok(Some("c-2".into())));
+        assert_eq!(rooms().resolve(Some("crypto")), Ok(Some("c-2".into())));
+        assert_eq!(rooms().resolve(Some("c-2")), Ok(Some("c-2".into())));
+    }
+
+    #[test]
+    fn an_unknown_room_names_the_real_ones() {
+        let e = rooms().resolve(Some("lobby")).unwrap_err();
+        assert!(e.contains("#general") && e.contains("#crypto"), "{e}");
+    }
+
+    #[test]
+    fn the_old_wire_only_when_asked_or_when_the_origin_has_no_rooms() {
+        assert_eq!(rooms().resolve(Some("town")), Ok(None));
+        let old = Channels { default: Some("town".into()), ..rooms() };
+        assert_eq!(old.resolve(None), Ok(None));
+    }
+}

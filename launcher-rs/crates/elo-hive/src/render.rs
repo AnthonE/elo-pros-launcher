@@ -2,7 +2,7 @@
 //!
 //! ## The threat the browser handled for us
 //!
-//! `hive.html` writes hive content into a DOM. The browser escapes it, the CSP
+//! `chat.html` writes hive content into a DOM. The browser escapes it, the CSP
 //! bounds it, and the worst a hostile message achieves is ugly. **A terminal
 //! has neither.** Hive content is written by whoever signed it — the town
 //! stream carries anything anyone posted — so a chat line is untrusted input

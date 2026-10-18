@@ -21,6 +21,6 @@
    "body": "The update itself, in markdown. This lands in the store's feed and on your title's build record — the row the game page and the hub already render."
   }
  ],
- "_updates": "kind is one of update / patch / release / news / event. The `id` is yours and is what makes re-reading this file idempotent: an id that has already posted is skipped, so leaving old entries here is harmless. 20 per manifest. Write $SCRY as SCRY — a bare ticker; a $ is a shell variable and the two may not look alike.",
+ "_updates": "kind is one of update / patch / release / news / event. The `id` is yours and is what makes re-reading this file idempotent: an id that has already posted is skipped, so leaving old entries here is harmless. 20 per manifest.",
  "_next": "Fill this in, then: python3 sign_manifest.py --game your-slug   ...which writes elo.sig.json. Commit both. Keys starting with _ are your own margin notes and are ignored by elo. Full standard: https://elopros.com/api/library/GAME-REPO.md"
 }

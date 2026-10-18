@@ -928,6 +928,7 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
     let host = host.trim_end_matches('/').to_string();
     let note = account_w.pair_note.clone();
     let row = account_w.pair_row.clone();
+    let shown = account_w.clone();
 
     // Copy puts the code on the clipboard and SAYS it did. A button that
     // silently succeeds is one a player presses three times and then retypes
@@ -1002,6 +1003,7 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
         // three widgets rather than borrowing the ones this closure keeps for
         // the NEXT press.
         let row = row.clone();
+        let shown = shown.clone();
         let began = std::time::Instant::now();
         app::add_timeout3(PAIR_POLL, move |handle| {
             match elo_net::pairing::poll_claim(&net, &host, &code, &secret) {
@@ -1009,11 +1011,7 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
                     let path = elo_vault::pairing_path();
                     match elo_net::pairing::save(&path, &p) {
                         Ok(()) => {
-                            note.set_label(&format!(
-                                "paired with {} — it approves one message at a \
-                                 time; close the tab to end it",
-                                p.address
-                            ));
+                            show_pairing(&shown, &p.address);
                             // The code is spent. Take the row away rather than
                             // leave a stale code sitting under a Copy button
                             // that would hand someone eight dead characters.
@@ -1064,6 +1062,28 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
     });
 }
 
+/// Say in Account that a browser wallet is paired.
+///
+/// Called when a pairing lands and at startup when one is already live. With
+/// no account on this machine the paired wallet IS who this launcher is, so it
+/// goes in the address well; before this the well said *"no address set —
+/// games play anonymously"* over a launcher that was handing games the paired
+/// address.
+pub fn show_pairing(account_w: &AccountWindow, address: &str) {
+    let safe = crate::chrome::defuse(address);
+    if account_w.make.is_some() {
+        let (mut a, mut n) = (account_w.address.clone(), account_w.note.clone());
+        a.set_label(&safe);
+        a.set_label_color(theme::INK);
+        n.set_label("your browser wallet — approve each message in the pair tab");
+    }
+    let mut note = account_w.pair_note.clone();
+    // Short enough to fit the window with a full address in it; the longer
+    // version ran off the edge at "close the tab to end…".
+    note.set_label(&format!("paired with {safe} — keep the pair tab open"));
+    app::redraw();
+}
+
 /// The published client version NEWER than `mine`, off the origin's
 /// `/api/launcher` card — or `None`, which deliberately covers four different
 /// states: current, ahead (a dev build is not nagged), no client published,
@@ -1090,9 +1110,18 @@ const RELOCK_POLL: f64 = 30.0;
 /// "Unlocked for this session" was the whole story, and for a machine that is
 /// only ever the player's own it is a fine one — but a launcher left open on a
 /// shared desk holds a live signer for anyone who sits down next. This is the
-/// bounded version: every signature refreshes the account's `last_used`, so an
-/// afternoon of play never relocks mid-session, and an unlock nobody has used
-/// since lunch stops being one.
+/// bounded version: an unlock nobody has used since lunch stops being one.
+///
+/// **A running game counts as use.** `playing` answers whether one is, and
+/// while it says yes the clock does not run. Signatures alone were never the
+/// clock of play: a game proves once when it joins and then plays for hours
+/// without signing, so this fired half an hour into a session and threw the
+/// passphrase window up over the game (operator, 2026-10-17: *"launcher is
+/// popping up while i play games"*). The clock starts again when the game
+/// exits, so leaving the launcher open after playing still relocks.
+///
+/// `on_browser` runs when the player answers the gate by choosing the wallet in
+/// their browser instead (see [`lock_screen`]).
 ///
 /// `after` of zero disables it — that is the operator's own machine saying so
 /// (`ELO_RELOCK_MINUTES=0`), not a default.
@@ -1106,12 +1135,15 @@ pub fn serve_relock(
     signing_w: &SigningWindow,
     after: std::time::Duration,
     gate: bool,
+    playing: Rc<dyn Fn() -> bool>,
+    on_browser: Rc<dyn Fn()>,
 ) {
     if after.is_zero() {
         return;
     }
     let mut status = signing_w.status.clone();
     let busy = Rc::new(std::cell::Cell::new(false));
+    let last_play = std::cell::Cell::new(None::<std::time::Instant>);
     app::add_timeout3(RELOCK_POLL, move |handle| {
         // The same re-entrancy guard `serve_consent` carries, for the same
         // reason: the gate below runs a nested event loop, and FLTK dispatches
@@ -1119,8 +1151,12 @@ pub fn serve_relock(
         // lock screen gets a second one stacked on it every thirty seconds.
         if !busy.get() {
             busy.set(true);
+            if playing() {
+                last_play.set(Some(std::time::Instant::now()));
+            }
+            let since_play = last_play.get().map(|t| t.elapsed());
             let relocked = match signer.lock() {
-                Ok(mut s) if s.idle().is_some_and(|idle| idle >= after) => {
+                Ok(mut s) if relock_due(s.idle(), since_play, after) => {
                     s.lock();
                     status.set_label(&s.status());
                     app::redraw();
@@ -1136,10 +1172,13 @@ pub fn serve_relock(
             // came back to a client that looked unlocked and a game that would
             // be told "locked" the next time it asked.
             if relocked && gate {
-                lock_screen(
+                let answered = lock_screen(
                     &signer,
-                    "it locked itself while you were away — every signature resets that clock",
+                    "it locked itself while you were away — playing or signing resets that clock",
                 );
+                if answered == Gate::Browser {
+                    on_browser();
+                }
                 let mut st = status.clone();
                 if let Ok(s) = signer.lock() {
                     st.set_label(&s.status());
@@ -1152,6 +1191,17 @@ pub fn serve_relock(
     });
 }
 
+/// Whether the idle relock is due: the key has sat unused for `after`, and no
+/// game has been running for at least as long. `since_play` is `None` when no
+/// game has run this session.
+fn relock_due(
+    idle: Option<std::time::Duration>,
+    since_play: Option<std::time::Duration>,
+    after: std::time::Duration,
+) -> bool {
+    idle.is_some_and(|i| i >= after) && since_play.is_none_or(|p| p >= after)
+}
+
 /// Whether the lock screen is armed at all. `ELO_LOCK_SCREEN=0` is the posted
 /// door out (`CLAUDE.md` invariant 10), for the person who keeps this client
 /// open on their own machine and does not want a gate in front of the store.
@@ -1162,13 +1212,31 @@ pub fn lock_screen_armed() -> bool {
     )
 }
 
-/// Hold the client behind a passphrase until it opens — or the player quits.
+/// How the player got past [`lock_screen`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gate {
+    /// There was nothing to gate: no keystore, already unlocked, the screen is
+    /// off, or the program is shutting down.
+    Open,
+    /// They typed the passphrase.
+    Unlocked,
+    /// They chose the wallet in their browser. **The key on this machine stays
+    /// locked**; the caller shows them where to pair it.
+    Browser,
+}
+
+/// Hold the client behind a passphrase until it opens, the player picks their
+/// browser wallet instead, or they quit.
 ///
-/// Returns when the account is unlocked. **It does not return any other way**,
-/// which is the ask: *"prompt for my passphrase and not go pass that."* Quit
-/// ends the process rather than returning a `false` some caller might ignore,
-/// because a gate whose refusal path is a boolean is one bad `if` away from
-/// being no gate at all.
+/// The ask was *"prompt for my passphrase and not go pass that"* (2026-08-12),
+/// and a passphrase is still the only thing that UNLOCKS. But a gate with only
+/// Unlock and Quit stranded a player whose wallet lives in their browser:
+/// with an account on this machine they could not reach the pairing at all
+/// without the local passphrase (operator, 2026-10-17: *"i dont see how i can
+/// use my metamask chrome to sign into the launcher anymore"*). Choosing the
+/// browser leaves the key locked, so nothing the gate protects is exposed.
+/// Quit ends the process rather than returning a value some caller might
+/// ignore.
 ///
 /// Three states walk straight through and none of them is a bypass:
 ///
@@ -1176,9 +1244,9 @@ pub fn lock_screen_armed() -> bool {
 ///   a normal state and always has been (`docs/client/LAUNCHER.md` §1).
 /// * **already unlocked** — the gate is for a locked key.
 /// * **`ELO_LOCK_SCREEN=0`** — the operator's own machine saying so.
-pub fn lock_screen(signer: &Shared, why: &str) {
+pub fn lock_screen(signer: &Shared, why: &str) -> Gate {
     if !lock_screen_armed() {
-        return;
+        return Gate::Open;
     }
     let (exists, unlocked, address) = match signer.lock() {
         Ok(s) => (s.exists(), s.is_unlocked(), s.address().unwrap_or_default()),
@@ -1186,14 +1254,22 @@ pub fn lock_screen(signer: &Shared, why: &str) {
         // Gating on it would strand the player in front of a window that can
         // never open, so this walks through — the account stays locked and
         // every act that needs it still refuses with its own reason.
-        Err(_) => return,
+        Err(_) => return Gate::Open,
     };
     if !exists || unlocked {
-        return;
+        return Gate::Open;
     }
 
     let mut win = crate::windows::lock(&address, why);
     let done = Rc::new(std::cell::Cell::new(false));
+    let browser = Rc::new(std::cell::Cell::new(false));
+    {
+        let (flag, mut w) = (Rc::clone(&browser), win.window.clone());
+        win.browser.set_callback(move |_| {
+            flag.set(true);
+            w.hide();
+        });
+    }
 
     // Quit is a real quit. It is the only other way out of this window, and
     // the window manager's close box does the same thing rather than dropping
@@ -1253,6 +1329,13 @@ pub fn lock_screen(signer: &Shared, why: &str) {
         }
     }
     win.window.hide();
+    if browser.get() {
+        Gate::Browser
+    } else if done.get() {
+        Gate::Unlocked
+    } else {
+        Gate::Open
+    }
 }
 
 fn ask_twice(ask: &Ask, tell: &Tell, heading: &str, prompt: &str) -> Option<String> {
@@ -1363,6 +1446,26 @@ pub fn keystore_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A running game holds the relock off**, and the clock starts again
+    /// when it exits. A game proves once at join and then plays for hours
+    /// without signing, so a relock that counted only signatures put the
+    /// passphrase gate up over the game half an hour in.
+    #[test]
+    fn the_idle_relock_waits_while_a_game_is_running() {
+        let min = std::time::Duration::from_secs(60);
+        let after = 30 * min;
+        // Nobody played: the key's own idle time decides.
+        assert!(relock_due(Some(31 * min), None, after));
+        assert!(!relock_due(Some(29 * min), None, after));
+        // Locked already: nothing to relock.
+        assert!(!relock_due(None, None, after));
+        // Idle an hour, but a game was running moments ago: not yet.
+        assert!(!relock_due(Some(60 * min), Some(std::time::Duration::ZERO), after));
+        assert!(!relock_due(Some(60 * min), Some(10 * min), after));
+        // The game has been gone for the full interval: now it locks.
+        assert!(relock_due(Some(60 * min), Some(30 * min), after));
+    }
 
     #[test]
     fn a_key_is_parsed_with_or_without_the_prefix() {

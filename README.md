@@ -11,7 +11,7 @@ read the source of:
 |---|---|
 | [`launcher-rs/`](launcher-rs/) | the desktop client. Rust, two binaries, no runtime to install |
 | [`sdk/`](sdk/) | what a game links to get identity and a signature **without holding a key** |
-| [`docs/`](docs/) | the designs of record for all three |
+| [`docs/`](docs/) | the designs of record for both |
 
 Live at **[elopros.com](https://elopros.com)**.
 
@@ -143,7 +143,8 @@ before money moves.
 A player pays once for a **copy of a game**. That payment mints the title's
 **ticket** — a transferable ERC-721 that *is* the copy and the licence to the
 title's official servers. Resale royalty is **0 bps**, welded: sell your copy
-if you want to. The buyer also gets the game's coin at the sale price.
+if you want to. The buyer also gets the game's coin at the sale price, while
+the coin is on its launch curve.
 
 **Changed your mind? Sell the coin.** That is the whole refund mechanism —
 there is no refund window and no escrow, because the coin already is the
@@ -159,13 +160,13 @@ generated from the platform monorepo and pushed, so a commit made directly here
 is overwritten by the next publish.
 
 - **Found a defect?** [Open an issue](https://github.com/AnthonE/elo-pros-launcher/issues).
-  Fixes to games and to the platform are **paid work in ELO, in public** — an
-  accepted PR to [Gates](https://github.com/AnthonE/Gates), the first title,
-  pays the board's posted price, flat and standing
-  ([elopros.com/build.html](https://elopros.com/build.html)).
+  Fixes to our games are **paid work, in public** — one board per game, a
+  posted dollar price settled in ELO at the pool's mark. An accepted PR to
+  [Gates](https://github.com/AnthonE/Gates), the first title, pays it, flat
+  and standing ([elopros.com/build.html](https://elopros.com/build.html)).
 - **[`AnthonE/scry`](https://github.com/AnthonE/scry)** is a different
-  repository and carries a different half — the measurement instrument: the
-  ward, the meter math, the adapters and the agent skills.
+  repository: it carries `scry-client`, the Python client that checks a signed
+  read, and an older skills tree.
 
 ## License
 

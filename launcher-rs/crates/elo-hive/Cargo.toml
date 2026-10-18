@@ -1,6 +1,6 @@
 [package]
 name = "elo-hive"
-description = "the hive, read — the town's talk annex, ripped out of hive.html"
+description = "the hive, read — Elo Pros chat, ripped out of chat.html"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

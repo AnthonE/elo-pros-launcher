@@ -45,8 +45,9 @@ fn main() {
     }
 
     // 4. Sign a game action. Four outcomes, and three of them are not bugs.
-    let msg = play_message("duel", "vow_demo", "ETH up 5", Some("2026-08-04"));
-    match elo.sign(&msg, "settling round 41") {
+    let wallet = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"; // lowercase: the text's subject
+    let msg = play_message("submit", wallet, "gates-pr 0123456789abcdef #0", Some("2026-08-04"));
+    match elo.sign(&msg, "delivering a pull request") {
         Ok(sig) => println!("signed: {} via {}", &sig.signature, sig.backend),
         Err(SignError::Handoff(url)) => {
             // NOT an error. The player's signer is their browser; show the

@@ -152,7 +152,7 @@ impl Voice {
         let path = dir.join(KEY_NAME);
         let raw = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                HiveError::new("no voice on this machine yet — `elo hive voice-new` makes one")
+                HiveError::new("no voice on this machine yet — `elo chat voice-new` makes one")
             } else {
                 HiveError::new(format!("{}: {e}", path.display()))
             }

@@ -94,7 +94,7 @@ impl BrowserSigner {
             "play" => "play.html",
             "review" => "reviews.html",
             "vow" => "vows.html",
-            "hive" | "braid" => "hive.html",
+            "hive" | "braid" => "chat.html",
             "store" => "manage.html",
             _ => "wallet.html",
         }

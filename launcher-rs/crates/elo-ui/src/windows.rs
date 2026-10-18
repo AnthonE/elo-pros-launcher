@@ -1642,8 +1642,10 @@ pub struct LockWindow {
     pub window: window::Window,
     pub field: input::SecretInput,
     pub unlock: button::Button,
-    /// The only other way out, and it is honest about what it does. There is
-    /// deliberately no *"skip"* — see [`lock`].
+    /// Go on with the wallet in the browser instead. The key stays locked —
+    /// see [`lock`].
+    pub browser: button::Button,
+    /// Honest about what it does: it ends the program.
     pub quit: button::Button,
     pub status: frame::Frame,
 }
@@ -1653,12 +1655,13 @@ pub struct LockWindow {
 /// Operator, 2026-08-12: *"when i return to the app it should prompt for my
 /// passphrase and not go pass that."*
 ///
-/// **Two buttons, and the missing third is the design.** Unlock, or quit.
-/// There is no *"browse locked"* door, because the ask was for a gate and a
-/// gate with a bypass is a notification. What that costs is real and is stated
-/// on the window itself: a player who only wants to read the store still has
-/// to type their passphrase, and `ELO_LOCK_SCREEN=0` is the posted way out
-/// (`CLAUDE.md` invariant 10 — every shortcut keeps a door).
+/// **Unlock, use the browser wallet, or quit.** There is still no *"browse
+/// locked"* door for the key on this machine. The third button is a different
+/// account rather than a skip: a player whose wallet is MetaMask was stopped
+/// here by a passphrase for a key they did not mean to use (operator,
+/// 2026-10-17). Choosing it leaves the key locked, and the Account window it
+/// opens is where the pairing starts. `ELO_LOCK_SCREEN=0` is still the posted
+/// way to turn the screen off (`CLAUDE.md` invariant 10).
 ///
 /// **What it is not: a security boundary.** The keystore is encrypted at rest
 /// and this window does not change that in either direction. Anyone who can
@@ -1701,6 +1704,8 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
 
     let mut quit = chrome::button(16, 216, 140, 30, "Quit elo", Tone::Plain);
     quit.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut browser = chrome::button(168, 216, 204, 30, "Use my browser wallet", Tone::Plain);
+    browser.set_align(enums::Align::Center | enums::Align::Inside);
     let mut unlock = chrome::button(384, 216, 120, 30, "Unlock", Tone::Plain);
     unlock.set_align(enums::Align::Center | enums::Align::Inside);
 
@@ -1713,7 +1718,7 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
 
     w.end();
     w.make_modal(true);
-    LockWindow { window: w, field, unlock, quit, status }
+    LockWindow { window: w, field, unlock, browser, quit, status }
 }
 
 #[cfg(test)]

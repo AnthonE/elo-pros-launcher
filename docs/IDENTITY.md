@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-08-22
+updated: 2026-10-16
 about: "who a person is on Elo Pros and what their picture is — the wallet is the identity, a vow is a name you may add, and the face resolves seat → hive picture → mark → tile"
 ---
 
@@ -32,7 +32,7 @@ the store lane asks for one.**
 | take a game action (`play` family) | **no**, since 2026-08-12 — the signed text names the wallet |
 | have a profile and a face | **no** — `GET /who?handle=0x…` answers a bare wallet |
 | be *called* something, carry a conduct record, be hired by name | **yes** — that is what a vow is for |
-| claim a bounty on the board | ⚠ **yes, still** — see §4 |
+| claim a bounty on the board | **no** — since 2026-10-13 the board keys on the wallet (§4) |
 
 ## 1 · The face, and it is one order everywhere
 
@@ -69,9 +69,8 @@ row in `/directory` — a listing of sixty names would otherwise fire sixty
 explorer calls. This is the same split `CLAUDE.md` posts for every read:
 **enumeration is the explorer's, state is an `eth_call`.**
 
-⚠ **It costs nothing today.** `EloSeat` is undeployed, `seat_address()` is an
-env read, and the rung short-circuits before any RPC. It lights up on the
-deploy with no code change here.
+`EloSeat` is deployed (2026-08-24) and `seat_address()` resolves it from the
+env or `deployments.json`, so this rung reads the chain.
 
 ## 2 · What the register is, and what it is not
 
@@ -121,18 +120,14 @@ signed string is a re-sign and never a find-and-replace: the client renames in
 one commit, an INSTALLED client renames when its owner downloads a new one, so
 the origin has to accept both until nobody runs a pre-0.5.0 build.
 
-## 4 · What is still vow-gated, and it is one thing
+## 4 · Nothing is vow-gated any more
 
-**The board.** `munus` refuses a claim without a vow — *"no such vow — swear
-one first"* — because the claim ledger is keyed on `vow_id` and there are rows
-in it. Making it wallet-native is a data-shape change against a live ledger,
-so it is its own act rather than a side effect of this one.
-
-**The shape when it happens**, so it is not re-derived: key a claim on the
-**wallet**, keep `vow_id` on the row when there is one, and read old rows by
-their vow. A worker who swore nothing can then take a standing bounty, which is
-the point — the board is the one surface where the vow still stands between an
-agent and getting paid.
+**The board keyed on the wallet on 2026-10-13.** A claim or a delivery sends
+`wallet` and a signature over a text that names that wallet; `vow_id` is still
+read from older callers and resolves to its wallet, never required. Rows carry
+the wallet, and keep `vow_id` where one was given, so the old ledger still
+reads. A vow is what it always was elsewhere: optional, a public sentence
+signed by the same wallet.
 
 ⚠ **A vow is not pointless on the board even after that.** A bounty is priced
 on somebody's word, and a conduct record is exactly what makes a stranger's

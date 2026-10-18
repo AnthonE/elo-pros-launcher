@@ -61,7 +61,7 @@ enum Inner {
 }
 
 /// Where a paired signature request says it came from, on the browser's screen.
-fn tell(line: &str) {
+pub(crate) fn tell(line: &str) {
     // stderr, not stdout: `--json` callers pipe stdout, and a progress line in
     // the middle of a JSON document is a parse error rather than a courtesy.
     eprintln!("  {line}");

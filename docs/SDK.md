@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-08
+updated: 2026-10-16
 about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), and the reference clients Gates links"
 ---
 
@@ -47,7 +47,7 @@ Ripped, it maps onto our invariants exactly:
 ```
    Gates (Rust)            the launcher                 the signer
   ┌──────────────┐       ┌───────────────┐       ┌────────────────────┐
-  │ scry_overlay │──────▶│    broker     │──────▶│ browser · local ·  │
+  │ elo_overlay │──────▶│    broker     │──────▶│ browser · local ·  │
   │  no key      │ unix  │   consent     │       │ arca · external ·  │
   └──────────────┘ sock  └───────────────┘       │ none               │
                                                  └────────────────────┘
@@ -62,7 +62,7 @@ Three properties fall out, and none of them cost anything:
   journaled, with a daily count — instead of "paste your seed phrase".
 - **The launcher routes rather than custodies.** Four of the five backends
   hold nothing at all; the fifth is an account you made on your own machine
-  (§2a), and the service sees none of them. `crates/scry-broker/tests/signer.rs`
+  (§2a), and the service sees none of them. `crates/elo-broker/tests/signer.rs`
   pins the claim against the source per-backend rather than as one sweeping
   scan, because a sweeping claim that stopped being true is worse than a
   narrow one that is.
@@ -71,7 +71,7 @@ Three properties fall out, and none of them cost anything:
 
 ## 2 · The ladder, as five backends
 
-`launcher-rs/crates/scry-broker/src/signer.rs` plus `scry-vault`, which holds
+`launcher-rs/crates/elo-broker/src/signer.rs` plus `elo-vault`, which holds
 the one key-bearing backend. The rungs are `CLAUDE.md`'s, unchanged.
 
 | setting | rung | who holds the key | what it does |
@@ -109,7 +109,7 @@ is that the first is a website rule and the second is about the client.**
 that a web page is the worst place in computing to hold a key and a desktop
 binary on your own disk is not, which is why MetaMask is an extension.
 
-What the launcher does (`launcher-rs/crates/scry-vault`):
+What the launcher does (`launcher-rs/crates/elo-vault`):
 
 - **generates from the OS entropy pool on your machine.** We never see it.
   Invariant 7 is untouched — *we* hold no user keys, and this is not ours.
@@ -156,7 +156,7 @@ key; strictly worse than an arca, which is one setting away.
 Steam injects a library into the game process and hooks the graphics API,
 because Steam does not own the games. This platform does, so an overlay here is
 **the game rendering its own HUD** from one broker read — which is why this
-file's Rust client has been called `scry_overlay.rs` since before the feature
+file's Rust client has been called `elo_overlay.rs` since before the feature
 existed. No injection, nothing to break on a driver update, nothing that reads
 as malware to an anti-cheat, and nothing that needs a Wayland answer.
 
@@ -235,13 +235,14 @@ would be a guard nobody can use"* now asserts the opposite and says why.
 ⚠ **`Host::address()` must be EIP-55 checksummed**, and that stopped being
 cosmetic: the reference SIWE parsers **reject an all-lowercase address
 outright**, so a launcher returning one issues proofs nobody can verify with
-nothing failing on our side. `scry_vault` already returns the checksummed form.
-The broker cannot re-derive it — checksumming needs keccak and `scry-vault`
-depends on `scry-broker` rather than the reverse — so it is a stated contract
+nothing failing on our side. `elo_vault` already returns the checksummed form.
+The broker cannot re-derive it — checksumming needs keccak and `elo-vault`
+depends on `elo-broker` rather than the reverse — so it is a stated contract
 held by the implementor, plus a test.
 
-**What did NOT change, and deliberately.** The `scry <family>` format for
-`play`, `vow`, `review` and the rest stays: only *our own* server verifies
+**What did NOT change, and deliberately.** The `elo <family>` format for
+`play`, `vow`, `review` and the rest stays (the legacy `scry <family>` text is
+still verified, for installed clients): only *our own* server verifies
 those (`meter/playauth.py`), so the shape costs no integrator anything, and it
 is what the consent prompt renders. EIP-712 typed data is the standard for
 signing *actions* rather than sign-ins, and that is its own question.
@@ -281,7 +282,7 @@ between `GetPlayerSummaries` and `GetPlayerAchievements`.
 Three properties, and each is a mistake it prevents:
 
 - **The sworn and the self-declared never merge.** `handle` is the NIP-05 name
-  out of the locked index and cost SCRY to change; `display_name` is whatever
+  out of the locked index and costs ELO to change; `display_name` is whatever
   its owner typed. Both clients expose `label`, which renders a sworn name bare
   and prefixes anything else with `~` (`ACHIEVEMENTS.md`). A surface showing a
   claimed name in the clothes of a checked one has lied for free.
@@ -296,7 +297,7 @@ Three properties, and each is a mistake it prevents:
   That is `prove`, and `profile` says so in its own note.
 
 ⚠ **Why the launcher fetches instead of handing back a url**, which is what
-`servers` does and would have been more consistent: `sdk/rust/scry_overlay.rs`
+`servers` does and would have been more consistent: `sdk/rust/elo_overlay.rs`
 is `std`-only with no crates by design, and **`std` has no HTTP client**. A
 game linking the vendored SDK cannot make the call. The launcher already
 carries a reader that keeps unreachable apart from empty, so the choice was
@@ -342,7 +343,7 @@ person it was signed on behalf of, which is the only audience that matters.
 
 ## 4 · The broker — and what it is not
 
-`launcher-rs/crates/scry-broker`, spec in `sdk/PROTOCOL.md`. Newline-delimited
+`launcher-rs/crates/elo-broker`, spec in `sdk/PROTOCOL.md`. Newline-delimited
 JSON on a local socket, allowlisted fields per verb, an unknown field refused
 rather than ignored. Nine verbs: `hello` `identity` `sign` `prove` `profile`
 `overlay` `title` `servers` `open` — and `protocol::VERBS` is the count, not
@@ -389,14 +390,14 @@ it got sharper the day the door could actually sign.
 
 ## 5 · What Gates links
 
-`sdk/rust/scry_overlay.rs` — one file, `std` only, no crates, no build script.
+`sdk/rust/elo_overlay.rs` — one file, `std` only, no crates, no build script.
 Vendor it. A project that already has serde can delete the `json` module.
 
 ```rust
-let mut scry = Overlay::connect("gates", "0.1.0")?;      // Err is NORMAL
-let who = scry.address();                                 // a CLAIM, not auth
-let msg = play_message("duel", "vow_x", "ETH up 5", None);
-match scry.sign(&msg, "settling round 41") {
+let mut elo = Overlay::connect("gates", "0.1.0")?;       // Err is NORMAL
+let who = elo.address();                                  // a CLAIM, not auth
+let msg = play_message("submit", &who, "gates-pr 0123456789abcdef #0", None);
+match elo.sign(&msg, "delivering a pull request") {
     Ok(sig)                      => submit(&sig.signature),
     Err(SignError::Handoff(url)) => show_link(&url),      // NOT an error
     Err(e)                       => show(&e.to_string()),
@@ -416,7 +417,7 @@ Three things the type system is doing on purpose:
   server what to sign has handed that server the ability to change what it is
   signing. The format is deterministic (`meter/playauth.py`).
 
-`sdk/python/scry_overlay.py` is the same client for a Python game or an agent.
+`sdk/python/elo_overlay.py` is the same client for a Python game or an agent.
 
 ### 5a · Vendoring is a copy, so drift is the failure mode
 
@@ -455,7 +456,7 @@ that failure surfaces in a game's Windows build and nowhere near us.
 
 `sdk/test_sdk.py` builds the **real broker** and drives it over a **real
 socket** with the Python reference client;
-`crates/scry-broker/tests/sdk_parity.rs` compiles the vendored Rust client and
+`crates/elo-broker/tests/sdk_parity.rs` compiles the vendored Rust client and
 drives it against the same server. **A protocol whose two halves are only ever
 tested separately is a protocol with no test** — and that is not a slogan here,
 it is the post-mortem: `prove` was dark to half the players for exactly that
@@ -497,7 +498,7 @@ Nothing here waits on the desktop build; the manifest already carries it.
 
 **Agents get the same door.** The deterministic sim is an RL environment by
 construction (`GATES.md` §0), and an agent harness speaks this protocol with
-`sdk/python/scry_overlay.py` exactly as the game does — which means a training
+`sdk/python/elo_overlay.py` exactly as the game does — which means a training
 run signs through the same bounded, journaled arca a human does, instead of
 being handed a raw key because it was convenient.
 
@@ -509,10 +510,10 @@ being handed a raw key because it was convenient.
 | 2 | an arca actually running on the operator's box | `arca.py` serves; nothing is deployed | **yes** — starting one is a human at a terminal, by design |
 | 3 | `messages_per_day` for a real arca | default 200 | a **(knob)** when one runs |
 | 4 | transactions through the broker | deliberately absent — `sign` covers messages only; a transaction goes through `/prepare/*` and the arca's own `send` | its own sentence |
-| — | macOS | nothing built — no depot, no build, no transport tested. `AF_UNIX` would carry it unchanged | later, with a depot |
+| — | macOS | a universal build ships from the launcher repo's CI (`watchtower/dl/`); the broker's `AF_UNIX` transport is untested there | a tested transport |
 
 **Windows is not on that list any more.** The transport is a named pipe at
-`\\.\pipe\scry-launcher-<user>` (`transport.rs`, and both reference clients),
+`\\.\pipe\elo-launcher-<user>` (`transport.rs`, and both reference clients),
 one pipe per user because that namespace is machine-wide, created
 `PIPE_REJECT_REMOTE_CLIENTS` because `\\.\pipe\` is otherwise reachable over
 SMB. The wire above it is byte-identical. `sdk/PROTOCOL.md` §finding the socket
