@@ -7,12 +7,24 @@
 # covers what needs an external database — published advisories — plus licences.
 
 [advisories]
-# An unmaintained crate is a warning and not a failure: it is a signal about
-# the future, and failing the build on it would make an upstream's neglect our
-# outage. A real advisory is a different matter and is denied below.
-unmaintained = "workspace"
+# Unmaintained advisories are checked over the WHOLE tree. `"workspace"` saw
+# only direct dependencies, and most of this tree is transitive — fltk-sys
+# alone pulls in its font stack — so an abandoned crate deep in it passed in
+# silence. cargo-deny 2 has no warn level for these: one in scope fails the
+# check. So each one already known is waived below by id, with what lifts it.
+# A NEW one fails `cargo deny check` until someone reads it and decides —
+# which is the point of running the check; it is not a build step, so an
+# upstream's neglect is a decision for us and never an outage.
+unmaintained = "all"
 yanked = "deny"
-ignore = []
+ignore = [
+    # rustls-pemfile is unmaintained; its parsing moved into rustls-pki-types'
+    # `PemObject`. Lifts when elo-hive's SSL_CERT_FILE read moves there.
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained — move the PEM read to rustls-pki-types PemObject" },
+    # ttf-parser is unmaintained and has no patched version. It arrives through
+    # fltk's text shaping, not by our choice. Lifts when fltk drops it.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained, transitive via fltk — lifts when fltk moves off it" },
+]
 
 [bans]
 multiple-versions = "warn"
@@ -32,6 +44,8 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # Mozilla's root list as data (`webpki-roots`, `webpki-root-certs`).
+    "CDLA-Permissive-2.0",
     "ISC",
     "MIT",
     "MPL-2.0",

@@ -126,8 +126,9 @@ fn installed_at(p: &Path) -> std::time::SystemTime {
         .unwrap_or(std::time::UNIX_EPOCH)
 }
 
-/// The build of a title that was installed **most recently** — the one to run,
-/// to keep, and to compare against the origin.
+/// The build of a title that was installed **most recently** — the one to keep,
+/// and, among the builds its manifest's origin may claim, the one to run
+/// ([`newest_from`]).
 ///
 /// ⚠ **Not the last one by name, and that mistake shipped.** A build id is
 /// `<version>-g<short sha>`; a sha is hex and carries no order at all, so
@@ -147,6 +148,51 @@ pub fn newest_of(games_root: &Path, slug: &str) -> Option<Install> {
         .max_by_key(|i| installed_at(&i.path))
 }
 
+/// The key an origin is compared by, or `None` for one that binds nothing: a
+/// receipt written before the launcher recorded origins, a manifest nobody
+/// rebased, or a host on [`crate::RETIRED_ORIGINS`] (a domain move must not
+/// orphan the builds installed from the old name).
+fn origin_key(origin: &str) -> Option<String> {
+    let o = origin.trim().trim_end_matches('/');
+    if o.is_empty() || (o.contains("://") && crate::depot::on_retired_origin(o)) {
+        return None;
+    }
+    // A scheme and host compare case-blind; a file path does not.
+    Some(if o.contains("://") { o.to_ascii_lowercase() } else { o.to_string() })
+}
+
+/// Could a build installed from `installed_from` be the one a manifest from
+/// `origin` names? An unbound side is compatible with anything.
+fn from_origin(installed_from: &str, origin: &str) -> bool {
+    match (origin_key(installed_from), origin_key(origin)) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
+}
+
+/// [`builds_of`], kept to the builds a manifest from `origin` may claim.
+pub fn builds_from(games_root: &Path, slug: &str, origin: &str) -> Vec<Install> {
+    builds_of(games_root, slug)
+        .into_iter()
+        .filter(|i| from_origin(&i.origin, origin))
+        .collect()
+}
+
+/// [`newest_of`], kept to the builds a manifest from `origin` may claim — the
+/// one Play starts.
+///
+/// **A slug is a name anyone can write**, in a manifest at any url. A title
+/// installed from `attacker.example` that calls itself `gates` sits in
+/// `games/gates/` beside the real one, and the newest by mtime is whichever
+/// was installed last. So Play asks for the newest build that came from where
+/// this manifest came from; another origin's build under the same name is
+/// never it.
+pub fn newest_from(games_root: &Path, slug: &str, origin: &str) -> Option<Install> {
+    builds_from(games_root, slug, origin)
+        .into_iter()
+        .max_by_key(|i| installed_at(&i.path))
+}
+
 /// Is a published build newer than what is on disk?
 ///
 /// `platform` is this machine's tag. Only `native` rows are considered — a
@@ -158,7 +204,31 @@ pub fn check(
     source: &dyn JsonSource,
     allow_insecure: bool,
 ) -> Checked {
-    let mine = builds_of(games_root, &manifest.slug);
+    // **A slug installed from one origin is not another origin's to fill.**
+    // The depot is bound to the manifest's slug below, but whoever publishes
+    // a manifest publishes both, so a `gates` manifest at attacker.example
+    // passes that and would replace games/gates/<build>. Refused here, before
+    // anything is fetched, with the way out named.
+    if let Some(other) = builds_of(games_root, &manifest.slug)
+        .into_iter()
+        .find(|i| !from_origin(&i.origin, &manifest.origin))
+    {
+        return Checked {
+            state: UpdateState::Unknown {
+                why: format!(
+                    "{slug} is installed here from {from}, and this manifest is from {to} — \
+                     refusing to put another publisher's build under the same name. \
+                     To switch, remove it first: elo uninstall {slug} {build}",
+                    slug = manifest.slug,
+                    from = other.origin,
+                    to = manifest.origin,
+                    build = other.build,
+                ),
+            },
+            depot: None,
+        };
+    }
+    let mine = builds_from(games_root, &manifest.slug, &manifest.origin);
     let row = manifest.build_for(platform, Some("native"));
     let depot_url = match row.and_then(|r| r.depot_url.clone()) {
         Some(u) => u,
@@ -178,6 +248,19 @@ pub fn check(
             };
         }
     };
+    // The document carries every hash and the launch command, so it is held
+    // to the same scheme rule as the root it names: a depot fetched over http
+    // can be swapped on the wire for one whose https root and sha256s are
+    // somebody else's, and every check after this would pass.
+    let scheme = depot_url.split_once("://").map(|(s, _)| s).unwrap_or("");
+    if scheme != "https" && !allow_insecure {
+        return Checked {
+            state: UpdateState::Unknown {
+                why: format!("the depot document must be https, got {depot_url:?}"),
+            },
+            depot: None,
+        };
+    }
     let raw = match source.get(&depot_url) {
         Ok(v) => v,
         Err(why) => {
@@ -198,6 +281,34 @@ pub fn check(
             }
         }
     };
+    // **The depot is the manifest's, or it is nothing.** A depot names its own
+    // slug and build, and those decide where it installs — so a document
+    // reached through title A that calls itself title B would replace B's
+    // build, verify clean against its own receipt, and start on B's Play. The
+    // origin refuses a mis-filed depot (`meter/launcher.py` read_depot), but a
+    // manifest can come from any url, so the client binds it here.
+    if depot.slug != manifest.slug {
+        return Checked {
+            state: UpdateState::Unknown {
+                why: format!(
+                    "the published depot is for {:?}, not {:?} — refusing to install it",
+                    depot.slug, manifest.slug
+                ),
+            },
+            depot: None,
+        };
+    }
+    if depot.platform != "any" && depot.platform != platform {
+        return Checked {
+            state: UpdateState::Unknown {
+                why: format!(
+                    "the published depot is a {} build, and this machine is {platform}",
+                    depot.platform
+                ),
+            },
+            depot: None,
+        };
+    }
     // A build packaged before a domain move names its files on the old host,
     // which now answers 410 for every one of them. The document is current and
     // its digest is right — only the address is dead — so downloads follow the
@@ -205,6 +316,7 @@ pub fn check(
     // computed below is still the one the notary holds. See
     // `Depot::heal_retired_root`.
     depot.heal_retired_root(&depot_url);
+    depot.origin = manifest.origin.clone();
     let depot = depot;
     let want = match depot.digest() {
         Ok(d) => d,

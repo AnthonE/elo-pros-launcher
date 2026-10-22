@@ -98,6 +98,11 @@ impl Host for RealHost {
             "backend": "arca",
         }))
     }
+    /// The two servers these tests sign in to are the title's own, so no
+    /// prompt stands between the SDK and the proof.
+    fn serves(&mut self, _game: &str, server: &str) -> bool {
+        server == "s.example" || server == "shard-3.gates.example"
+    }
     fn title_url(&self, slug: &str, what: What) -> Option<String> {
         match what {
             What::Manifest => Some(format!("https://o/api/launcher/manifest/{slug}")),
@@ -277,8 +282,9 @@ fn the_vendored_sdk_proves_an_identity_a_server_can_verify() {
     });
 }
 
-/// `prove` asks no consent, so it works on a host that refuses everything —
-/// the property the verb exists for, asserted through the real SDK.
+/// `prove` to the title's own server asks no consent, so it works on a host
+/// that refuses everything — the property the verb exists for, asserted
+/// through the real SDK.
 #[test]
 fn the_sdk_can_prove_even_when_the_player_refuses_signatures() {
     with_broker(false, |endpoint| {

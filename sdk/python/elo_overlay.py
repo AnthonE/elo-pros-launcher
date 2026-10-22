@@ -79,12 +79,38 @@ class _PipeConn:
     A launcher that accepts and then never answers hangs the caller instead of
     erroring. That is a launcher bug either way; call the SDK off your main
     thread, which a consent prompt deserves regardless.
+
+    The pipe name is predictable and answers for whoever created it first, so
+    while the launcher is down another account on the PC can hold it. The open
+    asks for identification only (the server may learn who connected, never
+    act as us), and a pipe whose server runs as a different user is refused.
     """
 
     __slots__ = ("_f",)
 
     def __init__(self, path: str, timeout: float):
-        self._f = open(path, "r+b", buffering=0)
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        GENERIC_READ, GENERIC_WRITE, OPEN_EXISTING = 0x80000000, 0x40000000, 3
+        SECURITY_SQOS_PRESENT, SECURITY_IDENTIFICATION = 0x00100000, 0x00010000
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                    wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+        h = k32.CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, None, OPEN_EXISTING,
+                            SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, None)
+        if h is None or h == ctypes.c_void_p(-1).value:
+            raise OSError(ctypes.get_last_error(), f"no launcher at {path}")
+        try:
+            if not _pipe_server_is_us(h):
+                raise OSError(f"the pipe at {path} is held by another user, not your launcher")
+            fd = msvcrt.open_osfhandle(h, os.O_RDWR | getattr(os, "O_BINARY", 0))
+        except BaseException:
+            k32.CloseHandle(wintypes.HANDLE(h))
+            raise
+        self._f = open(fd, "r+b", buffering=0)
 
     def sendall(self, data: bytes) -> None:
         self._f.write(data)
@@ -94,6 +120,54 @@ class _PipeConn:
 
     def close(self) -> None:
         self._f.close()
+
+
+def _pipe_server_is_us(pipe: int) -> bool:
+    """Does the process serving `pipe` run as this user? False on any failed
+    read: a server we cannot inspect is not one we trust."""
+    import ctypes
+    from ctypes import wintypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION, TOKEN_QUERY, TOKEN_USER = 0x1000, 0x0008, 1
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    adv = ctypes.WinDLL("advapi32", use_last_error=True)
+    k32.GetNamedPipeServerProcessId.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG))
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    adv.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
+    adv.GetTokenInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+                                        ctypes.POINTER(wintypes.DWORD))
+    adv.EqualSid.argtypes = (wintypes.LPVOID, wintypes.LPVOID)
+
+    def user_of(process):
+        # TOKEN_USER starts with the SID's address; the SID lives in the same
+        # buffer, so the buffer is returned to keep it alive.
+        token = wintypes.HANDLE()
+        if not adv.OpenProcessToken(process, TOKEN_QUERY, ctypes.byref(token)):
+            return None
+        try:
+            buf, ret = ctypes.create_string_buffer(512), wintypes.DWORD()
+            if not adv.GetTokenInformation(token, TOKEN_USER, buf, len(buf), ctypes.byref(ret)):
+                return None
+        finally:
+            k32.CloseHandle(token)
+        sid = ctypes.c_void_p.from_buffer(buf).value
+        return (buf, sid) if sid else None
+
+    pid = wintypes.ULONG()
+    if not k32.GetNamedPipeServerProcessId(pipe, ctypes.byref(pid)) or not pid.value:
+        return False
+    server = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if not server:
+        return False
+    try:
+        theirs = user_of(server)
+    finally:
+        k32.CloseHandle(server)
+    ours = user_of(k32.GetCurrentProcess())
+    return bool(theirs and ours and adv.EqualSid(theirs[1], ours[1]))
 
 
 @dataclass

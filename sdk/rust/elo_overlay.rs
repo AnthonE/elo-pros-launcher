@@ -568,6 +568,7 @@ fn open_stream(path: &std::path::Path, timeout: Duration) -> Result<Stream, Stri
 #[cfg(windows)]
 fn open_stream(path: &std::path::Path, timeout: Duration) -> Result<Stream, String> {
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::OpenOptionsExt;
 
     extern "system" {
         fn WaitNamedPipeW(name: *const u16, timeout_ms: u32) -> i32;
@@ -585,11 +586,103 @@ fn open_stream(path: &std::path::Path, timeout: Duration) -> Result<Stream, Stri
     // SAFETY: `wide` is a NUL-terminated UTF-16 buffer that outlives the call.
     unsafe { WaitNamedPipeW(wide.as_ptr(), ms) };
 
-    std::fs::OpenOptions::new()
+    // Identification only: the launcher may learn who connected, never act as
+    // us. Without it a pipe server holding SeImpersonatePrivilege can.
+    const SECURITY_IDENTIFICATION: u32 = 1 << 16;
+    let pipe = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
+        .security_qos_flags(SECURITY_IDENTIFICATION)
         .open(path)
-        .map_err(|e| format!("no launcher at {}: {e}", path.display()))
+        .map_err(|e| format!("no launcher at {}: {e}", path.display()))?;
+    // The pipe name is predictable and answers for whoever created it first,
+    // so while our launcher is down another account on this PC can hold it.
+    // The launcher is this user's own process; anything else is refused.
+    if !pipe_server_is_us(&pipe) {
+        return Err(format!(
+            "the pipe at {} is held by another user, not your launcher",
+            path.display()
+        ));
+    }
+    Ok(pipe)
+}
+
+/// Does the process serving `pipe` run as the same user as this one? `false`
+/// on any failed read: a server we cannot inspect is not one we trust.
+#[cfg(windows)]
+fn pipe_server_is_us(pipe: &std::fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+
+    type Handle = *mut std::ffi::c_void;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_USER: u32 = 1;
+
+    extern "system" {
+        fn GetNamedPipeServerProcessId(pipe: Handle, pid: *mut u32) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
+        fn GetCurrentProcess() -> Handle;
+        fn CloseHandle(h: Handle) -> i32;
+    }
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(process: Handle, access: u32, token: *mut Handle) -> i32;
+        fn GetTokenInformation(
+            token: Handle,
+            class: u32,
+            info: *mut std::ffi::c_void,
+            len: u32,
+            ret: *mut u32,
+        ) -> i32;
+        fn EqualSid(a: *mut std::ffi::c_void, b: *mut std::ffi::c_void) -> i32;
+    }
+
+    // TOKEN_USER is { SID_AND_ATTRIBUTES { PSID, DWORD } } with the SID itself
+    // after it in the same buffer, so the first word is the SID's address and
+    // the buffer must outlive every use of it. u64s keep it pointer-aligned.
+    fn user_of(process: Handle) -> Option<Vec<u64>> {
+        let mut token: Handle = std::ptr::null_mut();
+        // SAFETY: `token` is a valid out-pointer; a failed call leaves it null.
+        if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
+            return None;
+        }
+        let mut buf = vec![0u64; 64];
+        let mut ret = 0u32;
+        // SAFETY: `buf` is 512 writable bytes; `token` is open and closed here.
+        let ok = unsafe {
+            let ok = GetTokenInformation(
+                token,
+                TOKEN_USER,
+                buf.as_mut_ptr().cast(),
+                (buf.len() * 8) as u32,
+                &mut ret,
+            );
+            CloseHandle(token);
+            ok
+        };
+        (ok != 0 && buf[0] != 0).then_some(buf)
+    }
+
+    let mut pid = 0u32;
+    // SAFETY: the handle is the open pipe, borrowed for the call.
+    if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut pid) } == 0 || pid == 0 {
+        return false;
+    }
+    // SAFETY: a null return is checked; the handle is closed below.
+    let server = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if server.is_null() {
+        return false;
+    }
+    let theirs = user_of(server);
+    // SAFETY: `server` came from OpenProcess above and is closed once.
+    unsafe { CloseHandle(server) };
+    // SAFETY: the current-process pseudo-handle needs no closing.
+    let ours = user_of(unsafe { GetCurrentProcess() });
+    match (theirs, ours) {
+        // SAFETY: each first word is a SID pointer into its own live buffer.
+        (Some(a), Some(b)) => unsafe { EqualSid(a[0] as usize as _, b[0] as usize as _) != 0 },
+        _ => false,
+    }
 }
 
 pub struct Overlay {

@@ -1,0 +1,100 @@
+{
+  "about": "GET /api/ticket/{slug} (meter/tickets.py ticket_card), captured from the route with the chain scripted. `ticketed` is a title with a ticket contract; `free` is one without, free to download.",
+  "ticketed": {
+    "game": "gates",
+    "ticketed": true,
+    "contract": "0xabababababababababababababababababababab",
+    "reachable": true,
+    "lane": "house",
+    "community": null,
+    "all_rails": [
+      {
+        "rail_id": 1,
+        "label": "ETH",
+        "kind": "native",
+        "token": null,
+        "amount": "3000000000000000",
+        "sink": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "open": true,
+        "payment": true,
+        "decimals": null,
+        "buyable": true
+      }
+    ],
+    "rails_note": "every rail the CONTRACT has, in its own order. The owner may post an arbitrary one with setRail(railId>=6, kind, token, id, amount, sink, label) — any ERC-20, ERC-721 or ERC-1155 — and it appears here the moment it does, with no edit to this service. Buy any of them with buyWithRail(railId, nftIds). A rail with amount 0 is SHUT, not free.",
+    "price_usd": 9.99,
+    "rails": {
+      "eth": {
+        "amount_wei": "3000000000000000",
+        "open": true,
+        "usd_now": 1.0
+      },
+      "elo": {
+        "amount_wei": "0",
+        "open": false,
+        "usd_now": null,
+        "where_it_goes": "straight to the fee splitter — 10% burns under the posted split once distribute() runs; no burn is claimed before it has",
+        "where": {
+          "sink": "0x34e0f7dafffcd7dfcab4b4c7cc11747c3746453c",
+          "kind": "fee_splitter",
+          "burn_bps": 1000,
+          "text": "straight to the fee splitter — 10% burns under the posted split once distribute() runs; no burn is claimed before it has"
+        }
+      },
+      "usdg": {
+        "amount_units": "0",
+        "open": false,
+        "usd_now": null
+      }
+    },
+    "coins": {
+      "elo": "0xf7997e4fd821e39d884d86d25e1655017f241a42",
+      "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+    },
+    "drift_note": "usd_now is each rail's posted amount valued at the live tape, as a multiple of the posted dollar price — 1.0 is exact, and a number far from 1.0 means the posted amount is stale; the contract owner reposts amounts, the dollar price stands",
+    "copies_minted": 3,
+    "copies_sold": 1,
+    "free_door": "open — any wallet mints 1 free (mintFree)",
+    "free_mint": {
+      "open": true,
+      "per_wallet": 1,
+      "sponsored": false,
+      "how": "mintFree(yourWallet) from your own wallet — free, you pay only the gas"
+    },
+    "how_to_buy": {
+      "free": "mintFree(yourWallet) — free, 1 per wallet",
+      "eth": "buyWithETH() with msg.value = the posted amount, exactly",
+      "closed_rails": "a rail posted at 0 is shut and is named nowhere above; every rail at 0 closes the sale without closing resale",
+      "resale": "tickets are ordinary ERC-721s — royalty is a constant 0",
+      "agents": "GET /api/ticket/gates/prepare — signable calldata for your own wallet"
+    },
+    "licence": "holding ANY ticket of this title is the licence: the official servers ask balanceOf and nothing else — at join, and again on an interval, so selling the copy mid-session is a kick, not a loophole (POST /api/ticket/gates/check is the roster sweep)",
+    "downloads_gated": false,
+    "download": "open — the game is open source and the bytes were never the secret; the licence bites at the official servers",
+    "grants_survive_restart": false,
+    "venues": {
+      "we_run_none_of_these": "Elo runs no marketplace. A game you bought here is a standard ERC-721 on chain 4663, so it trades anywhere that supports the chain.",
+      "places": [
+        {
+          "name": "the explorer",
+          "runs_it": "Blockscout, the block explorer",
+          "what": "the contract, its source, its transfers and its holders",
+          "url": "https://robinhoodchain.blockscout.com/token/0xabababababababababababababababababababab"
+        },
+        {
+          "name": "OpenSea",
+          "runs_it": "OpenSea, a third-party marketplace",
+          "what": "buy and sell this game. It sets its own fee; this ticket asks it for an ERC-2981 royalty of a constant 0, so no key here taxes your exit",
+          "url": "https://opensea.io/assets/robinhood/0xabababababababababababababababababababab"
+        }
+      ]
+    },
+    "scope": "a ticket gates entry, never a score, a rank, odds, or a payout"
+  },
+  "free": {
+    "game": "freebie",
+    "ticketed": false,
+    "what": "this title has no ticket contract configured, so it is free to download — nothing here is for sale",
+    "arms_with": "SCRY_TICKET_FREEBIE=0x… on the meter, after the title's ticket deploys (contracts/script/DeployGameTicket.s.sol)"
+  }
+}

@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-16
-about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), and the reference clients Gates links"
+updated: 2026-10-21
+about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), the reference clients Gates links, and the Rust, Python and JavaScript packages"
 ---
 
 # SDK.md — how a game signs without holding a key
@@ -76,8 +76,8 @@ the one key-bearing backend. The rungs are `CLAUDE.md`'s, unchanged.
 
 | setting | rung | who holds the key | what it does |
 |---|---|---|---|
-| **`local`** **(what the client does)** | 0, wallet moved inside | **this process, while unlocked** | an account made on your machine (§2a). **The only backend `prove` works on** |
-| `browser` | 0 — the human signs each act | your wallet, in your browser | builds a link and stops. Collects nothing, listens on nothing |
+| **`local`** **(what the client does)** | 0, wallet moved inside | **this process, while unlocked** | an account made on your machine (§2a). `prove` works here |
+| `browser` | 0 — the human signs each act | your wallet, in your browser | builds a link and stops. Collects nothing, listens on nothing. Paired with a browser wallet it reports `browser-paired`, which can `prove` to a server on the pairing's own site (`sdk/PROTOCOL.md`) |
 | `arca` | 2 — bounded standing authority around a real key | `arca.py`, its own uid | a UNIX socket. **The real boundary** |
 | `external` | — | a device or a command you name | message on stdin, `0x…` on stdout — hardware wallets, `cast wallet sign`, your script |
 | `none` | — | nobody | reads work; writes say plainly that nothing is configured |
@@ -160,7 +160,7 @@ file's Rust client has been called `elo_overlay.rs` since before the feature
 existed. No injection, nothing to break on a driver update, nothing that reads
 as malware to an anti-cheat, and nothing that needs a Wayland answer.
 
-`overlay` is the seventh verb (`broker.py`, both SDK clients). It returns one
+`overlay` is the seventh verb (`elo-broker`'s `protocol.rs`, both SDK clients). It returns one
 snapshot: host, signer kind, the watched address, this title's catalog row, and
 a `consent` block naming who asks the player. It is cheap enough to poll each
 frame — one round trip on a local socket — and every field in it could already
@@ -265,9 +265,10 @@ other — in files neither suite read.
 
 That is the same shape as `CLAUDE.md`'s nginx trap: **a surface can be dark to
 half the world with every local gate passing**, because each half is tested
-against itself. The fix is the verb lists being compared *across languages* —
-`sdk/test_sdk.py` now parses `protocol.rs` and asserts both brokers, both
-clients and `PROTOCOL.md` name the same verbs with the same fields.
+against itself. The fix was one broker (the Python one is gone), and the verb
+list compared *across languages*: `sdk/test_sdk.py` asks that broker for its
+verbs and asserts `PROTOCOL.md` documents each one and both clients can call
+it.
 
 **What `profile` is.** One read of `/api/who`, flattened to what a HUD draws.
 `/who` is already the origin's join across sworn name, npub, vow and wallet;
@@ -303,8 +304,10 @@ game linking the vendored SDK cannot make the call. The launcher already
 carries a reader that keeps unreachable apart from empty, so the choice was
 one careful implementation here or one careless one per title.
 
-⚠ **`prove` works only on the `local` backend, in both launchers.** `arca`,
-`browser` and `external` all inherit the refusing default: `prove` deliberately
+⚠ **`prove` works on `local`, and on `browser-paired`** (a launcher paired with a
+browser wallet, proving only to a server on the pairing's own site;
+`sdk/PROTOCOL.md`). `arca`, an unpaired `browser` and `external` all inherit
+the refusing default: `prove` deliberately
 bypasses the family allowlist (it is not one of `FAMILIES` and must never
 become one, or a game could reach the prompt-free path through `sign`), and the
 arca's own copy of that list beside the key does not know the word. Making an
@@ -381,7 +384,7 @@ a prompt that did not exist and `sign` refused for want of it —
 `docs/client/LAUNCHER.md` §10n is how it was built and what it costs.
 
 **The door is open whenever the launcher's window is**, and there is no
-setting — `scry-gui` binds it at startup, the CLI cannot serve one at all, and
+setting — `elo-gui` binds it at startup, the CLI cannot serve one at all, and
 closing the launcher closes it along with every grant. This said *"off by
 default — opening a socket other processes can reach is an act, not a
 default"* until 2026-08-08, which described an intent the code never had.
@@ -482,6 +485,30 @@ never touches it, and the real gate is server-side —
 public reads it calls answer with CORS `*` (`meter/cors_public.py`). A desktop
 build keeps linking `sdk/`.
 
+### 5c · The packages: Rust, Python, JavaScript
+
+Vendoring one file stays supported and stays the leanest way in. A game, a
+server or an agent that also wants the platform's API installs a package
+instead; each carries the client above unchanged and adds one for `/api/`:
+
+| package | folder | what is in it |
+|---|---|---|
+| `elo-sdk` (Rust crate) | `sdk/rust/` | `elo_overlay.rs` as `elo_sdk::overlay`, plus `Client` over `ureq` (feature `http`, on by default) |
+| `elo-sdk` (Python) | `sdk/python/` | `elo_overlay.py` as its own module, plus `elo_sdk.Client`; standard library only |
+| `@elopros/sdk` (JavaScript) | `sdk/js/` | the web SDK `elo-1.js` (§5b), plus a `fetch` client; no launcher half, since a browser has no socket |
+
+One API in all three (`sdk/README.md` has the table): friends with buddies,
+ticket ownership, items, faces, profiles, leaderboards, and the payout file a
+game server writes when a wipe closes. Two rules from this page hold in each.
+A read keeps "could not look" apart from "no": every call answers an answer, a
+refusal, or could-not-look, and a ticket read that timed out is never "does
+not own". A signed change rebuilds the text it signs locally and refuses a
+server that prepares anything else before the signer is asked, the guard the
+launcher's own friends commands use. `sdk/testdata/` pins all three, Gates
+and the launcher, and `meter/test_sdk_fixtures.py` holds those fixtures to the
+server's code. Until the packages are published, install from a clone of the
+mirror.
+
 ## 6 · How Gates uses it, concretely
 
 Nothing here waits on the desktop build; the manifest already carries it.
@@ -506,7 +533,7 @@ being handed a raw key because it was convenient.
 
 | # | thing | state | operator act? |
 |---|---|---|---|
-| ~~1~~ | ~~a Gates depot, so there is a native build to broker for~~ | **CLOSED 2026-08-10** — two depots published and notarized, `linux-x86_64` and `win-x86_64` (`LAUNCHER.md` §8 rows 1b–2). The installed binary calls `Scry::discover()` for real: driven 2026-08-06, it found no broker and printed *"gates: playing anonymously — no scry launcher"*, which is this document's required degradation rather than a failure. **What has not been driven is the other branch** — a running `scry-gui` on the same machine, so `discover()` succeeds and a signature is prompted end to end from inside the game | done |
+| ~~1~~ | ~~a Gates depot, so there is a native build to broker for~~ | **CLOSED 2026-08-10** — two depots published and notarized, `linux-x86_64` and `win-x86_64` (`LAUNCHER.md` §8 rows 1b–2). The installed binary calls `Elo::discover()` (Gates `crates/client/src/elo.rs`) for real: driven 2026-08-06, it found no broker and reported playing anonymously, which is this document's required degradation rather than a failure. **What has not been driven is the other branch** — a running `elo-gui` on the same machine, so `discover()` succeeds and a signature is prompted end to end from inside the game | done |
 | 2 | an arca actually running on the operator's box | `arca.py` serves; nothing is deployed | **yes** — starting one is a human at a terminal, by design |
 | 3 | `messages_per_day` for a real arca | default 200 | a **(knob)** when one runs |
 | 4 | transactions through the broker | deliberately absent — `sign` covers messages only; a transaction goes through `/prepare/*` and the arca's own `send` | its own sentence |

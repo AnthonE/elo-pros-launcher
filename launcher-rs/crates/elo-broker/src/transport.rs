@@ -19,9 +19,11 @@
 //! the broker — point it at an arca and every request is re-derived by a
 //! process running as someone else. Nothing here pretends otherwise.
 //!
-//! The named pipe is created with the default DACL, which grants the creating
-//! user and SYSTEM. It is **not** `PIPE_ACCESS_INBOUND` from a network — the
-//! `\\.\pipe\` namespace is local unless a machine explicitly shares it.
+//! The named pipe is created with an explicit DACL — its owner and SYSTEM,
+//! nobody else (the default one also admits Everyone and anonymous for
+//! reading) — and one instance is always pending, so another user can neither
+//! hold the door's instances nor take the name between connections. It
+//! refuses remote clients: the `\\.\pipe\` namespace reaches SMB otherwise.
 
 use std::io;
 // `PathBuf` is unix-only here: the windows half addresses a pipe by name and
@@ -141,6 +143,9 @@ pub fn serve_forever_counted<H, F>(
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
 
+    // One table of refusals for every connection this door serves: a game
+    // that hangs up and reconnects is still the game the player refused.
+    let refusals = crate::SharedRefusals::default();
     loop {
         match listener.accept() {
             Ok(conn) => {
@@ -156,11 +161,12 @@ pub fn serve_forever_counted<H, F>(
                 open.fetch_add(1, Ordering::Relaxed);
                 let mut host = make_host();
                 let counter = Arc::clone(&open);
+                let refusals = Arc::clone(&refusals);
                 if let Err(e) = std::thread::Builder::new()
                     .name("elo-door".into())
                     .spawn(move || {
                         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            let _ = crate::serve_conn(conn, &mut host);
+                            let _ = crate::serve_conn_sharing(conn, &mut host, refusals);
                         }));
                         counter.fetch_sub(1, Ordering::Relaxed);
                     })
@@ -244,8 +250,10 @@ pub use imp_windows::Listener;
 mod imp_windows {
     use super::*;
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use std::sync::Mutex;
 
     const PIPE_ACCESS_DUPLEX: u32 = 0x0000_0003;
+    const FILE_FLAG_FIRST_PIPE_INSTANCE: u32 = 0x0008_0000;
     const PIPE_TYPE_BYTE: u32 = 0x0000_0000;
     const PIPE_READMODE_BYTE: u32 = 0x0000_0000;
     const PIPE_WAIT: u32 = 0x0000_0000;
@@ -253,31 +261,115 @@ mod imp_windows {
     const PIPE_UNLIMITED_INSTANCES: u32 = 255;
     const INVALID_HANDLE_VALUE: isize = -1;
     const ERROR_PIPE_CONNECTED: u32 = 535;
+    const ERROR_NO_DATA: u32 = 232;
+    const SDDL_REVISION_1: u32 = 1;
+
+    /// Who may open the door: the pipe's owner — the player who started the
+    /// launcher — and SYSTEM, and nobody else. `P` stops a parent's ACEs
+    /// being inherited. The default DACL this replaced also lets Everyone and
+    /// the anonymous account open the pipe for reading, which is enough for
+    /// another user on the machine to hold every instance open.
+    const DOOR_SDDL: &str = "D:P(A;;GA;;;OW)(A;;GA;;;SY)";
 
     type Handle = *mut core::ffi::c_void;
+
+    #[repr(C)]
+    struct SecurityAttributes {
+        length: u32,
+        descriptor: *mut core::ffi::c_void,
+        inherit: i32,
+    }
 
     extern "system" {
         fn CreateNamedPipeW(
             name: *const u16, open_mode: u32, pipe_mode: u32, max_instances: u32,
-            out_buf: u32, in_buf: u32, timeout: u32, security: *mut core::ffi::c_void,
+            out_buf: u32, in_buf: u32, timeout: u32, security: *mut SecurityAttributes,
         ) -> Handle;
         fn ConnectNamedPipe(pipe: Handle, overlapped: *mut core::ffi::c_void) -> i32;
+        fn DisconnectNamedPipe(pipe: Handle) -> i32;
         fn GetLastError() -> u32;
+        fn CloseHandle(h: Handle) -> i32;
+        fn LocalFree(mem: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+    }
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl: *const u16, revision: u32, descriptor: *mut *mut core::ffi::c_void,
+            size: *mut u32,
+        ) -> i32;
     }
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
+    /// One pipe instance, with the door's DACL. `first` asks Windows to fail
+    /// if any instance of this name already exists — someone else's.
+    fn instance(name: &[u16], first: bool) -> io::Result<Handle> {
+        let sddl = wide(DOOR_SDDL);
+        let mut descriptor: *mut core::ffi::c_void = std::ptr::null_mut();
+        // SAFETY: `sddl` is NUL-terminated and outlives the call; on success
+        // `descriptor` is a LocalAlloc'd block freed below.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut sa = SecurityAttributes {
+            length: std::mem::size_of::<SecurityAttributes>() as u32,
+            descriptor,
+            inherit: 0,
+        };
+        let open_mode = PIPE_ACCESS_DUPLEX | if first { FILE_FLAG_FIRST_PIPE_INSTANCE } else { 0 };
+        // SAFETY: `name` is a NUL-terminated UTF-16 buffer and `sa` points at
+        // a live descriptor; both outlive the call.
+        let handle = unsafe {
+            CreateNamedPipeW(
+                name.as_ptr(),
+                open_mode,
+                // REJECT_REMOTE_CLIENTS: without it the pipe namespace is
+                // reachable over SMB, and this door is local by design.
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                PIPE_UNLIMITED_INSTANCES,
+                64 * 1024, 64 * 1024, 0,
+                &mut sa,
+            )
+        };
+        let err = io::Error::last_os_error();
+        // SAFETY: the descriptor came from the conversion above and is not
+        // used after this; CreateNamedPipeW copied what it needed.
+        unsafe { LocalFree(descriptor) };
+        if handle as isize == INVALID_HANDLE_VALUE {
+            return Err(err);
+        }
+        Ok(handle)
+    }
+
+    /// The door on Windows.
+    ///
+    /// **One instance is always waiting**, and the first is made with
+    /// `FILE_FLAG_FIRST_PIPE_INSTANCE`. A pipe name exists only while an
+    /// instance does, so a door that created an instance per accept left a
+    /// gap after each connection in which another user could create the name
+    /// and be the launcher for every game that knocked next. With an instance
+    /// always pending, the name is ours from `bind` until the launcher exits,
+    /// and only its DACL decides who may add instances to it.
     pub struct Listener {
         endpoint: String,
+        name: Vec<u16>,
+        /// The instance the next `accept` connects, as an address-sized int
+        /// so the listener stays `Send`.
+        pending: Mutex<isize>,
     }
 
     impl Listener {
-        /// Named pipes have no bind/listen split — an instance IS the pending
-        /// connection, so a fresh instance is created per accept. The name is
-        /// validated here so a bad endpoint fails at startup rather than on
-        /// the first game that knocks.
+        /// Creates the first instance now, so a name someone else already
+        /// holds fails here — at startup, loudly — rather than handing games
+        /// to whoever made it.
         pub fn bind(endpoint: &str) -> io::Result<Listener> {
             if !endpoint.starts_with(r"\\.\pipe\") {
                 return Err(io::Error::new(
@@ -285,48 +377,77 @@ mod imp_windows {
                     format!("a windows endpoint must be a named pipe: {endpoint}"),
                 ));
             }
-            Ok(Listener { endpoint: endpoint.to_string() })
+            let name = wide(endpoint);
+            let first = instance(&name, true).map_err(|e| {
+                io::Error::new(
+                    e.kind(),
+                    format!("{endpoint} is already open by another process ({e}) — \
+                             is a second launcher running?"),
+                )
+            })?;
+            Ok(Listener {
+                endpoint: endpoint.to_string(),
+                name,
+                pending: Mutex::new(first as isize),
+            })
         }
 
         pub fn accept(&self) -> io::Result<std::fs::File> {
-            let name = wide(&self.endpoint);
-            // SAFETY: `name` is a NUL-terminated UTF-16 buffer that outlives
-            // the call. A null security descriptor means the default DACL:
-            // the creating user and SYSTEM, which is the intent.
-            let handle = unsafe {
-                CreateNamedPipeW(
-                    name.as_ptr(),
-                    PIPE_ACCESS_DUPLEX,
-                    // REJECT_REMOTE_CLIENTS is the one that matters: without
-                    // it the pipe namespace is reachable over SMB, and this
-                    // door is local by design.
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
-                        | PIPE_REJECT_REMOTE_CLIENTS,
-                    PIPE_UNLIMITED_INSTANCES,
-                    64 * 1024, 64 * 1024, 0,
-                    std::ptr::null_mut(),
-                )
-            };
-            if handle as isize == INVALID_HANDLE_VALUE {
-                return Err(io::Error::last_os_error());
-            }
-            // SAFETY: handle is a valid pipe instance from the call above.
-            let connected = unsafe { ConnectNamedPipe(handle, std::ptr::null_mut()) };
-            if connected == 0 {
-                // A client that connected between create and connect is a
-                // success, not a failure — Win32 reports it as this error.
+            let mut pending = self
+                .pending
+                .lock()
+                .map_err(|_| io::Error::other("the door's pipe lock is poisoned"))?;
+            let handle = *pending as Handle;
+            loop {
+                // SAFETY: `handle` is the live pending instance this listener owns.
+                let connected = unsafe { ConnectNamedPipe(handle, std::ptr::null_mut()) };
+                if connected != 0 {
+                    break;
+                }
                 let err = unsafe { GetLastError() };
-                if err != ERROR_PIPE_CONNECTED {
-                    return Err(io::Error::from_raw_os_error(err as i32));
+                match err {
+                    // A client that connected between create and connect is a
+                    // success, not a failure — Win32 reports it as this error.
+                    ERROR_PIPE_CONNECTED => break,
+                    // One that connected and left before we got here. Reset
+                    // the instance and keep waiting on it.
+                    ERROR_NO_DATA => {
+                        unsafe { DisconnectNamedPipe(handle) };
+                    }
+                    _ => return Err(io::Error::from_raw_os_error(err as i32)),
                 }
             }
-            // SAFETY: ownership of the handle moves into the File, which
-            // closes it on drop.
+            // The next instance exists BEFORE this one is handed off, so the
+            // name never lapses.
+            let next = match instance(&self.name, false) {
+                Ok(next) => next,
+                Err(e) => {
+                    // No instance to take over: drop this client and keep its
+                    // instance pending, so the handle has one owner and the
+                    // name stays claimed.
+                    // SAFETY: `handle` is still this listener's pending instance.
+                    unsafe { DisconnectNamedPipe(handle) };
+                    return Err(e);
+                }
+            };
+            *pending = next as isize;
+            // SAFETY: ownership of the connected handle moves into the File,
+            // which closes it on drop; the listener now owns `next` instead.
             Ok(unsafe { std::fs::File::from(OwnedHandle::from_raw_handle(handle)) })
         }
 
         pub fn endpoint(&self) -> String {
             self.endpoint.clone()
+        }
+    }
+
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            if let Ok(p) = self.pending.lock() {
+                // SAFETY: the pending instance is owned by this listener and
+                // never handed out.
+                unsafe { CloseHandle(*p as Handle) };
+            }
         }
     }
 }

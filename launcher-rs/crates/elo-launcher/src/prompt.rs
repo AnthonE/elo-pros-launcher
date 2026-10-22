@@ -23,6 +23,7 @@
 //! terminal that silently types nothing, which they would reasonably read as a
 //! hung machine. The guard makes unwinding restore it too.
 
+use elo_vault::Zeroizing;
 use std::io::{BufRead, Write};
 
 /// Read a line with echo suppressed where that is possible.
@@ -31,7 +32,11 @@ use std::io::{BufRead, Write};
 /// trimmed** — a passphrase may legitimately begin or end with a space, and
 /// silently trimming one produces a keystore whose passphrase is not the one
 /// the holder believes they typed.
-pub fn secret(label: &str) -> Result<String, String> {
+///
+/// `Zeroizing`: what was typed here is a passphrase or a private key, and it
+/// is wiped when the caller drops it rather than left in freed memory after
+/// the account is locked.
+pub fn secret(label: &str) -> Result<Zeroizing<String>, String> {
     // ⚠ **The prompt goes to STDERR, and that is not a style choice.** It went
     // to stdout once and the first thing anyone tried broke:
     //
@@ -55,8 +60,10 @@ pub fn secret(label: &str) -> Result<String, String> {
     Ok(line)
 }
 
-fn read_line() -> Result<String, String> {
-    let mut buf = String::new();
+fn read_line() -> Result<Zeroizing<String>, String> {
+    // Room up front, so a growing buffer does not leave a reallocated copy
+    // of the secret behind that nothing wipes.
+    let mut buf = Zeroizing::new(String::with_capacity(512));
     let n = std::io::stdin()
         .lock()
         .read_line(&mut buf)

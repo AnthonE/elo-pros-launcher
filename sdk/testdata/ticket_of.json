@@ -1,0 +1,26 @@
+{
+  "about": "GET /api/ticket/{slug}/of/{wallet} (meter/tickets.py ticket_of). `could_not_look` is the 503 a failed chain read answers: entitled null is 'could not look', never 'does not own'.",
+  "owned": {
+    "game": "gates",
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "copies": 1,
+    "entitled": true,
+    "reachable": true,
+    "free_left": 1
+  },
+  "free": {
+    "game": "freebie",
+    "ticketed": false,
+    "entitled": true,
+    "why": "no ticket contract — the game is free"
+  },
+  "could_not_look": {
+    "status": 503,
+    "body": {
+      "game": "gates",
+      "entitled": null,
+      "reachable": false,
+      "why": "the chain read failed — this is 'could not look', never 'does not own'"
+    }
+  }
+}

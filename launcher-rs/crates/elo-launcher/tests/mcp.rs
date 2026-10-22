@@ -83,9 +83,13 @@ fn there_is_exactly_one_tool_and_it_is_read_only() {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    for forbidden in ["install", "play", "uninstall", "say", "prune", "update"] {
+    for forbidden in ["install", "play", "uninstall", "say", "prune", "update",
+                      "ask", "accept", "remove", "block"] {
         assert!(!whats.contains(&forbidden), "{forbidden} must not be reachable over MCP");
     }
+    // The friends READ is, with the one argument it takes.
+    assert!(whats.contains(&"friends"), "{whats:?}");
+    assert_eq!(tools[0]["inputSchema"]["properties"]["wallet"]["type"], "string");
 }
 
 #[test]
@@ -181,4 +185,102 @@ fn sessions_never_folds_an_unwatched_launch_into_playtime() {
     assert!(text.contains("1h 0m measured"), "{text}");
     assert!(text.contains("1 launches not measured"), "{text}");
     assert!(text.contains("excluded from playtime rather than guessed"), "{text}");
+}
+
+const ME: &str = "0x1111111111111111111111111111111111111111";
+
+/// `GET /api/friends/{wallet}` answered from the fixture the meter's suite
+/// writes against, once per connection, on loopback (which no proxy carries).
+/// Hands back the base url and the paths it was asked for.
+fn friends_origin() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{BufRead, BufReader, Write};
+    let body = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../sdk/testdata/friends_view.json"),
+    )
+    .expect("the fixture");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            let _ = reader.read_line(&mut line);
+            loop {
+                let mut h = String::new();
+                if reader.read_line(&mut h).unwrap_or(0) == 0 || h.trim().is_empty() {
+                    break;
+                }
+            }
+            let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
+            log.lock().unwrap().push(path);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    (base, seen)
+}
+
+fn call(s: &mcp::Server, arguments: Value) -> (bool, String) {
+    let r = ask(
+        s,
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+               "params":{"name":"launcher","arguments":arguments}}),
+    )
+    .unwrap();
+    assert!(r["error"].is_null(), "a tool failure is a result: {r}");
+    (
+        r["result"]["isError"].as_bool().unwrap(),
+        r["result"]["content"][0]["text"].as_str().unwrap().to_string(),
+    )
+}
+
+#[test]
+fn friends_reads_the_list_the_cli_prints_buddies_included() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (base, seen) = friends_origin();
+    let s = mcp::Server::new(tmp.path(), tmp.path(), &base, "linux-x86_64")
+        .with_whose(Box::new(|| Ok(ME.to_string())));
+
+    // No `wallet`: the machine's own, as `elo friends` reads it.
+    let (err, text) = call(&s, json!({"what": "friends"}));
+    assert!(!err, "{text}");
+    assert_eq!(seen.lock().unwrap().as_slice(), [format!("/api/friends/{ME}")]);
+    let doc: Value = serde_json::from_str(text.split("\n\n").next().unwrap()).unwrap();
+    assert_eq!(doc["wallet"], ME);
+    assert_eq!(doc["count"], 3);
+    assert_eq!(doc["friends"][0]["presence"], "playing Gates · Gates US East 1");
+    assert_eq!(doc["buddies"][0]["name"], "Pip");
+    assert_eq!(doc["buddies"][0]["buddy"]["id"], "pip");
+    assert_eq!(doc["asks_in"][0]["name"], "rook");
+    assert!(text.contains("UNTRUSTED"), "names are strangers' text: {text}");
+
+    // A named wallet wins over the default, and is read as typed.
+    let other = "0x2222222222222222222222222222222222222222";
+    let (err, _) = call(&s, json!({"what": "friends", "wallet": other}));
+    assert!(!err);
+    assert_eq!(seen.lock().unwrap().last().unwrap(), &format!("/api/friends/{other}"));
+}
+
+#[test]
+fn friends_refuses_what_is_not_a_wallet_and_says_whose_is_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Nothing is listening here; neither call may get as far as asking.
+    let s = mcp::Server::new(tmp.path(), tmp.path(), "http://127.0.0.1:9", "linux-x86_64")
+        .with_whose(Box::new(|| Err("whose friends? — no wallet on this machine".into())));
+    let (err, text) = call(&s, json!({"what": "friends", "wallet": "ash"}));
+    assert!(err && text.contains("not a wallet"), "{text}");
+    let (err, text) = call(&s, json!({"what": "friends"}));
+    assert!(err && text.contains("whose friends?"), "{text}");
+    // An origin nobody reached is not an empty list.
+    let (err, text) = call(&s, json!({"what": "friends", "wallet": ME}));
+    assert!(err && text.contains("NOT 'no friends'"), "{text}");
 }

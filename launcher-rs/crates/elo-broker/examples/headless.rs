@@ -75,6 +75,12 @@ impl Host for Headless {
         }))
     }
 
+    /// Every domain the SDK suites sign in to is this test title's own, so a
+    /// proof needs no prompt here — `--refuse-consent` refuses `sign` only.
+    fn serves(&mut self, _game: &str, _server: &str) -> bool {
+        true
+    }
+
     fn prove(&mut self, message: &str) -> Result<Value, Refusal> {
         let acct = Self::account();
         Ok(json!({

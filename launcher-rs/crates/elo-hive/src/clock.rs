@@ -63,6 +63,14 @@ pub fn stamp(at: i64) -> String {
     )
 }
 
+/// `"2026-08-05"` — the UTC day of a unix time. A signed play text whose
+/// detail carries an `at` keys its `day:` line to this, on both sides
+/// (`meter/playauth.day_of`), so the client can rebuild the text it signs.
+pub fn day(at: i64) -> String {
+    let (y, m, d) = civil_from_days(at.div_euclid(86_400));
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);
@@ -116,6 +124,17 @@ mod tests {
         assert_eq!(stamp(1_709_251_200), "2024-03-01 00:00Z");
         // Before the epoch, which `div_euclid` handles and `/` would not.
         assert_eq!(stamp(-86_400), "1969-12-31 00:00Z");
+    }
+
+    /// Held to `meter/playauth.day_of` on the same inputs — the two build
+    /// one signed line, so a day off by one is a signature that never verifies.
+    #[test]
+    fn the_day_is_the_meters_day() {
+        for (at, want) in [(0, "1970-01-01"), (86_399, "1970-01-01"), (86_400, "1970-01-02"),
+                           (951_782_400, "2000-02-29"), (1_709_251_199, "2024-02-29"),
+                           (1_760_000_000, "2025-10-09"), (4_102_444_800, "2100-01-01")] {
+            assert_eq!(day(at), want, "at {at}");
+        }
     }
 
     #[test]

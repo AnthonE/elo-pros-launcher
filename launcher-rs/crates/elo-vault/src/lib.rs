@@ -42,12 +42,19 @@
 
 use k256::ecdsa::{RecoveryId, Signature, SigningKey};
 use sha3::{Digest, Keccak256};
+use zeroize::Zeroize;
+pub use zeroize::Zeroizing;
 
+pub mod harden;
 pub mod keystore;
 pub mod local;
+pub mod phrase;
+pub mod tx;
 
+pub use harden::harden_process;
 pub use keystore::{decrypt, encrypt, KdfParams, Keystore};
 pub use local::LocalSigner;
+pub use phrase::Phrase;
 
 /// Where the local keystore lives, and **this is the only definition**.
 ///
@@ -99,6 +106,75 @@ pub fn pairing_path() -> std::path::PathBuf {
     keystore_path().with_file_name("pairing.json")
 }
 
+/// Write a file only its owner may read — the keystore, a pairing, a grant.
+///
+/// ⚠ **0600 from its first byte, never written wide and then narrowed.**
+/// `fs::write` then `chmod` leaves a window in which another local user who
+/// can see the directory opens the file, and a descriptor opened in that
+/// window stays readable after the chmod lands. So the file is created with
+/// its mode, and a directory this call has to make is made 0700.
+///
+/// `fresh` is the keystore's rule: refuse anything already at the path — a
+/// file, or a symlink, dangling or not, which `exists()` cannot see and
+/// `fs::write` would follow. Otherwise the new bytes go to a 0600 sibling
+/// that is renamed over the old file, so a reader holding the old one never
+/// sees the new contents and a link at the path is replaced, not followed.
+///
+/// On Windows the file inherits the user's profile ACL, which is the
+/// platform's equivalent and is not something this should second-guess.
+pub fn write_private(path: &std::path::Path, body: &[u8], fresh: bool) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b.create(dir)?;
+    }
+    let open = |at: &std::path::Path| {
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        o.open(at)
+    };
+    if fresh {
+        // A failed write leaves no partial file: the next create would refuse
+        // it as "may be the only copy of a key". It is ours to remove — the
+        // exclusive create above is what made it.
+        let mut f = open(path)?;
+        return f.write_all(body).and_then(|()| f.sync_all()).inspect_err(|_| {
+            let _ = std::fs::remove_file(path);
+        });
+    }
+    // Unique per call, not per process: two threads saving the same file
+    // (the GUI re-pairing twice) must not share, or remove, one temp file.
+    static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.{n}.tmp", std::process::id()));
+    let tmp = path.with_file_name(name);
+    let _ = std::fs::remove_file(&tmp);
+    let wrote = open(&tmp).and_then(|mut f| {
+        f.write_all(body)?;
+        f.sync_all()
+    });
+    match wrote.and_then(|()| std::fs::rename(&tmp, path)) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// The addresses this launcher has sent to, beside the keystore. Public data,
+/// kept so a send to a new or lookalike address can say so
+/// (`elo_net::wallet`). One definition, for [`keystore_path`]'s reason.
+pub fn recipients_path() -> std::path::PathBuf {
+    keystore_path().with_file_name("recipients.json")
+}
+
 /// An account this machine holds. **Never serialise this**; the encrypted
 /// [`Keystore`] is the on-disk form.
 pub struct Account {
@@ -114,9 +190,9 @@ impl Account {
     /// over — a "random" key from a failed draw is the one outcome worse than
     /// no key at all.
     pub fn generate() -> Result<Account, String> {
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|e| format!("no OS entropy: {e}"))?;
-        let key = SigningKey::from_slice(&bytes)
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *bytes).map_err(|e| format!("no OS entropy: {e}"))?;
+        let key = SigningKey::from_slice(bytes.as_slice())
             .map_err(|e| format!("the drawn bytes are not a valid key: {e}"))?;
         Ok(Account { key })
     }
@@ -128,8 +204,17 @@ impl Account {
     }
 
     /// The 32 secret bytes. Only [`encrypt`] should want these.
-    pub fn secret(&self) -> [u8; 32] {
-        self.key.to_bytes().into()
+    ///
+    /// ⚠ `Zeroizing`, so the copy is wiped when the caller drops it. The
+    /// `SigningKey` wipes its own scalar on drop; a bare `[u8; 32]` handed out
+    /// here would be a copy that outlived the lock and sat in freed memory for
+    /// a core dump or a swap file to find.
+    pub fn secret(&self) -> Zeroizing<[u8; 32]> {
+        let mut bytes = self.key.to_bytes();
+        let mut out = Zeroizing::new([0u8; 32]);
+        out.copy_from_slice(&bytes);
+        bytes.as_mut_slice().zeroize();
+        out
     }
 
     /// `0x…` checksummed per EIP-55.
@@ -276,6 +361,29 @@ pub fn checksum_address(raw: &str) -> Option<String> {
     Some(to_checksum(&bytes))
 }
 
+/// An address someone typed or pasted, as 20 bytes.
+///
+/// Mixed case must be a correct EIP-55 checksum, so a pasted address with one
+/// character changed is refused rather than paid. All-lowercase and
+/// all-uppercase carry no checksum and are taken as they are.
+pub fn parse_address(typed: &str) -> Result<[u8; 20], String> {
+    let t = typed.trim();
+    let body = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")).unwrap_or(t);
+    if body.len() != 40 || !body.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("An address is 0x and 40 hex characters.".into());
+    }
+    let bytes = unhex(body)?;
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&bytes);
+    let mixed = body.chars().any(|c| c.is_ascii_lowercase()) && body.chars().any(|c| c.is_ascii_uppercase());
+    if mixed && to_checksum(&out)[2..] != *body {
+        return Err("That address fails its checksum: a character was changed or mistyped. \
+                    Copy it again from where you got it."
+            .into());
+    }
+    Ok(out)
+}
+
 pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -289,8 +397,18 @@ pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, String> {
     if s.len() % 2 != 0 {
         return Err("odd-length hex".into());
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| e.to_string()))
+    // ⚠ Checked as BYTES before anything is sliced. A `&str` sliced two bytes
+    // at a time panics when a multibyte character straddles the cut, and under
+    // the release profile's `panic = "abort"` a manifest with an `é` in its
+    // signature killed the verifier meant to call it malformed.
+    if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("not hex".into());
+    }
+    s.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).map_err(|e| e.to_string())?;
+            u8::from_str_radix(pair, 16).map_err(|e| e.to_string())
+        })
         .collect()
 }

@@ -369,7 +369,7 @@ _client_icons()
 # The prose is DESCRIPTION, reshaped — one source for both surfaces, so the
 # software center and `apt show` cannot drift apart.
 
-RELEASE_DATE = "2026-10-18"  # dates the <release> row; bump WITH the version
+RELEASE_DATE = "2026-10-22"  # dates the <release> row; bump WITH the version
 
 
 def _desc_paragraphs() -> str:
@@ -439,6 +439,10 @@ def metainfo() -> str:
     <screenshot>
       <caption>A title's public shards — live player counts, or an honest question mark</caption>
       <image>https://elopros.com/art/client/servers.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Chat — the Elo Pros rooms, live, with the faces people chose</caption>
+      <image>https://elopros.com/art/client/chat.png</image>
     </screenshot>
   </screenshots>
   <releases>

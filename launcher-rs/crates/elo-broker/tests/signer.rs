@@ -75,6 +75,32 @@ fn an_unplaceable_family_goes_somewhere_that_exists() {
     assert_eq!(BrowserSigner::page_for("not even an elo message"), "wallet.html");
 }
 
+/// A friends change is an `elo play` text, and it is finished where the list
+/// is kept — the profile page — while every other play text keeps its page.
+#[test]
+fn a_friends_change_hands_off_to_the_profile_page() {
+    let friends = "elo play\naction: friends\nwallet: 0x1111111111111111111111111111111111111111\n\
+                   day: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\"},\
+                   \"at\":1761003600,\"op\":\"ask\"}";
+    assert_eq!(BrowserSigner::page_for(friends), "profile.html");
+    let mut s = BrowserSigner { host: "https://elopros.com".into(), wallet: None };
+    let url = s.sign(friends, "friends: add").expect_err("hands off").handoff.unwrap();
+    assert!(url.starts_with("https://elopros.com/profile.html?"), "{url}");
+
+    for other in [
+        "elo play\naction: buddy\nwallet: 0x11\nday: 2025-10-20\ndetail: {}",
+        "elo play\naction: friendsy\nwallet: 0x11",
+        "elo play\nround 41",
+        // The word in a detail is not the action.
+        "elo play\naction: buddy\nwallet: 0x11\ndetail: action: friends",
+        "elo play",
+    ] {
+        assert_eq!(BrowserSigner::page_for(other), "play.html", "{other:?}");
+    }
+    // Only a play text: another family naming friends keeps its own page.
+    assert_eq!(BrowserSigner::page_for("elo review\naction: friends"), "reviews.html");
+}
+
 /// The rule that stops an error travelling as a signature and failing far away
 /// with a useless message.
 #[test]

@@ -49,7 +49,7 @@ pub fn origin_of(url: &str) -> String {
 }
 
 /// Is this url's host one the platform has retired?
-fn on_retired_origin(url: &str) -> bool {
+pub(crate) fn on_retired_origin(url: &str) -> bool {
     let origin = origin_of(url);
     let host = origin
         .split_once("://")
@@ -84,6 +84,10 @@ pub struct Depot {
     pub total_bytes: i64,
     pub notary: Option<Value>,
     pub raw: Value,
+    /// The origin of the manifest that led here, set by `update::check` and
+    /// written into the install receipt. Not part of the document, so not
+    /// part of the digest. Empty for a depot parsed on its own.
+    pub origin: String,
 }
 
 impl Depot {
@@ -295,5 +299,6 @@ pub fn parse_depot(raw: &Value, allow_insecure: bool) -> Result<Depot> {
         total_bytes: total,
         notary: obj.get("notary").filter(|v| v.is_object()).cloned(),
         raw: raw.clone(),
+        origin: String::new(),
     })
 }

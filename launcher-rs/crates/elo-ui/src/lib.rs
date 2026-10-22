@@ -28,10 +28,18 @@
 /// A title's icon, and the placeholder for a title that publishes none. The
 /// bytes come from the origin; the refusals are here.
 pub mod art;
+/// What the Chat window draws, computed with no window.
+pub mod chatpane;
+/// Linking the chat key to the account's wallet: the origin half.
 pub mod chrome;
 /// How a game's ask for a signature reaches the player, across the one thread
 /// boundary in this client. No FLTK, so the rules are testable with no display.
 pub mod consent;
+/// A friends change from the window: the origin's routes, and the text check
+/// every change passes before anything is signed.
+pub mod friendsop;
+/// Your profile: the rules a change must pass, and the origin's face routes.
+pub mod profile;
 pub mod theme;
 pub mod windows;
 /// What the windows' controls do. Separate from `windows` on purpose — see

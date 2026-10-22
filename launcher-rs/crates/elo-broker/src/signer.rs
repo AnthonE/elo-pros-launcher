@@ -88,9 +88,13 @@ impl BrowserSigner {
     /// Where this family is finished. A message the launcher cannot place goes
     /// to the wallet page rather than to a guessed route — **a 404 in a
     /// browser is a worse answer than a general page.**
+    ///
+    /// A friends change is an `elo play` text with `action: friends`, and the
+    /// friends list is kept on your profile page, so that one goes there.
     pub fn page_for(text: &str) -> &'static str {
         let family = crate::protocol::sign_family(text).unwrap_or_default();
         match family.as_str() {
+            "play" if play_action(text) == Some("friends") => "profile.html",
             "play" => "play.html",
             "review" => "reviews.html",
             "vow" => "vows.html",
@@ -132,6 +136,13 @@ impl Signer for BrowserSigner {
             handoff: Some(url),
         })
     }
+}
+
+/// The `action:` of an `elo play` text — its second line, as
+/// `meter/playauth.play_message` writes it. Only that line is read, so a
+/// detail that happens to contain the word cannot move a text to another page.
+fn play_action(text: &str) -> Option<&str> {
+    text.lines().nth(1)?.strip_prefix("action: ").map(str::trim)
 }
 
 /// Percent-encode a query value. Small on purpose: a URL crate for two fields

@@ -144,6 +144,24 @@ fn a_key_is_stored_at_0600_and_reloads() {
     assert_eq!(Voice::load(dir.path()).unwrap().npub(), v.npub());
 }
 
+/// A link at `voice.nsec` is replaced, never written through: `fs::write`
+/// followed it and put the chat key wherever it pointed, at the target's mode.
+#[cfg(unix)]
+#[test]
+fn a_link_at_the_key_path_is_replaced_not_followed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("elsewhere");
+    std::os::unix::fs::symlink(&target, dir.path().join("voice.nsec")).unwrap();
+    let v = Voice::generate().unwrap();
+    let path = v.save(dir.path()).unwrap();
+    assert!(!target.exists(), "the key went where the link pointed");
+    let meta = std::fs::symlink_metadata(&path).unwrap();
+    assert!(meta.file_type().is_file(), "the key path is a plain file now");
+    assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(Voice::load(dir.path()).unwrap().npub(), v.npub());
+}
+
 #[test]
 fn a_missing_key_says_how_to_make_one() {
     let dir = tempfile::tempdir().unwrap();
@@ -234,4 +252,127 @@ fn live_relay_holds_presence() {
     assert_eq!(held.beats(), 3);
     println!("held presence for {npub} across {} beats", held.beats());
     held.release();
+}
+
+/// Read a room straight off the real relay — the path the Chat window takes
+/// when elopros.com is not in the way. **Reads only; says nothing.**
+///
+/// ```bash
+/// cargo test -p elo-hive --test voice -- --ignored live_relay_reads
+/// ```
+#[test]
+#[ignore]
+fn live_relay_reads_a_room_directly() {
+    use elo_hive::relay::Relay;
+    use elo_hive::Hive;
+    let host = std::env::var("ELO_HOST").unwrap_or_else(|_| "https://elopros.com".into());
+    let net = elo_net::Net::new();
+    let rooms = Hive::new(&net, &host).channels().value.expect("the origin's room list");
+    let url = rooms.relay.clone().expect("a posted relay");
+    let room = rooms.channels.first().expect("at least one room");
+    let v = Voice::generate().unwrap();
+    let mut relay = Relay::connect(&url, &v)
+        .unwrap_or_else(|e| panic!("could not authenticate to {url}: {e}"));
+    let backlog = relay
+        .subscribe("elo-live-test", &room.filter(20))
+        .unwrap_or_else(|e| panic!("#{} would not open on {url}: {e}", room.name));
+    relay.close();
+    assert_eq!(backlog.dropped, 0, "a stored event failed its signature check");
+    println!("#{}: {} stored event(s), all verified", room.name, backlog.events.len());
+}
+
+/// The whole engine, against the real origin and relay, until it says `live`.
+/// Reads only. A fresh key in a temp dir, so nothing on this machine changes.
+///
+/// ```bash
+/// cargo test -p elo-hive --test voice -- --ignored live_chat_engine
+/// ```
+#[test]
+#[ignore]
+fn live_chat_engine_goes_live() {
+    use elo_hive::chat::{Chat, Link};
+    let host = std::env::var("ELO_HOST").unwrap_or_else(|_| "https://elopros.com".into());
+    let keys = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    Voice::generate().unwrap().save(keys.path()).unwrap();
+    let chat = Chat::start(&host, keys.path().to_path_buf(), cache.path().to_path_buf());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+    loop {
+        let v = chat.view();
+        if let Link::Relay(url) = &v.link {
+            println!("live on {url}: {} room(s), {} message(s), status {:?}",
+                     v.rooms.len(), v.messages.len(), v.status);
+            assert!(!v.rooms.is_empty());
+            assert_eq!(v.dropped, 0);
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline,
+                "never went live: {:?} — {} ({})", v.link, v.status, v.why);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    drop(chat);
+    // The room list was cached for the next start without the origin.
+    let saved = elo_hive::chat::Cache::load(cache.path());
+    assert!(saved.channels.is_some(), "the room list should be cached");
+}
+
+/// A face, end to end against the real origin: `/who` names a picture on our
+/// own host, the capped fetch returns it, and it reads as an image. Uses the
+/// deploy wallet, which has a vow and so a mark. Reads only.
+///
+/// ```bash
+/// cargo test -p elo-hive --test voice -- --ignored live_face
+/// ```
+#[test]
+#[ignore]
+fn live_face_of_a_known_wallet_is_an_image_on_our_origin() {
+    let host = std::env::var("ELO_HOST").unwrap_or_else(|_| "https://elopros.com".into());
+    let net = elo_net::Net::new();
+    let id = elo_hive::who::resolve(&net, &host, "0x24445EFddB08d4938E3E3627042B2Cf4063d9092")
+        .value
+        .expect("the register answers for the deploy wallet");
+    let url = id.origin_face(&host).unwrap_or_else(|| panic!("no face on {host}: {:?}", id.face));
+    let bytes = net.art(url).value.unwrap_or_else(|| panic!("{url} did not serve"));
+    assert!(elo_hive::chat::looks_like_image(&bytes), "{url} is not an image");
+    println!("{} — {url} ({} bytes)", id.name, bytes.len());
+}
+
+/// **One wallet, one chat key, on every client.** The vector is the server's
+/// own reference (`meter/hive.py` `derive_seckey` over an `eth_account`
+/// signature, made 2026-10-21 with the meter's venv): the same wallet key,
+/// the same text, the same npub. If this fails, the launcher and the website
+/// would give one wallet two identities.
+#[test]
+fn a_wallets_chat_key_is_the_one_the_website_derives() {
+    let wallet = "0x3e20ab25eb721dd4b691516238df14f0f5d3f7a3";
+    let text = elo_hive::voice::derivation_message(wallet);
+    assert_eq!(
+        text,
+        "scry hive voice v1\nwallet: 0x3e20ab25eb721dd4b691516238df14f0f5d3f7a3\n\
+         this signature IS my hive voice key.\n\
+         sign it only to derive your scry hive identity — never on any other site."
+    );
+    // eth_account's signature for the key 0x7a…7a over that text.
+    let sig = "85194638f30fce1ede1041f70e85a9cc94841f813babc1e92468dd5ee25cece8\
+               48675754662b9a2c319cfc6f2af920106a74547c8920dd5928cc5078578a25d51b";
+    let v = Voice::from_wallet_signature(sig).unwrap();
+    assert_eq!(v.npub(), "npub1k7dy53fkr25pupyjxqn64aytu8v792v96l9p2f7gl3edk424ljrsnqjp92");
+    // A `0x` prefix and a different `v` byte change nothing: only r‖s counts.
+    let other_v = format!("0x{}1c", &sig[..128]);
+    assert_eq!(Voice::from_wallet_signature(&other_v).unwrap().npub(), v.npub());
+    assert!(Voice::from_wallet_signature("0xdead").is_err());
+}
+
+#[test]
+fn unhex_refuses_what_is_not_hex_without_panicking() {
+    use elo_hive::voice::unhex;
+    assert_eq!(unhex("00ff").unwrap(), vec![0, 255]);
+    assert_eq!(unhex("ABcd").unwrap(), vec![0xab, 0xcd], "wallets write either case");
+    // An even number of bytes that is not an even number of characters: a
+    // slice through the middle of a char is a panic, and panic = "abort".
+    assert!(unhex("a\u{e9}a").is_err());
+    assert!(unhex("\u{e9}\u{e9}").is_err());
+    // `from_str_radix` takes a sign; hex does not.
+    assert!(unhex("+f").is_err());
+    assert!(unhex("abc").is_err());
 }

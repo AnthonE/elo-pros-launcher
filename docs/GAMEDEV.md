@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-16
+updated: 2026-10-21
 about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
@@ -25,6 +25,15 @@ nothing about crypto beyond *a player has an Ethereum address.*
 **A browser game on its own domain swaps the first row** for the web SDK,
 `https://elopros.com/sdk/elo-1.js`: it connects the player's own wallet and
 signs them in to your server with the same SIWE message (§5).
+
+**The SDK packages wrap both halves**, one per language: the Rust `elo-sdk`
+crate (`sdk/rust`), the Python `elo-sdk` package (`sdk/python`) and
+`@elopros/sdk` (`sdk/js`). Each has the launcher client, typed calls for the
+reads in §3 (friends and their signed changes, copies, items, faces, `who`,
+the leaderboard) and a writer for a wipe's payout file. They are not on the
+package registries yet: take them from
+`https://github.com/AnthonE/elo-pros-launcher/tree/main/sdk` (`sdk/README.md`
+is the index).
 
 Nothing here needs an API key, a partner agreement, or an account with us. Every
 read below is public and works from `curl`.
@@ -136,20 +145,20 @@ Base: `https://elopros.com`
 | **everything about one party** | `/api/who?handle=<address\|name\|npub\|vow_id>` | the join behind `profile`. 404 means *nobody has sworn*, which is a real answer |
 | **achievements** | `/api/achievements/of/{wallet}` | `earned` plus **`uncheckable`** — read the second, see below |
 | what achievements exist | `/api/achievements` | the catalog and its evidence kinds |
-| **items (NFTs)** | `/api/items/of/{wallet}` | ERC-721 on 4663. ⚠ answers `configured: false` today — see below |
+| **items (NFTs)** | `/api/items/of/{wallet}` — `?title=<slug>` keeps one game's | ERC-721 on 4663; Gates' contract is `EloItem:GATES`. ⚠ `reachable: false` means *could not look* — see below |
 | how an item's traits are derived | `/api/items/provenance` | published spec; needs no contract, recomputable by anyone |
 | **token balances** | `/api/holdings/{wallet}` | the reserve and each game's own coins, read by `balanceOf`. ⚠ a null balance is a **failed read**, never a zero |
 | **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
+| **friends** | `/api/friends/{wallet}` | who the player plays with and what each is playing now (with an `elo://join` link), the player's own AI agents (`buddies`) and pending asks. Public. A change is signed: `POST /api/friends/prepare`, then `POST /api/friends/act` (`docs/client/FRIENDS.md`) |
 | **reputation** | `/api/reputation/{address}` | soulbound; earned or slashed by outcomes, never bought |
-| a leaderboard | *(your game's own)* | the platform served one from the arena until that room was deleted 2026-08-15. A ladder is the game's to keep — the platform verifies outcomes, it does not rank them for you |
+| a leaderboard | `/api/leaderboard/{slug}` | the boards your shard reports, ranked by its game score: this wipe's and the closed ones (`final: true`). `?kind=agent` or `?kind=human` ranks one side. The house ranks what the shard published and never re-scores it |
 | identity detail | `/api/vow/{vow_id}` | conduct, cadence, the public record |
 | an avatar | `/api/vow/{vow_id}/mark.svg` | deterministic, cacheable |
 
 ### Your game brings its own coins
 
-**Elo has exactly one coin — the reserve.** JUNK and ORBS are what
-**Gates** happens to use; they are a worked example, not a platform currency
-you inherit.
+**Elo has exactly one coin — the reserve.** JUNK is what **Gates** happens
+to use; it is a worked example, not a platform currency you inherit.
 
 So: **a coin policy is your design, and the platform does not dictate design**
 (`docs/GATES.md` §3.4). The one rule that does not bend is §2.1 — **every game
@@ -195,19 +204,19 @@ This town publishes its zeros on purpose, which means **an empty answer is
 usually a fact, not a failure — but not always, and the difference is in the
 payload.** Read the flag, never the count:
 
-- **`/api/items/of/{wallet}`** returns `configured: false, deployed: false` with
-  an empty `items` list. That means *no item contract exists yet*, not *this
-  player owns nothing*. Render it as "no items in this game" only once
-  `configured` is true.
+- **`/api/items/of/{wallet}`** returns an empty `items` list with
+  `reachable: false` when the explorer or the chain could not be read. That
+  means *we could not look*, not *this player owns nothing*. A meter with no
+  item contract answers `configured: false` the same way. Render "no items"
+  only when neither flag says otherwise.
 - **`/api/achievements/of/{wallet}`** returns `earned` **and** `uncheckable`.
   The second is the list of badges whose evidence nobody can currently verify.
   Showing `earned` alone as the whole truth overstates; showing
   `earned + uncheckable` as earned overstates worse.
-- **There is no platform leaderboard route.** `/api/arena/leaderboard` served
-  one until 2026-08-15 and is gone. The distinction it taught still applies to
-  whatever you build: zero rows in a live season and zero rows because there is
-  no season are different sentences, and a card that renders them the same way
-  is lying in one of the two cases.
+- **`/api/leaderboard/{slug}`** answers `published: false` when a title has no
+  board, and `shard.why` when its shard did not answer. Zero rows in a live
+  wipe and zero rows because there is no board are different sentences, and a
+  card that renders them the same way is lying in one of the two cases.
 
 **The general rule, and it is this repo's oldest scar:** a reader that never
 raises returns nothing for both *"there is nothing there"* and *"we could not
@@ -251,7 +260,9 @@ the rights to the game and accepts the community terms), then
 then on. The page is marked *community*, it runs on your own host
 (`play_url`, https, opened in a new tab), and it rises on the shelves only by
 copies sold. To sell copies, the desk's *sell copies* makes you a ticket whose
-money lands in a sale split: **95% to you, 5% to us**.
+money lands in a sale split: **100% to you, 0% to us**. The house share is read
+from the claim terms, never assumed: `house_bps` in `GET /api/store/open`
+(`on_chain`), and in `you_get` on `GET /api/store/open/list/prepare`.
 
 A community game is **web-only**: the launcher opens its `play_url` and never
 serves it a depot build. Link the web SDK instead:
@@ -277,9 +288,9 @@ on an interval: `POST /api/ticket/{slug}/check {"wallets": [...]}`. Kick on
 player.
 
 **Get picked — an Elo Pros original.** Our own shelf is placed by hand, and a
-game there runs the whole stack: open source at listing, a coin paired with the
-reserve, the launch curve, native builds through the launcher (a manifest and a
-depot — `docs/client/LAUNCHER.md` §3). There is no form for that one either.
+game there runs the whole stack: open source at listing, a coin launched on an
+outside launchpad and paired with the reserve, native builds through the
+launcher (a manifest and a depot — `docs/client/LAUNCHER.md` §3). There is no form for that one either.
 Made it in an AI game maker? `docs/builders/PORT-BOUNTY.md` is the paid port —
 optional help, never the door.
 

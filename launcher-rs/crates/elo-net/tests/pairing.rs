@@ -145,6 +145,48 @@ fn an_expired_pairing_reads_as_none_unless_you_ask_for_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A pairing is written 0600 from its first byte, in a 0700 directory it had
+/// to make, and a link at its path is replaced rather than written through.
+/// `fs::write` then `chmod` left a window another local user could open the
+/// bearer in, and followed whatever symlink sat at the path.
+#[cfg(unix)]
+#[test]
+fn a_pairing_is_never_written_wide_or_through_a_link() {
+    use std::os::unix::fs::PermissionsExt;
+    struct Gone(std::path::PathBuf);
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = Gone(std::env::temp_dir().join(format!("elo-pair-mode-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&root.0);
+    std::fs::create_dir_all(&root.0).unwrap();
+    let root = &root;
+    let dir = root.0.join("elo");
+    let path = dir.join("pairing.json");
+    let p = Pairing {
+        host: "https://elopros.com".into(),
+        code: "ABCD2345".into(),
+        secret: "0123456789abcdef0123456789abcdef".into(),
+        address: "0x00000000000000000000000000000000000000ab".into(),
+        expires: u64::MAX,
+    };
+    pairing::save(&path, &p).expect("save");
+    let mode = |q: &std::path::Path| std::fs::metadata(q).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir), 0o700, "the directory it made is the holder's alone");
+    assert_eq!(mode(&path), 0o600);
+
+    // A re-pair over a link: the link is replaced, its target never touched.
+    std::fs::remove_file(&path).unwrap();
+    let target = root.0.join("elsewhere.json");
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    pairing::save(&path, &p).expect("re-save");
+    assert!(!target.exists(), "the bearer must not land at the link's target");
+    assert!(pairing::load(&path).is_some(), "and it is at the path it was asked for");
+    assert_eq!(mode(&path), 0o600);
+}
+
 // ── a stub of meter/browser_signer.py's relay routes ─────────────────────────
 //
 // Hand-written for the same reason `elo-launcher/tests/origin.rs`'s is: a web

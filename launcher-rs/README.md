@@ -1,7 +1,7 @@
 # launcher-rs — the desktop client, in Rust
 
 **The client that ships, and the only one.** The depot seam, the updater, the
-command line, all six windows, the vault and the broker. Design of record is
+command line, all seven windows, the vault and the broker. Design of record is
 [`docs/client/LAUNCHER.md`](../docs/client/LAUNCHER.md).
 
 The Python+tkinter client this replaced was **deleted 2026-08-07** — do not
@@ -63,7 +63,14 @@ elo digest  <depot>           the bytes32 a notary would commit
 elo chat [rooms|read|voice]   the Elo Pros chat rooms, read
 elo chat whoami               the chat key this machine speaks with
 elo chat voice-new            make one (schnorr, kept here, never sent)
+elo chat link                 speak with your wallet's own key, so rooms
+                              show your profile name and picture
+elo chat unlink               undo that — the key stays on this machine
 elo chat say <text>           say something in #general, or --room gates
+elo friends                   your friends, and what each one is playing
+elo friends add <who>         ask a wallet or a name (accept, decline, cancel,
+                              remove, block, unblock the same way)
+elo friends join <who>        join the server a friend is playing on
 elo sessions                  what has been played, and what is running
 elo mcp                       serve these reads over MCP on stdio
 ```
@@ -132,6 +139,11 @@ properties, and the last is the one this repo has to be careful about:
   tell them apart too.
 
 ## The hive, ripped
+
+**`elo-gui` has a Chat window now** (2026-10-20), and it reads a room straight
+off the relay rather than through the mirror below, so chat works with the
+origin down. Everything below is how the command line got there first;
+`docs/client/LAUNCHER.md` §10q is the window.
 
 `watchtower/chat.html` is the browser client for Elo Pros chat. The
 basics move into the app for **less than the last session estimated**: reading
@@ -350,10 +362,10 @@ that owned them had been deleted for six days and this one had drawn all six
 for longer than that. A stale gap list is worse than none: it tells a reader
 the thing in front of them does not exist. What is actually missing:
 
-- **Four of the original client's nine screens.** `windows::MENU` carries six —
-  Games, Store, Servers, Account, Signing, About — and every entry names a
-  window that exists, because the menu renders an unbuilt one as deactivated
-  and says so. `Library`, `Friends`, `Monitor` and `Settings` are not built.
+- **Three of the original client's nine screens.** `windows::MENU` carries
+  seven — Games, Store, Servers, Friends, Account, Signing, About — and every
+  entry names a window that exists, because the menu renders an unbuilt one as
+  deactivated and says so. `Library`, `Monitor` and `Settings` are not built.
 - **A progress row for an install.** The download blocks the UI thread for its
   whole length; the button says `Installing…` first so the freeze reads as the
   install rather than as a crash, but that is a mitigation and not the fix.

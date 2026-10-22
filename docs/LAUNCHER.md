@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-17
-about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window."
+updated: 2026-10-22
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -23,7 +23,7 @@ about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: 
 > ⚠ **The move to Rust is done, and the Rust client is the one that ships**
 > (operator, 2026-08-05: *"should we make the launcher Rust instead of python.
 > i like rust"*). `launcher-rs/` has the depot seam, the updater, the CLI, all
-> six windows, the vault and the broker. ⚠ **The Python+tkinter client was
+> seven windows, the vault and the broker. ⚠ **The Python+tkinter client was
 > DELETED 2026-08-07** — this page said it "still runs" until 2026-08-12. Do not
 > reintroduce one. §10 is the reasoning, §10b9 is the packaging. **The native client is what `/download.html` hands out, and it is
 > the only one with a Windows build.**
@@ -82,9 +82,9 @@ state armed on chain, gold marks in-build, and `test_launcher.py` fails on a
 Play button wearing green. That law is the website's (§14b); porting the skin
 did not get to relax it.
 
-Multi-window, like the original: Games, Store, Library, Account, Signing,
-Friends, Servers, Monitor and Settings each open off a menu of
-buttons-with-a-sentence. What is
+Multi-window, like the original: Games, Store, Servers, Friends, Account,
+Signing and About each open off a menu of buttons-with-a-sentence. The
+original's Library, Monitor and Settings are not built. What is
 **not** ripped is the client's hand-drawn title bar — a borderless window on
 Ubuntu trades its taskbar entry, its snapping and its keyboard shortcuts for a
 strip of pixels. The body is the rip; the frame is the desktop's.
@@ -628,6 +628,8 @@ install it. A game-owned scheme cannot: the game is what is missing.
 | `elo join <link>` | resolves it and becomes `play <slug> --server <addr>` — not a second launch path, so playtime, presence and session records cannot drift |
 | `elo <link>` | the desktop hands a handler its url as `argv[1]`; it is rewritten to `join` before dispatch, so the clicked path and the typed one are one path |
 | the Servers window | **Invite** copies the canonical link for a row |
+| `elo friends join <who>` | reads the friend's link off your friends list and runs it through `elo join` — the same path as a pasted one (§6c) |
+| the Friends window | **Join** follows a friend's (or your own agent's) link the way the Servers window's Join does; **Invite** copies it |
 | Gates itself | parses `elo://join/gates/…` and `gates://host:port` on its argv, for a url handed straight to the game |
 
 **A link may name a title and an address and nothing else.** Not an identity,
@@ -650,6 +652,27 @@ xdg-mime default elo-join.desktop x-scheme-handler/elo
 
 Windows has no equivalent yet; it is a registry key under
 `HKCU\Software\Classes\elo` and nothing writes it.
+
+## 6c · Friends — who is playing where
+
+A friends list is a list of wallets, kept by the origin (`meter/friends.py`)
+and public like playtime. The client reads it and follows it; it never keeps
+one of its own.
+
+| | |
+|---|---|
+| `elo friends [--wallet 0x…]` | the list: each friend's name, wallet and where they are — *playing Gates · US East 1* with the join link, *last online 3h ago*, or *offline*. The wallet's own agents (`buddies`) come next under *your agents*, marked *(agent)*: no ask made them a row and no change touches them. Asks waiting either way come after. The wallet is `--wallet`, then `ELO_WALLET`, then the address this machine signs as |
+| `elo friends add\|accept\|decline\|cancel\|remove\|block\|unblock <who>` | one signed change. `<who>` is a wallet or a name (`elo who`'s lookup). Prepare, sign, submit — the dev desk's three beats — so a refusal arrives in the origin's words before anything is signed, and `--dry-run` shows the text. The client rebuilds the text from the change typed (`elo_net::friends::sign_text`, pinned byte for byte to `sdk/testdata/friends_texts.json`) and signs only if the origin offered exactly that |
+| `elo friends join <who>` | the friend's `playing.join`, through `elo join` — so it becomes `play` like any link (§6b). `--wallet` picks whose list is read and is not passed to the game |
+| the Friends window | the same list, read when the window opens and on **Refresh**, and the same changes. Asks waiting on you come first with **Accept** and **Decline**; then friends, with **Join** and **Invite** where their server is known and **Remove**; then your agents, marked *(agent)*, with Join and Invite and no Remove; then your own asks with **Cancel**. The box under the list **Ask**s a wallet or a name. Each change is one signature over the text the CLI would sign, made off the UI thread: with an account here, a passphrase prompt that carries the exact text; with a browser pairing, approved in the browser; with neither, handed to the website's profile page. A change that lands repaints from the list the origin sends back; a refusal is the status line, in the origin's words |
+| `elo mcp`, `what=friends` | the list as `elo friends --json` prints it, buddies included, for `wallet` or the one `elo friends` defaults to. A read — changing a list stays a signed act (§10g) |
+
+**Presence is measured by the shards, never by the client.** It comes from
+the playtime ledger, which each shard's own roster feeds, and the list says
+whether that ledger could be read. When it could not, every friend reads `—` —
+not *offline* — and nothing offers a Join. A join link is re-checked against
+§6b's grammar when the list is parsed and again when it becomes an argv; a link
+that fails reads as *no link known*.
 
 ## 7 · What is dark, and why
 
@@ -1108,7 +1131,8 @@ saw it.
 
 `elo mcp` is the other half of *no plugin loader* (`SENTENCES.md` 2026-08-05):
 **the user's own harness is the mod.** Read-only by construction — no install,
-no play, no speaking, because an agent that can install software or post as you
+no play, no speaking, no friends change (`what=friends` reads a list and
+nothing more), because an agent that can install software or post as you
 without a human act is a different product. One dispatcher tool with a `what=`
 selector, the same token discipline the store MCP uses (`meter/mcp_http.py`).
 Local, because a hosted
@@ -1859,6 +1883,187 @@ well of empty olive where the game used to be.
 
 ⚠ **What this pass did not fix:** the install still blocks the UI thread
 (above), and a resized window's height is not remembered across a Refresh.
+
+### 10q · Chat, in the window — read off the relay, not the origin
+
+> Operator, 2026-10-20: *"shouldnt we form buzz into our desktop launcher
+> anyways? then we get chat we use anyways?"*
+
+`elo chat` had the rooms since §10d; `elo-gui` had nothing, and both read every
+room **through the origin's mirror** (`GET /api/hive/room`). The relay runs on
+the game VM and the meter on another box, so chat went dark whenever the meter
+did, with the relay fine. The window is the fix, and its reads are the point:
+
+| where a room is read from | when |
+|---|---|
+| **the relay, directly** — the same NIP-42 socket a note is posted on, REQ then live | there is a chat key on this machine (`elo chat voice-new`, or the window's **Make a chat key**) |
+| the origin's mirror, polled | no chat key (the relay asks a reader to sign in), or the relay will not answer |
+| the last visit's room list (`chat/chat.json` under the state root) | the origin cannot be reached at all |
+
+Four rules, each with a test:
+
+* **Every event off the relay is checked** — id recomputed, signature
+  verified (`relay::checked`). A forgery is counted on the status line and
+  never shown. `tests/fake_relay.rs` serves one over real TLS on localhost,
+  because the live rooms were all empty on 2026-10-20 and could not.
+* **A room's event must carry that room's `#h`.** A relay chooses what it sends
+  under a subscription; an event for another room is not this room's message.
+* **One socket for reading and posting.** buzz clears a key's presence when any
+  of its connections closes, so a short posting socket would knock the player
+  offline. Messages that land while a note waits for its ruling are stashed and
+  delivered after it, in order — the fake relay sends one exactly there.
+* **The engine runs only while the window is open.** Opening Chat starts it;
+  closing the window drops the socket, which takes the player offline. A player
+  who never opens Chat never connects. Escape does not close it (it clears a
+  half-typed line); the window manager's close box does.
+
+The engine is `elo-hive/src/chat.rs` and draws nothing; `elo-ui/src/chatpane.rs`
+turns its view into lines with no window; `windows::chat` and `wiring::wire_chat`
+draw and dispatch. Sworn names come from the mirror and are cached per npub, so
+a message read off the relay still wears the register's name. The feed is a
+text widget (no `@` parsing), the room list uses `windows::room_line` (`@.` ends
+the browser's format codes before the name), and every line goes through
+`render::safe_line`, as the terminal does.
+
+**Faces.** Every message has a picture beside it, in the order the site's
+profile uses: the wallet's own picture (`/api/face`), the Elo Pros seat it
+holds, the vow's mark, and otherwise a tile with the speaker's letter. Each
+speaker is resolved once through `who::resolve` — the one identity rule — on a
+thread of its own, so a slow lookup never holds up the room's socket. Three
+rules: **only pictures on our own origin are fetched** (`Identity::origin_face`;
+a hive picture is a url its owner chose, and fetching it would hand that host
+every reader's IP — the site's CSP refuses it the same way); the bytes are
+capped and sniffed (`art::Icon`) before a decoder sees them, and one that will
+not decode leaves the tile; the house wears our mark. They are painted into the
+feed's own left margin (its line-number gutter, drawn in the well's colour), so
+the text still selects, copies and wraps.
+
+⚠ **The face urls were dead, and the tests pinned them.** `who.rs` built
+`{host}/vow/…/mark.svg` from `/who`'s `avatar` — a bare route path, a 404 at
+the site root — and `/api/mark/{handle}.svg` for everyone else, a route that
+does not exist. Both are `/api`-healed or gone now (`who::on_origin`), and the
+tests assert urls the origin serves (`live_face_…` in `tests/voice.rs` fetches
+one). The site had the same gap from the other side: `chat.js` read a `wallet`
+off `/hive/room` that the route never sent, so a sworn speaker's own picture
+never showed; the mirror sends it now (`meter/hive.py` `_bound_wallet`).
+
+**Your profile, in Account.** The account well shows your picture and profile
+name (`/api/face/{wallet}`, read off the UI thread; a failed read says so and
+never reads as "no profile"), and **Edit profile…** changes them: a name and a
+square PNG, one EIP-191 signature by this account over the text
+`/api/face/prepare` hands back, then `POST /api/face` — the same write the site
+makes. `wiring::set_profile` refuses everything it can before the passphrase:
+no account, nothing to change, a name or picture `faces.py` would refuse (its
+rules, checked early in `profile.rs`, never instead of it), an origin that will
+not prepare. The prompt carries the exact text signed. `tests/profile_local.rs`
+drives the whole change against a real `faces.py` on loopback — a real
+keystore, the real verify, the bytes read back — and refuses any origin that is
+not loopback, so it can never write a profile to production.
+
+**Link to my wallet.** A chat key and a wallet were strangers: the relay only
+ever sees the key, the store only ever sees the wallet, so a launcher speaker
+showed as an npub. Linking joins them, and it is two things in one act. **The
+key becomes the wallet's own**: the account signs `voice::derivation_message`
+and the key is `sha256(r‖s) mod n` of that signature — the key elopros.com
+makes from the same wallet, so one wallet is one identity on every client
+(`tests/voice.rs` and `wiring` pin a vector from the meter's own reference, and
+the vault's signature equals `eth_account`'s byte for byte). Then **both keys
+sign the link** (`/api/hive/link`, the shape the store uses to link two
+wallets): the account over a `chatkey` play text with an `at` that only
+grows, the key over a statement naming the wallet. The room mirror then sends
+that wallet beside the key's notes and `/who` answers the npub as the wallet,
+so every surface names it the way the store does. One passphrase covers both
+wallet signatures, and each text is shown before it is signed; a key text that
+differs from the website's is refused before the passphrase, and a key that was
+on the machine is kept beside the new one. `tests/chatlink_local.rs` runs it
+against the real `hive.py` on loopback.
+
+**Unlink, and the same link from a terminal.** The flow lives once, in
+`elo-hive/src/link.rs`, and asks its caller for each signature with the exact
+text, so the window and `elo chat link` / `elo chat unlink` are one
+implementation. It rebuilds every text the wallet signs — the derivation text
+and the `chatkey` play text (`elo play`, the wallet, `day_of(at)`, sorted
+compact `{"at","npub"}`) — and refuses an origin that offers anything else, so
+nothing is signed on the origin's word. **Unlink** is one signature over the
+same text naming `-`: rooms stop showing the profile beside the key, and the
+key stays on the machine and keeps speaking. In the window it takes the link
+button's slot once the key is linked to the account; in the terminal every
+text is printed before the signer is asked, and a signature that would go
+unasked (the second, on a keystore already unlocked) waits for a `y` or
+`--yes`. `elo chat whoami` says whether the key is linked, and `elo chat read`
+names a speaker the room ties to a wallet by the wallet's profile name, as the
+window and the site do.
+
+The chat key's path moved into `elo-hive` (`voice::default_dir`) and the state
+root into `elo-depot` (`dirs::state_root`), so the CLI and the window find the
+same key — the same reason `elo_vault::keystore_path` is defined once.
+
+Two first-pass fixes rode with it: the menu now **paints before the startup
+reads** rather than after them (with the origin down it was an empty frame for
+up to a minute per read), and About no longer says *"It holds no key of
+yours"* — false since the client could make an account.
+
+⚠ **`set_column_char('\0')` panics in fltk-rs**, and the Chat window is built
+at startup, so the first draft took the whole launcher down before the menu
+drew. `tests/chat.rs` builds the window headless so that class of crash fails a
+test; `tests/chat_paint.rs` paints it and needs a display
+(`xvfb-run cargo test -p elo-ui --test chat_paint -- --include-ignored`).
+
+What is next for it, and the rest of the "if our hosting died" plan the relay
+list starts: `docs/ops/IF-HOSTING-DIES.md`.
+
+### 10r · The wallet
+
+> Operator, 2026-10-22: *"with all the security crap going down on the
+> internet today i think the launcher SHOULD be a super clean and secure
+> wallet."*
+
+The launcher held a key and could sign a game's sign-in; it could not show a
+balance or send anything, and its only backup was a JSON file. Now it is the
+holder's wallet: **Wallet** in the menu, `elo wallet` and `elo send` in the
+CLI. What makes it safe, each with the code that does it:
+
+* **Twelve recovery words** (`elo-vault/src/phrase.rs`). BIP-39 at
+  `m/44'/60'/0'/0/0`, so they bring the account back in MetaMask or any
+  wallet. Shown once, three asked back before anything is written, never
+  stored by us. Refused while streamer mode is on. "Restore or import" takes
+  the words or a hex key.
+* **The key stays put** (`local.rs`, `keystore.rs`, `harden.rs`). The
+  keystore is created 0600 in one step (no world-readable moment, no
+  overwrite race), a new passphrase needs 8 characters, derived keys and
+  decrypted bytes are zeroed on drop, and both binaries turn off core dumps
+  and, on Linux, same-user `ptrace` and `/proc/<pid>/mem` at startup — what
+  `ssh-agent` does. Root, the kernel and swap are still out of reach of this.
+* **Numbers come from the chain** (`elo-net/src/chain.rs`). Balances, nonce,
+  fees and gas are JSON-RPC calls to Robinhood Chain (`ELO_RPC` overrides).
+  The origin only says which coins exist; each token's decimals and symbol
+  are read from its contract, because an amount typed against wrong decimals
+  sends a different amount. A failed read shows "could not read", never 0.
+* **A send is checked with no key** (`elo-net/src/wallet.rs`). Mixed-case
+  addresses must pass EIP-55, so a changed character is refused. Zero, the
+  zero address, a token sent to its own contract, more than you hold, too
+  little ETH for the fee, a chain id other than 4663 and a transfer the chain
+  says would revert are all refused before anything is shown.
+* **The review is read out of the transaction**, not the form, and notes a
+  first-time recipient, a **lookalike** of one you have paid (same first and
+  last four characters: address poisoning), a contract, and a wallet that has
+  delegated to a contract (EIP-7702). Then the passphrase, **for every send**,
+  even with the account unlocked: an unlocked session answers games, never
+  money. The game door has no verb that reaches a transaction.
+* **Only type 2, only chain 4663** (`tx.rs`). The chain id is a constant, so
+  an RPC cannot steer a signature onto another chain. Nothing here builds an
+  EIP-7702 authorization or a typed-data permit, the two signatures most
+  drains run on; if this account carries a 7702 delegation anyway, the wallet
+  says so in red, because this launcher did not sign it.
+
+Checked byte for byte against `eth_account`: the BIP-39 vectors, the derived
+keys and addresses, and four signed transactions (`elo-vault/tests/wallet.rs`).
+`elo-net/tests/wallet.rs` holds the send rules against a fake chain and
+`examples/click.rs` presses the real Wallet buttons. Zero new packages:
+`pbkdf2`, `hmac`, `sha2` and `zeroize` were already in the tree.
+
+Not built yet: NFTs (the copy, items) in the Wallet, a QR code for receiving,
+and hardware-wallet signing.
 
 ## Reading order
 

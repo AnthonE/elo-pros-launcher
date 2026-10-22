@@ -361,6 +361,9 @@ impl elo_broker::Host for Prover {
             "address": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
         }))
     }
+    // Every server these tests prove for is the title's own — the case that
+    // signs with no prompt. A sign-in elsewhere asks (`tests/consent.rs`).
+    fn serves(&mut self, _g: &str, _s: &str) -> bool { true }
     fn title_url(&self, _s: &str, _w: elo_broker::What) -> Option<String> { None }
     fn open(&mut self, _u: &str) -> Result<(), elo_broker::protocol::Refusal> { Ok(()) }
 }
@@ -541,6 +544,7 @@ fn a_proof_signed_by_the_wrong_account_is_refused() {
                 "address": "0x000000000000000000000000000000000000dEaD",
             }))
         }
+        fn serves(&mut self, _g: &str, _s: &str) -> bool { true }
         fn title_url(&self, _s: &str, _w: elo_broker::What) -> Option<String> { None }
         fn open(&mut self, _u: &str) -> Result<(), elo_broker::protocol::Refusal> { Ok(()) }
     }
@@ -554,7 +558,8 @@ fn a_proof_signed_by_the_wrong_account_is_refused() {
             "{out}");
 }
 
-/// **No prompt, and that is the whole point of the verb.**
+/// **No prompt for the title's own server, and that is the whole point of the
+/// verb.** A sign-in to any other site asks (`tests/consent.rs`).
 #[test]
 fn prove_never_asks_for_consent() {
     let mut host = Prover::default();
@@ -747,6 +752,7 @@ impl elo_broker::Host for PageProver {
     fn prove_domain(&self, server: &str) -> Option<String> {
         server.ends_with(".elopros.com").then(|| "elopros.com".to_string())
     }
+    fn serves(&mut self, g: &str, s: &str) -> bool { self.0.serves(g, s) }
     fn title_url(&self, s: &str, w: elo_broker::What) -> Option<String> { self.0.title_url(s, w) }
     fn open(&mut self, u: &str) -> Result<(), elo_broker::protocol::Refusal> { self.0.open(u) }
 }
@@ -757,7 +763,8 @@ impl elo_broker::Host for PageProver {
 /// check passes, and the `URI:` line still names the shard — the bytes Gates'
 /// shards rebuild for a browser login (`siwe_message_for`, `siwe_domains`).
 /// A server elsewhere keeps the launcher's own form, and no consent is spent
-/// on either: the launcher still writes every word.
+/// on either while both are the title's own servers: the launcher still
+/// writes every word.
 #[test]
 fn a_browser_wallet_proves_under_its_own_site_with_the_shard_in_the_uri() {
     let mut s = elo_broker::Session::default();
@@ -786,4 +793,39 @@ fn a_browser_wallet_proves_under_its_own_site_with_the_shard_in_the_uri() {
     assert!(host.0.seen.borrow()[1].starts_with("play.example wants you to sign in"),
             "a server elsewhere keeps the launcher's own form");
     assert_eq!(*host.0.consents.borrow(), 0, "prove spends no consent either way");
+}
+
+/// **A message the prompt cannot draw in full is refused before it is shown.**
+///
+/// The consent window hands the text to an FLTK buffer, which cuts it at the
+/// first NUL (`CString::safe_new`), so `detail: gg\0<anything>` drew as
+/// `detail: gg` while the signer signed every byte after it. A bidi override
+/// reorders what is drawn, and a C0/C1 or Unicode line separator splits lines
+/// for a Python verifier (`str.splitlines`) where the prompt drew one. None of
+/// these is a legitimate byte in an `elo <family>` text, so the door refuses
+/// them, names the character, and never reaches the prompt or the signer.
+#[test]
+fn a_message_with_a_hidden_or_reordering_character_is_refused_before_consent() {
+    for bad in [
+        "elo play\naction: duel\ndetail: gg\u{0}\naction: give\namount: all",
+        "elo play\ndetail: gg\r",
+        "elo play\ndetail: \u{1b}[2J",
+        "elo play\ndetail: \u{85}hidden",
+        "elo play\ndetail: \u{202e}evig",
+        "elo play\ndetail: \u{2066}x\u{2069}",
+        "elo play\ndetail: a\u{2028}action: give",
+        "elo play\ndetail: \u{7f}",
+    ] {
+        let mut h = Fake::default();
+        let out = talk(&mut h, &[hello(), json!({"op": "sign", "text": bad, "why": "w"})]);
+        assert_eq!(out[1]["ok"], json!(false), "{bad:?} must not sign");
+        assert!(h.shown.is_empty(), "{bad:?} reached the prompt");
+        assert_eq!(h.signed, 0, "{bad:?} reached the signer");
+        assert!(out[1]["reason"].as_str().unwrap().contains("U+"),
+                "the refusal names the character: {}", out[1]["reason"]);
+    }
+    // Newlines and tabs are the grammar's own whitespace, and still sign.
+    let mut h = Fake::default();
+    let out = talk(&mut h, &[hello(), json!({"op": "sign", "text": "elo play\ndetail:\tgg", "why": "w"})]);
+    assert_eq!(out[1]["ok"], json!(true), "{}", out[1]);
 }

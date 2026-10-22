@@ -280,6 +280,11 @@ pub fn check_slug(game: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// A character RFC 3986 lets a url carry unencoded: unreserved, reserved, `%`.
+pub fn url_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "-._~:/?#[]@!$&'()*+,;=%".contains(c)
+}
+
 /// `open` is https-only. A launcher that will open any url a game hands it is
 /// a launcher that will open `file:///` and `javascript:`.
 pub fn check_url(req: &Value) -> Result<String, Refusal> {
@@ -290,6 +295,15 @@ pub fn check_url(req: &Value) -> Result<String, Refusal> {
     if !url.starts_with("https://") {
         return Err(Refusal::new(format!(
             "open is https only, got {url:?}"
+        )));
+    }
+    // RFC 3986's characters and nothing else. The url reaches the platform's
+    // page opener, and on Windows a quote, caret, pipe, angle bracket or space
+    // is how a url stops being one argument; a game forwarding a link it did
+    // not write (chat, another player) must not be able to hand it one.
+    if let Some(bad) = url.chars().find(|c| !url_char(*c)) {
+        return Err(Refusal::new(format!(
+            "open: {bad:?} is not a url character — percent-encode it"
         )));
     }
     Ok(url.to_string())
@@ -626,4 +640,39 @@ pub fn sign_family(text: &str) -> Result<String, Refusal> {
         )));
     }
     Ok(family.to_string())
+}
+
+/// A `sign` text may hold only characters the consent prompt draws as
+/// themselves: newline and tab as whitespace, nothing else invisible.
+///
+/// ⚠ **Refused, never sanitised.** The prompt says it shows "the whole of what
+/// would be signed", and three classes break that sentence:
+///
+/// * NUL — FLTK's `TextBuffer::set_text` goes through a C string and stops at
+///   the first one, so everything after it is signed and never drawn.
+/// * Every other C0/C1 control, DEL, and U+2028/U+2029 — invisible or drawn as
+///   nothing, and a Python verifier's `str.splitlines` breaks lines on several
+///   of them where this side's `lines()` does not.
+/// * Bidi overrides and isolates — drawn in an order that is not the byte
+///   order (the same set `elo_hive::render::safe_line` takes out of chat).
+///
+/// No `elo <family>` grammar uses any of them, so a game that sends one is
+/// either broken or hiding something, and both answers are no.
+pub fn check_signable(text: &str) -> Result<(), Refusal> {
+    let hidden = |c: char| match c {
+        '\n' | '\t' => false,
+        c if c.is_control() => true,
+        '\u{2028}' | '\u{2029}' => true,
+        '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => true,
+        _ => false,
+    };
+    if let Some(bad) = text.chars().find(|&c| hidden(c)) {
+        return Err(Refusal::new(format!(
+            "sign: the text contains U+{:04X}, which the consent prompt cannot \
+             show as itself — a signable text is printable characters, \
+             newlines and tabs",
+            bad as u32
+        )));
+    }
+    Ok(())
 }

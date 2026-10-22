@@ -19,3 +19,12 @@ elo-broker = { path = "../elo-broker" }
 elo-vault = { path = "../elo-vault" }
 serde_json = { workspace = true }
 ureq = { workspace = true }
+# The trusted roots (`tls.rs`). All in the tree under ureq already, except
+# `webpki-root-certs`.
+rustls = { workspace = true }
+rustls-webpki = { workspace = true }
+webpki-root-certs = { workspace = true }
+webpki-roots = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

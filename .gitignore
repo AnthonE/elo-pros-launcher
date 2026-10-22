@@ -5,3 +5,10 @@
 /launcher-rs/target/
 __pycache__/
 *.pyc
+# The SDK packages' own build output (sdk/README.md): cargo, pip, npm.
+/sdk/rust/target/
+/sdk/python/build/
+/sdk/python/dist/
+*.egg-info/
+/sdk/js/node_modules/
+/sdk/js/*.tgz

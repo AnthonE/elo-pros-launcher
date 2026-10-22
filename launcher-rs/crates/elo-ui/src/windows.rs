@@ -14,7 +14,7 @@
 use crate::art::{self, Icon};
 use crate::chrome;
 use crate::theme::{self, Tone};
-use fltk::{button, enums, frame, image, input, prelude::*, window};
+use fltk::{browser, button, enums, frame, image, input, menu, prelude::*, text, window};
 use elo_depot::{shardlist::Shard, Install};
 
 /// The mark — the same tile the site serves at `/favicon.svg`. Compiled in rather
@@ -186,10 +186,13 @@ fn human_bytes(n: i64) -> String {
 /// it without a display. `built: false` renders deactivated AND says so; a
 /// hidden feature and an unbuilt one look identical to a player, and only one
 /// of those is honest.
-pub const MENU: [(&str, &str, bool); 6] = [
+pub const MENU: [(&str, &str, bool); 9] = [
     ("Games", "what is installed, and what is stale", true),
     ("Store", "the curated shelf", true),
+    ("Chat", "talk with other players, live", true),
     ("Servers", "browse a title's shards", true),
+    ("Friends", "who you play with, and where they are", true),
+    ("Wallet", "your coins — see them, send them, receive", true),
     ("Account", "the address the launcher watches", true),
     ("Signing", "which backend signs, and what it can do", true),
     ("About", "what this is, and what it is built on", true),
@@ -211,20 +214,36 @@ pub struct MainMenu {
     /// currency is a measurement — "could not look" must never render as
     /// "up to date" (`CLAUDE.md` §traps, the same rule `elo check` keeps).
     pub version_line: frame::Frame,
+    /// Streamer mode (`elo_depot::streamer`). Drawn checked when it is on;
+    /// startup wires what pressing it does.
+    pub streamer: button::CheckButton,
+    /// The line beside it, which says what turning it on does and, after a
+    /// press, that windows already drawn keep what they drew until a restart.
+    pub streamer_line: frame::Frame,
+}
+
+/// What the streamer line says, given the switch.
+pub fn streamer_note(on: bool, changed: bool) -> &'static str {
+    match (on, changed) {
+        (true, true) => "on — games get it now; restart elo to hide what is already drawn",
+        (false, true) => "off — restart elo to show what it hid",
+        (true, false) => "on — wallets and server addresses are hidden",
+        (false, false) => "hides wallets and server addresses, in here and in games",
+    }
 }
 
 pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
     // Sized to the content rather than to a round number — the first capture
     // had 150px of empty olive under the last row, which reads as a window
     // that failed to draw something rather than as a window that is finished.
-    let height = 64 + (MENU.len() as i32 * 38) + 46 + if has_account { 0 } else { 20 };
+    let height = 64 + (MENU.len() as i32 * 38) + 46 + 30 + if has_account { 0 } else { 20 };
     let mut w = window::Window::new(100, 100, 560, height, None);
     mark(&mut w);
     w.set_label("elo");
     w.set_color(theme::BG);
 
     chrome::label(16, 12, 400, 22, "elo", theme::HEAD, 19);
-    chrome::label(16, 34, 480, 18, "the town's games, on your machine", theme::MUTED, 12);
+    chrome::label(16, 34, 480, 18, "Elo Pros, on your desktop", theme::MUTED, 12);
     // The corner. Right-aligned so a longer "— 0.2.0 is out" grows leftward
     // into empty header instead of off the window.
     let mut version_line = chrome::label(280, 12, 264, 18, &format!("v{version}"),
@@ -250,6 +269,16 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
         y += 38;
     }
 
+    // Streamer mode: a switch rather than a window, so it sits under them.
+    let on = elo_depot::streamer::on();
+    let mut streamer = button::CheckButton::new(16, y + 4, 150, 22, "streamer mode");
+    streamer.set_label_color(theme::INK);
+    streamer.set_label_size(13);
+    streamer.set_checked(on);
+    let streamer_line = chrome::label(178, y + 6, 366, 18, streamer_note(on, false),
+                                      if on { theme::GOLD } else { theme::MUTED }, 12);
+    y += 30;
+
     // The one setup nudge this menu carries, and only while it is true. A
     // player measured the alternative as "idk how to make a new key" — the
     // fact was only discoverable behind the Account button. GOLD because it
@@ -271,7 +300,7 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
                   "nothing you own lives in here — your copies are tokens and items are on chain",
                   theme::DIM, 11);
     w.end();
-    MainMenu { window: w, version_line }
+    MainMenu { window: w, version_line, streamer, streamer_line }
 }
 
 /// The controls on one drawn Games row, handed back for a caller to wire.
@@ -418,11 +447,15 @@ pub fn about() -> window::Window {
     w.set_color(theme::BG);
 
     chrome::label(16, 14, 400, 22, "elo", theme::HEAD, 18);
-    chrome::label(16, 40, 480, 18, "the desktop client for the town's games", theme::MUTED, 12);
+    chrome::label(16, 40, 480, 18, "the desktop client for Elo Pros", theme::MUTED, 12);
 
-    chrome::label(16, 78, 480, 18, "It holds no key of yours.", theme::INK, 13);
+    // ⚠ This read *"It holds no key of yours."*, which stopped being true the
+    // day the client could make an account (`CLAUDE.md`, the client's first
+    // rule): while one is unlocked, this process holds a key. What is true is
+    // where the key lives, and that is what the line says now.
+    chrome::label(16, 78, 480, 18, "Your key stays on this machine.", theme::INK, 13);
     chrome::label(16, 100, 490, 16,
-                  "A local account is generated on this machine and transmitted nowhere.",
+                  "An account made here is generated locally and sent nowhere.",
                   theme::MUTED, 11);
     chrome::label(16, 122, 490, 16,
                   "Delete this program and you still own everything you bought.",
@@ -843,7 +876,8 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
                 chrome::label_untrusted(28, y, 250, 18, &s.name, theme::INK, 13);
                 chrome::label(286, y, 70, 18, &s.population(),
                               if s.full() { theme::GOLD } else { theme::MUTED }, 12);
-                chrome::label_untrusted(28, y + 18, 250, 14, &s.addr, theme::DIM, 10);
+                chrome::label_untrusted(28, y + 18, 250, 14, &elo_depot::streamer::shown(&s.addr),
+                                        theme::DIM, 10);
                 if let Some(m) = &s.map {
                     chrome::label_untrusted(286, y + 18, 140, 14, m, theme::DIM, 10);
                 }
@@ -892,6 +926,292 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     ServersWindow { window: w, rows: controls }
 }
 
+/// What the caller measured about a wallet's friends list.
+///
+/// The same three states as [`Shards`], for the same reason: a list nobody
+/// could read is not an empty one. The fourth answer — read, and nobody on it —
+/// is `Listed` with no rows, and draws its own sentence.
+pub enum Friends {
+    /// This machine has no wallet to read a list for: no account, no pairing.
+    NoWallet,
+    /// We asked and could not read the answer.
+    Unreadable { url: String, why: String, reachable: bool },
+    /// The list as the origin answered it. Its presence carries its own
+    /// `reachable` — see `elo_net::friends::Presence`.
+    Listed { view: elo_net::friends::View },
+}
+
+/// The controls on one drawn friend or buddy, handed back for a caller to
+/// wire. Only a row with a join link gets one, because only it has anything
+/// to follow.
+#[derive(Clone)]
+pub struct FriendControls {
+    pub wallet: String,
+    /// `elo://join/<slug>/<addr>`, already accepted by `deeplink::parse`.
+    pub link: String,
+    pub join: button::Button,
+    pub copy: button::Button,
+    /// A row from `buddies` — one of the wallet's own agents.
+    pub buddy: bool,
+}
+
+/// One button that makes a signed change about one wallet: Accept and Decline
+/// on an ask, Cancel on your own, Remove on a friend.
+#[derive(Clone)]
+pub struct FriendAct {
+    /// The wire's op — `accept`, `decline`, `cancel` or `remove`.
+    pub op: &'static str,
+    pub wallet: String,
+    /// What the row calls them, for the line that says what happened.
+    pub called: String,
+    pub button: button::Button,
+}
+
+/// The Friends window and the controls on it.
+pub struct FriendsWindow {
+    pub window: window::Window,
+    /// Join and Invite, per row with a link.
+    pub rows: Vec<FriendControls>,
+    /// Every change a row offers, in the order drawn.
+    pub acts: Vec<FriendAct>,
+    /// A wallet or a name to ask, and the button that asks.
+    pub add_input: input::Input,
+    pub add: button::Button,
+    /// One line under the add box: what the last change came to, or why not.
+    pub status: frame::Frame,
+    /// Whose list this is, when one was read — the wallet a change is made as.
+    pub wallet: Option<String>,
+    /// Read the list again. Presence moves while the window is open, and a
+    /// place shown as current that nobody re-read is wall 3's cached balance.
+    pub refresh: button::Button,
+}
+
+/// How tall a friend's row is, and an ask's, and a section heading's, in px.
+const FRIEND_H: i32 = 46;
+const ASK_H: i32 = 34;
+const HEAD_H: i32 = 22;
+/// Everything under the well: the add box, the status line and two notes.
+const FRIENDS_FOOT: i32 = 160;
+
+/// Friends — who you play with, where they are right now, and the changes.
+///
+/// Asks waiting on you come first, with **Accept** and **Decline**; then your
+/// friends, with **Join** and **Invite** where their server is known and
+/// **Remove**; then your own agents, marked, with Join and Invite and nothing
+/// to remove — no ask made them and no change here touches them; then the asks
+/// you made, with **Cancel**. The box under the list asks a wallet or a name.
+/// Every change is one signature, made by the caller (`wiring::change_friend`)
+/// — this window draws the buttons and decides nothing. `now` is the caller's
+/// clock, so "last online" is a function of what was measured and not of when
+/// the test ran.
+pub fn friends(state: &Friends, now: i64) -> FriendsWindow {
+    use elo_net::friends::short;
+    let empty = Vec::new();
+    let (asks_in, list, buddies, asks_out) = match state {
+        Friends::Listed { view } => (&view.asks_in, &view.friends, &view.buddies, &view.asks_out),
+        _ => (&empty, &Vec::new(), &Vec::new(), &empty),
+    };
+    let nothing = asks_in.is_empty() && list.is_empty() && buddies.is_empty() && asks_out.is_empty();
+    let heads = [!asks_in.is_empty(), !buddies.is_empty(), !asks_out.is_empty()]
+        .iter()
+        .filter(|b| **b)
+        .count() as i32;
+    let content = (asks_in.len() + asks_out.len()) as i32 * ASK_H
+        + (list.len() + buddies.len()) as i32 * FRIEND_H
+        + heads * HEAD_H;
+    let well_h = (content + 24).clamp(120, 520);
+    // One step down the cascade from Servers, so the two never open stacked.
+    // Wider than Servers by a button: a friend's row carries Remove too.
+    let mut w = window::Window::new(170, 170, 720, well_h + FRIENDS_FOOT, None);
+    mark(&mut w);
+    w.set_label("elo — friends");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 100, 20, "friends", theme::HEAD, 16);
+    if let Friends::Listed { view } = state {
+        chrome::label(120, 14, 280, 18, &short(&view.wallet), theme::DIM, 11);
+    }
+    let mut refresh = chrome::button(576, 10, 128, 24, "Refresh", Tone::Plain);
+    refresh.set_align(enums::Align::Center | enums::Align::Inside);
+    refresh.set_tooltip("ask the origin where everyone is again");
+
+    // From the well's inner right edge (704) back, less the bar — the Servers
+    // window's arithmetic with one more button, so the columns line up.
+    let third_x = 704 - BAR - 13 - 74;
+    let second_x = third_x - 8 - 74;
+    let first_x = second_x - 8 - 74;
+
+    let mut controls = Vec::new();
+    let mut acts = Vec::new();
+    let well = chrome::shelf(16, 40, 688, well_h);
+    match state {
+        Friends::NoWallet => {
+            chrome::label(28, 56, 660, 18, "no wallet on this machine yet", theme::MUTED, 13);
+            chrome::label(28, 80, 660, 16,
+                          "Account makes one, or pairs the wallet in your browser",
+                          theme::DIM, 11);
+            chrome::label(28, 98, 660, 16,
+                          "until then, Ask below finishes the change on the website",
+                          theme::DIM, 11);
+        }
+        Friends::Unreadable { url, why, reachable } => {
+            chrome::label(28, 56, 660, 18,
+                          if *reachable { "the friends list did not read" }
+                          else { "could not reach the friends list" },
+                          theme::GOLD, 13);
+            chrome::label_untrusted(28, 80, 660, 16, url, theme::DIM, 11);
+            chrome::label_untrusted(28, 100, 660, 16, why, theme::MUTED, 11);
+            chrome::label(28, 124, 660, 16,
+                          "this is not an empty list — nobody knows right now",
+                          theme::DIM, 11);
+        }
+        Friends::Listed { .. } if nothing => {
+            chrome::label(28, 56, 660, 18, "no friends yet", theme::MUTED, 13);
+            chrome::label(28, 80, 660, 16,
+                          "type their wallet or name below and press Ask",
+                          theme::DIM, 11);
+        }
+        Friends::Listed { view } => {
+            let mut y = 52;
+            let mut act = |op: &'static str, x: i32, y: i32, label: &str, tip: &str,
+                           wallet: &str, called: &str| {
+                let mut b = chrome::button(x, y, 74, 26, label, Tone::Plain);
+                b.set_tooltip(tip);
+                acts.push(FriendAct { op, wallet: wallet.to_string(), called: called.to_string(),
+                                      button: b });
+            };
+            if !asks_in.is_empty() {
+                chrome::label(28, y, 660, 18, "asking to be friends", theme::GOLD, 11);
+                y += HEAD_H;
+                for a in asks_in {
+                    let called = a.label();
+                    chrome::label_untrusted(28, y + 4, 250, 18, &called, theme::INK, 13);
+                    if !elo_depot::streamer::on() {
+                        chrome::label(286, y + 6, 140, 16, &short(&a.wallet), theme::DIM, 10);
+                    }
+                    act("accept", second_x, y + 2, "Accept", "say yes — one signature",
+                        &a.wallet, &called);
+                    act("decline", third_x, y + 2, "Decline", "say no — one signature",
+                        &a.wallet, &called);
+                    y += ASK_H;
+                }
+            }
+            let mut friend_row = |f: &elo_net::friends::Friend, y: i32,
+                                  acts: &mut dyn FnMut(&str, &str)| {
+                // A name is the friend's own and a title or server name is a
+                // game's, so every one of them is drawn clipped.
+                let agent = f.agent || f.buddy.is_some();
+                let name = if agent { format!("{} (agent)", f.label()) } else { f.label() };
+                chrome::label_untrusted(28, y, 250, 18, &name, theme::INK, 13);
+                if f.name.is_some() && !elo_depot::streamer::on() {
+                    chrome::label(286, y, 120, 18, &short(&f.wallet), theme::DIM, 10);
+                }
+                // Streamer mode names the game and never the server: where a
+                // friend is playing is where a viewer would go looking.
+                let line = match &f.playing {
+                    Some(p) if elo_depot::streamer::on() && view.presence.reachable => {
+                        format!("playing {}", p.title)
+                    }
+                    _ => f.presence_line(&view.presence, now),
+                };
+                let ink = if f.playing.is_some() && view.presence.reachable {
+                    theme::INK
+                } else {
+                    theme::MUTED
+                };
+                chrome::label_untrusted(28, y + 18, first_x - 36, 14, &line, ink, 11);
+                if let Some(link) = f.join_link().filter(|_| view.presence.reachable) {
+                    let mut join = chrome::button(first_x, y + 2, 74, 26, "Join", Tone::Plain);
+                    join.set_tooltip("start the installed build on the server they are on");
+                    let mut copy = chrome::button(second_x, y + 2, 74, 26, "Invite", Tone::Plain);
+                    copy.set_tooltip("copy their server's elo:// link to the clipboard");
+                    controls.push(FriendControls {
+                        wallet: f.wallet.clone(),
+                        link: link.to_string(),
+                        join,
+                        copy,
+                        buddy: f.buddy.is_some(),
+                    });
+                }
+                acts(&f.wallet, &f.label());
+            };
+            for f in list {
+                friend_row(f, y, &mut |wallet, called| {
+                    act("remove", third_x, y + 2, "Remove",
+                        "end the friendship, for both of you — one signature", wallet, called)
+                });
+                y += FRIEND_H;
+            }
+            if !buddies.is_empty() {
+                chrome::label(28, y, 660, 18, "your agents — listed with no ask, and nothing here changes them",
+                              theme::DIM, 11);
+                y += HEAD_H;
+                for b in buddies {
+                    friend_row(b, y, &mut |_, _| {});
+                    y += FRIEND_H;
+                }
+            }
+            if !asks_out.is_empty() {
+                chrome::label(28, y, 660, 18, "you asked — waiting on them", theme::DIM, 11);
+                y += HEAD_H;
+                for a in asks_out {
+                    let called = a.label();
+                    chrome::label_untrusted(28, y + 4, 250, 18, &called, theme::MUTED, 13);
+                    if !elo_depot::streamer::on() {
+                        chrome::label(286, y + 6, 140, 16, &short(&a.wallet), theme::DIM, 10);
+                    }
+                    act("cancel", third_x, y + 2, "Cancel", "take back your ask — one signature",
+                        &a.wallet, &called);
+                    y += ASK_H;
+                }
+            }
+        }
+    }
+    well.end();
+
+    // The add box. Plain, like every button here: a friendship moves no money.
+    let y = 40 + well_h + 10;
+    chrome::label(16, y, 600, 16, "ask someone to be friends — their wallet (0x…) or name:",
+                  theme::MUTED, 11);
+    let mut add_input = input::Input::new(16, y + 20, first_x - 24, 26, None);
+    add_input.set_color(theme::WELL);
+    add_input.set_text_color(theme::INK);
+    add_input.set_text_size(13);
+    add_input.set_selection_color(theme::SEL);
+    add_input.set_cursor_color(theme::INK);
+    let mut add = chrome::button(first_x, y + 20, 74, 26, "Ask", Tone::Plain);
+    add.set_tooltip("ask them — one signature");
+    let status = chrome::label_untrusted(16, y + 52, 688, 16, "", theme::MUTED, 11);
+
+    // The notes say only what is true: a line about presence comes from a
+    // list we read, and the public line is said where a change is made.
+    let mut notes: Vec<(String, enums::Color)> = Vec::new();
+    if let Friends::Listed { view } = state {
+        if !view.presence.reachable {
+            notes.push((
+                format!(
+                    "where everyone is could not be read{}",
+                    view.presence.why.as_deref().map(|w| format!(" — {w}")).unwrap_or_default()
+                ),
+                theme::GOLD,
+            ));
+        }
+    }
+    notes.push(("friends lists are public, like playtime".into(), theme::DIM));
+    let mut y = y + 76;
+    for (text, ink) in notes.iter().take(2) {
+        chrome::label_untrusted(16, y, 688, 16, text, *ink, 11);
+        y += 18;
+    }
+    w.end();
+    grows_downward(&mut w, &well, FRIENDS_FOOT + 46 * 2);
+    let wallet = match state {
+        Friends::Listed { view } => Some(view.wallet.clone()),
+        _ => None,
+    };
+    FriendsWindow { window: w, rows: controls, acts, add_input, add, status, wallet, refresh }
+}
+
 /// A window plus the controls a caller must give behaviour to.
 ///
 /// **This does not bend the rule at the top of this module.** The windows still
@@ -931,6 +1251,17 @@ pub struct AccountWindow {
     pub pair_note: frame::Frame,
     /// The code row, present in both states. See [`PairRow`].
     pub pair_row: Option<PairRow>,
+    /// Your profile picture and name. Shown when there is an account, and
+    /// built hidden when there is not, so an account made in this window shows
+    /// them in place. Both start empty and are filled from `/api/face`.
+    pub face: Option<frame::Frame>,
+    pub profile_name: Option<frame::Frame>,
+    /// Change the name and picture the store, the games and chat show.
+    /// Hidden, like the two above, until there is an account.
+    pub edit_profile: Option<button::Button>,
+    /// The origin the profile is read from, so an account made in this
+    /// window can show its face without the window being built again.
+    pub host: String,
 }
 
 /// Account — the address the launcher watches, and the two ways to get one.
@@ -946,19 +1277,33 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
 
     chrome::label(16, 12, 400, 20, "account", theme::HEAD, 16);
     let well = chrome::well(16, 40, 548, 130);
-    let (addr_line, note_line) = match address {
+    let (addr_line, note_line, face, profile_name) = match address {
         Some(a) => {
-            chrome::label(28, 56, 520, 16, "the launcher is watching", theme::MUTED, 11);
-            let addr = chrome::label(28, 76, 520, 18, a, theme::INK, 13);
-            let note = chrome::label(28, 104, 520, 16, &format!("on {host}"), theme::DIM, 11);
-            (addr, note)
+            chrome::label(28, 56, 452, 16, "the launcher is watching", theme::MUTED, 11);
+            let addr = chrome::label(28, 76, 452, 18, &elo_depot::streamer::shown(a), theme::INK, 13);
+            let note = chrome::label(28, 104, 452, 16, &format!("on {host}"), theme::DIM, 11);
+            // The face sits in the well's right-hand corner, beside the
+            // address it belongs to. A tile until `/api/face` answers.
+            let mut face = frame::Frame::new(PROFILE_FACE_X, 52, PROFILE_FACE, PROFILE_FACE, None);
+            face.set_frame(enums::FrameType::ThinDownBox);
+            face.set_color(theme::WELL);
+            let name = chrome::label_untrusted(28, 128, 452, 16, "", theme::MUTED, 11);
+            (addr, note, Some(face), Some(name))
         }
         None => {
-            let addr = chrome::label(28, 56, 520, 18, "no address set", theme::MUTED, 13);
-            let note = chrome::label(28, 80, 520, 16,
+            let addr = chrome::label(28, 56, 452, 18, "no address set", theme::MUTED, 13);
+            let note = chrome::label(28, 80, 452, 16,
                           "a normal state — games play anonymously and say so",
                           theme::DIM, 11);
-            (addr, note)
+            // Built hidden, so an account made here shows its face and name
+            // in place — nobody restarts a program to gain a picture.
+            let mut face = frame::Frame::new(PROFILE_FACE_X, 52, PROFILE_FACE, PROFILE_FACE, None);
+            face.set_frame(enums::FrameType::ThinDownBox);
+            face.set_color(theme::WELL);
+            face.hide();
+            let mut name = chrome::label_untrusted(28, 128, 452, 16, "", theme::MUTED, 11);
+            name.hide();
+            (addr, note, Some(face), Some(name))
         }
     };
     well.end();
@@ -966,11 +1311,13 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     // Plain, never gold and never green: making a key on your own machine is
     // an ordinary act, and the reserved fill belongs to something that moves
     // money (`SITE-PLATFORM.md` §14b).
+    let edit_profile;
     let (make, import, signin_code, signin, pair, pair_note,
          pair_row, base) = if address.is_none() {
         let mut make = chrome::button(16, 180, 168, 28, "Make an account…", Tone::Plain);
         make.set_align(enums::Align::Center | enums::Align::Inside);
-        let mut import = chrome::button(196, 180, 168, 28, "Import a key…", Tone::Plain);
+        let mut import = chrome::button(196, 180, 168, 28, "Restore or import…", Tone::Plain);
+        import.set_tooltip("your recovery words from another wallet, or a private key");
         import.set_align(enums::Align::Center | enums::Align::Inside);
         // ⚠ THE THIRD DOOR, and the reason this window had a gap: a player
         // whose wallet is a browser extension was offered two ways to make a
@@ -990,14 +1337,24 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
         // the bottom of this section rather than as a hole punched through the
         // middle of it.
         let row = pair_code_row(16, 240);
+        // Where the two doors were, once an account exists.
+        let mut edit = chrome::button(16, 180, 168, 28, "Edit profile…", Tone::Plain);
+        edit.set_align(enums::Align::Center | enums::Align::Inside);
+        edit.set_tooltip("the name and picture the store, the games and chat show for this wallet");
+        edit.hide();
+        edit_profile = Some(edit);
         (Some(make), Some(import), None, None, Some(pair),
          note, Some(row), 322)
     } else {
         // Unlocking lives in Signing, deliberately: it is the act that puts a
         // key in memory, and it belongs beside the window that says what can
         // then be signed with it.
-        chrome::label(16, 180, 548, 16, "unlock it in Signing when a game asks for a signature",
+        chrome::label(16, 180, 380, 16, "unlock it in Signing when a game asks for a signature",
                       theme::DIM, 11);
+        let mut edit = chrome::button(404, 176, 160, 26, "Edit profile…", Tone::Plain);
+        edit.set_align(enums::Align::Center | enums::Align::Inside);
+        edit.set_tooltip("the name and picture the store, the games and chat show for this wallet");
+        edit_profile = Some(edit);
         // The website pairing (`docs/client/SIGN-IN.md`). TYPE the code — the
         // sentence below is the anti-phish wall, said where the field is.
         chrome::label(16, 206, 548, 16,
@@ -1047,10 +1404,10 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     chrome::label(16, base + 62, 548, 14,
                   "Delete this program and you still own everything you bought.",
                   theme::DIM, 11);
-    // The sentence a holder needs BEFORE they rely on the file, not after they
-    // have lost it. There is no reset and no copy anywhere else.
+    // The sentence a holder needs BEFORE they rely on the account, not after
+    // they have lost it. There is no reset and no copy anywhere else.
     chrome::label(16, base + 84, 548, 14,
-                  "The keystore is the only copy of your key. Back it up; no passphrase can be reset.",
+                  "Your recovery words are the backup. Keep them offline; no passphrase can be reset.",
                   theme::GOLD, 11);
     // Sized from the content rather than typed: the two branches are different
     // heights now, and a fixed 400 clipped the taller one's last line — the
@@ -1060,7 +1417,76 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
     w.end();
     AccountWindow { window: w, make, import, address: addr_line, note: note_line,
                     signin_code, signin, pair, pair_note,
-                    pair_row }
+                    pair_row, face, profile_name, edit_profile, host: host.to_string() }
+}
+
+/// How big your face is in the Account window, and where it sits.
+pub const PROFILE_FACE: i32 = 64;
+const PROFILE_FACE_X: i32 = 492;
+
+/// The profile editor and its controls.
+#[derive(Clone)]
+pub struct ProfileWindow {
+    pub window: window::Window,
+    pub preview: frame::Frame,
+    pub name: input::Input,
+    pub pick: button::Button,
+    /// Which file is picked, or what a picture must be.
+    pub picked: frame::Frame,
+    /// Why Save will not work yet.
+    pub status: frame::Frame,
+    pub save: button::Button,
+    pub cancel: button::Button,
+}
+
+/// Your profile — the name and picture the store, the games and chat show.
+///
+/// The words say what you get and what it costs, and stop: a picture and a
+/// name, one signature by this account. `current` is the name already set,
+/// drawn through the label escape like anything the origin returned.
+pub fn profile_editor(current: Option<&str>) -> ProfileWindow {
+    let mut w = window::Window::new(260, 220, 460, 252, None);
+    mark(&mut w);
+    w.set_label("elo — your profile");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 428, 22, "your profile", theme::HEAD, 16);
+    chrome::label(16, 36, 428, 16, "the name and picture the store, the games and chat show",
+                  theme::MUTED, 11);
+
+    let mut preview = frame::Frame::new(16, 64, 96, 96, None);
+    preview.set_frame(enums::FrameType::ThinDownBox);
+    preview.set_color(theme::WELL);
+
+    chrome::label(128, 62, 316, 16, "Name", theme::MUTED, 11);
+    let mut name = input::Input::new(128, 80, 316, 28, None);
+    name.set_color(theme::WELL);
+    name.set_text_color(theme::INK);
+    name.set_text_size(14);
+    name.set_selection_color(theme::SEL);
+    name.set_cursor_color(theme::INK);
+    name.set_frame(enums::FrameType::ThinDownBox);
+    name.set_maximum_size(crate::profile::NAME_MAX as i32);
+    if let Some(n) = current {
+        name.set_value(n);
+    }
+
+    let mut pick = chrome::button(128, 118, 180, 26, "Choose a picture…", Tone::Plain);
+    pick.set_align(enums::Align::Center | enums::Align::Inside);
+    let picked = chrome::label_untrusted(128, 148, 316, 16,
+        "a square PNG, 64 to 512 px, up to 256 KB", theme::DIM, 11);
+
+    let status = chrome::label_untrusted(16, 172, 428, 16, "", theme::GOLD, 11);
+
+    let mut cancel = chrome::button(204, 206, 110, 30, "Cancel", Tone::Plain);
+    cancel.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut save = chrome::button(334, 206, 110, 30, "Save…", Tone::Plain);
+    save.set_align(enums::Align::Center | enums::Align::Inside);
+    save.set_tooltip("one signature by this account; the passphrase is asked next");
+
+    w.end();
+    w.make_modal(true);
+    ProfileWindow { window: w, preview, name, pick, picked, status, save, cancel }
 }
 
 /// The minted pairing code, in a row a player can act on rather than transcribe.
@@ -1195,7 +1621,9 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
     chrome::label(28, 56, 560, 18, &format!("backend: {kind}"), theme::INK, 14);
     let status_line = chrome::label(28, 80, 560, 16, status, theme::MUTED, 11);
     match address {
-        Some(a) => chrome::label(28, 106, 560, 16, &format!("signs as {a}"), theme::MUTED, 11),
+        Some(a) => chrome::label(28, 106, 560, 16,
+                                 &format!("signs as {}", elo_depot::streamer::shown(a)),
+                                 theme::MUTED, 11),
         None => chrome::label(28, 106, 560, 16, "no address known for this backend",
                               theme::DIM, 11),
     };
@@ -1333,7 +1761,9 @@ pub fn consent(
     let well = chrome::well(pad, well_y, 588, well_h);
     let mut body = text::TextDisplay::new(pad + 4, well_y + 4, 580, well_h - 8, None);
     let mut buf = text::TextBuffer::default();
-    buf.set_text(&ask.text);
+    // `shown`, never the raw text: a NUL would cut the buffer here
+    // (`Ask::shown` says why).
+    buf.set_text(&ask.shown());
     body.set_buffer(buf);
     body.set_color(theme::WELL);
     body.set_text_color(theme::INK);
@@ -1519,6 +1949,237 @@ pub fn passphrase(title: &str, prompt: &str) -> AskWindow {
     AskWindow { window: w, field, ok, cancel, status }
 }
 
+// ── the wallet ──────────────────────────────────────────────────────────────
+//
+// Operator, 2026-10-22: *"the launcher SHOULD be a super clean and secure
+// wallet."* One window: who you are, what you hold, and a send. It draws and
+// decides nothing; `wiring::wire_wallet` reads the chain off this thread and
+// every check a send passes lives in `elo_net::wallet`.
+
+/// The Wallet window's controls.
+#[derive(Clone)]
+pub struct WalletWindow {
+    pub window: window::Window,
+    pub address: frame::Frame,
+    pub copy: button::Button,
+    pub explorer: button::Button,
+    pub refresh: button::Button,
+    /// One coin per line, monospace, so amounts line up on their decimal.
+    pub balances: text::TextDisplay,
+    /// The account's own warning (an EIP-7702 delegation), or the reason the
+    /// balances could not be read. Empty when there is nothing to say.
+    pub warning: frame::Frame,
+    pub coin: menu::Choice,
+    pub amount: input::Input,
+    pub to: input::Input,
+    pub review: button::Button,
+    pub status: frame::Frame,
+}
+
+fn field(x: i32, y: i32, w: i32, h: i32, mono: bool) -> input::Input {
+    let mut f = input::Input::new(x, y, w, h, None);
+    f.set_color(theme::WELL);
+    f.set_text_color(theme::INK);
+    f.set_selection_color(theme::SEL);
+    f.set_cursor_color(theme::INK);
+    f.set_text_size(13);
+    f.set_frame(enums::FrameType::ThinDownBox);
+    if mono {
+        f.set_text_font(enums::Font::Courier);
+    }
+    f
+}
+
+/// Wallet — the account on this machine, what it holds, and a send.
+///
+/// With no account, everything that would act is built deactivated and says
+/// where an account comes from: a hidden control and an unbuilt one look the
+/// same, and only one of those is honest.
+pub fn wallet(address: Option<&str>) -> WalletWindow {
+    let mut w = window::Window::new(200, 160, 580, 560, None);
+    mark(&mut w);
+    w.set_label("elo — wallet");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 400, 20, "wallet", theme::HEAD, 16);
+    let well = chrome::well(16, 40, 548, 62);
+    chrome::label(28, 48, 520, 16, &format!("your account on {}", elo_net::chain::NAME),
+                  theme::MUTED, 11);
+    let mut addr = chrome::label(28, 68, 520, 22,
+                                 &address.map(elo_depot::streamer::shown)
+                                     .unwrap_or_else(|| "no account on this machine — Account makes one".into()),
+                                 if address.is_some() { theme::INK } else { theme::MUTED }, 14);
+    if address.is_some() {
+        addr.set_label_font(enums::Font::Courier);
+    }
+    well.end();
+
+    let mut copy = chrome::button(16, 110, 150, 26, "Copy address", Tone::Plain);
+    copy.set_tooltip("to receive: give this address to whoever is sending");
+    let mut explorer = chrome::button(174, 110, 160, 26, "View on explorer", Tone::Plain);
+    let mut refresh = chrome::button(444, 110, 120, 26, "Refresh", Tone::Plain);
+    for b in [&mut copy, &mut explorer, &mut refresh] {
+        b.set_align(enums::Align::Center | enums::Align::Inside);
+    }
+
+    chrome::label(16, 146, 548, 16, "what it holds, read off the chain", theme::MUTED, 11);
+    let bwell = chrome::well(16, 166, 548, 118);
+    let mut balances = text::TextDisplay::new(20, 170, 540, 110, None);
+    balances.set_buffer(text::TextBuffer::default());
+    balances.set_color(theme::WELL);
+    balances.set_text_color(theme::INK);
+    balances.set_text_font(enums::Font::Courier);
+    balances.set_text_size(12);
+    balances.set_frame(enums::FrameType::NoBox);
+    bwell.end();
+    let mut warning = chrome::label(16, 288, 548, 46, "", theme::GOLD, 11);
+    warning.set_align(enums::Align::Left | enums::Align::Top | enums::Align::Inside | enums::Align::Wrap);
+
+    chrome::label(16, 340, 400, 18, "send", theme::HEAD, 14);
+    chrome::label(16, 364, 100, 14, "coin", theme::MUTED, 11);
+    chrome::label(134, 364, 200, 14, "amount", theme::MUTED, 11);
+    let mut coin = menu::Choice::new(16, 380, 110, 28, None);
+    coin.set_color(theme::BTN);
+    coin.set_text_color(theme::BTN_INK);
+    coin.set_text_size(13);
+    let amount = field(134, 380, 200, 28, true);
+    chrome::label(16, 416, 548, 14, "to — paste the address, then check it", theme::MUTED, 11);
+    let to = field(16, 432, 548, 28, true);
+    // Plain, not green: this button checks and shows. The green Send is on
+    // the review, beside what it will sign (`theme::Tone`).
+    let mut review = chrome::button(16, 472, 160, 30, "Review send…", Tone::Plain);
+    review.set_align(enums::Align::Center | enums::Align::Inside);
+    let status = chrome::label(186, 478, 378, 18, "", theme::MUTED, 11);
+    chrome::label(16, 512, 548, 14,
+                  "Every send is shown in full first, then asks your passphrase. Games can never send.",
+                  theme::DIM, 11);
+    chrome::label(16, 530, 548, 14,
+                  "Nobody from elo will ever ask for your recovery words or passphrase.",
+                  theme::DIM, 11);
+
+    if address.is_none() {
+        for b in [&mut copy, &mut explorer, &mut refresh, &mut review] {
+            b.deactivate();
+        }
+        let (mut c, mut a, mut t) = (coin.clone(), amount.clone(), to.clone());
+        c.deactivate();
+        a.deactivate();
+        t.deactivate();
+    }
+    w.end();
+    WalletWindow { window: w, address: addr, copy, explorer, refresh, balances, warning,
+                   coin, amount, to, review, status }
+}
+
+/// A send's review, and its two answers.
+#[derive(Clone)]
+pub struct ReviewWindow {
+    pub window: window::Window,
+    pub send: button::Button,
+    pub cancel: button::Button,
+}
+
+/// Check this send: what will be signed, read back out of the transaction,
+/// and anything worth reading first. The only green button in the wallet is
+/// here.
+pub fn send_review(lines: &[(String, String)], notes: &[String]) -> ReviewWindow {
+    let mut w = window::Window::new(240, 200, 560, 300, None);
+    mark(&mut w);
+    w.set_label("elo — check this send");
+    w.set_color(theme::BG);
+    chrome::label(16, 12, 520, 22, "check this send", theme::HEAD, 16);
+
+    let well_h = lines.len() as i32 * 24 + 14;
+    let well = chrome::well(16, 42, 528, well_h);
+    for (i, (k, v)) in lines.iter().enumerate() {
+        let y = 50 + i as i32 * 24;
+        chrome::label(28, y, 72, 20, k, theme::DIM, 12);
+        let mut f = chrome::label_untrusted(104, y, 432, 20, v, theme::INK, 13);
+        f.set_label_font(if k == "Send" { enums::Font::CourierBold } else { enums::Font::Courier });
+    }
+    well.end();
+
+    let mut y = 42 + well_h + 12;
+    for n in notes {
+        let wrapped = wrap_lines(n, 80);
+        let h = wrapped.len() as i32 * 15 + 4;
+        let ink = if n.starts_with('⚠') { theme::RED } else { theme::GOLD };
+        let mut f = chrome::label_untrusted(16, y, 528, h, &wrapped.join("\n"), ink, 11);
+        f.set_align(enums::Align::Left | enums::Align::Top | enums::Align::Inside);
+        y += h + 6;
+    }
+    chrome::label(16, y + 2, 528, 14,
+                  "A send cannot be undone. Your passphrase is asked next.",
+                  theme::MUTED, 11);
+    let by = y + 28;
+    let mut cancel = chrome::button(16, by, 120, 30, "Cancel", Tone::Plain);
+    cancel.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut send = chrome::button(424, by, 120, 30, "Send", Tone::Live);
+    send.set_align(enums::Align::Center | enums::Align::Inside);
+    w.set_size(560, by + 46);
+    w.end();
+    w.make_modal(true);
+    ReviewWindow { window: w, send, cancel }
+}
+
+/// The recovery words, shown once, plus the two ways out of them.
+#[derive(Clone)]
+pub struct WordsWindow {
+    pub window: window::Window,
+    pub ok: button::Button,
+    pub cancel: button::Button,
+}
+
+/// A new account's recovery words, numbered, in three columns read top to
+/// bottom — the order a holder copies them onto paper.
+///
+/// Labels, not a text field: there is nothing here to select, so nothing to
+/// copy to a clipboard that every other program on the machine can read.
+pub fn recovery_words(words: &[&str]) -> WordsWindow {
+    let rows = words.len().div_ceil(3).max(1);
+    let grid_h = rows as i32 * 26 + 14;
+    let mut w = window::Window::new(260, 200, 520, 300, None);
+    mark(&mut w);
+    w.set_label("elo — your recovery words");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 480, 22, "your recovery words", theme::HEAD, 16);
+    chrome::label(16, 40, 488, 16,
+                  "Write them down on paper, in order. They are the account.",
+                  theme::INK, 12);
+    let well = chrome::well(16, 64, 488, grid_h);
+    for (i, word) in words.iter().enumerate() {
+        let (col, row) = ((i / rows) as i32, (i % rows) as i32);
+        let (x, y) = (30 + col * 160, 72 + row * 26);
+        let mut n = chrome::label(x, y, 26, 20, &format!("{:>2}.", i + 1), theme::DIM, 12);
+        n.set_align(enums::Align::Right | enums::Align::Inside);
+        let mut f = chrome::label(x + 32, y, 118, 20, word, theme::INK, 15);
+        f.set_label_font(enums::Font::CourierBold);
+    }
+    well.end();
+
+    let y = 64 + grid_h + 12;
+    chrome::label(16, y, 488, 14,
+                  "Anyone with these words has the account and everything in it.",
+                  theme::GOLD, 11);
+    chrome::label(16, y + 18, 488, 14,
+                  "elo never sees them and cannot show them again.",
+                  theme::MUTED, 11);
+    chrome::label(16, y + 36, 488, 14,
+                  "No screenshot, no cloud notes, no chat. Nobody real will ever ask for them.",
+                  theme::MUTED, 11);
+
+    let by = y + 64;
+    let mut cancel = chrome::button(16, by, 120, 30, "Cancel", Tone::Plain);
+    cancel.set_align(enums::Align::Center | enums::Align::Inside);
+    let mut ok = chrome::button(304, by, 200, 30, "I wrote them down", Tone::Plain);
+    ok.set_align(enums::Align::Center | enums::Align::Inside);
+    w.set_size(520, by + 46);
+    w.end();
+    w.make_modal(true);
+    WordsWindow { window: w, ok, cancel }
+}
+
 /// Which of the two things a notice is. The window draws them differently and
 /// a caller cannot pass a colour, so a refusal can never be styled as a
 /// success by accident.
@@ -1686,7 +2347,7 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
     chrome::label(28, 76, 464, 16, "the account on this machine", theme::DIM, 11);
     // An address is a value read out of a keystore file — clipped like
     // anything else this program did not author.
-    chrome::label_untrusted(28, 96, 464, 18, address, theme::INK, 13);
+    chrome::label_untrusted(28, 96, 464, 18, &elo_depot::streamer::shown(address), theme::INK, 13);
     well.end();
 
     chrome::label(16, 140, 488, 16, "Passphrase", theme::MUTED, 11);
@@ -1721,10 +2382,245 @@ pub fn lock(address: &str, why: &str) -> LockWindow {
     LockWindow { window: w, field, unlock, browser, quit, status }
 }
 
+/// How big a face is beside a chat message, in px: two lines of the feed.
+pub const FACE: i32 = 28;
+/// The feed's left margin the faces sit in.
+const GUTTER: i32 = FACE + 12;
+/// The key our own mark is filed under in [`Faces::pictures`].
+pub const HOUSE_FACE: &str = "#house";
+/// The tiles a face without a picture wears — muted, so a letter on one reads
+/// as a placeholder and never as a picture somebody chose.
+pub const TINTS: [enums::Color; crate::chatpane::TINTS] = [
+    enums::Color::from_rgb(0x5d, 0x6e, 0x4c),
+    enums::Color::from_rgb(0x6e, 0x5d, 0x4c),
+    enums::Color::from_rgb(0x4c, 0x5d, 0x6e),
+    enums::Color::from_rgb(0x6e, 0x4c, 0x5d),
+    enums::Color::from_rgb(0x4c, 0x6e, 0x5d),
+    enums::Color::from_rgb(0x5d, 0x4c, 0x6e),
+];
+
+/// One face to draw: level with the name at byte `pos` of the feed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FaceRow {
+    pub pos: i32,
+    pub key: String,
+    pub house: bool,
+    pub initial: String,
+    pub tint: usize,
+}
+
+/// What the feed's gutter paints. Filled by `wiring` on the UI thread, read
+/// by the feed's own draw.
+#[derive(Default)]
+pub struct Faces {
+    pub rows: Vec<FaceRow>,
+    /// Decoded pictures by npub, plus [`HOUSE_FACE`].
+    pub pictures: std::collections::HashMap<String, art::Picture>,
+    /// The bytes each picture came from, so a changed picture is decoded again
+    /// and an unchanged one never is.
+    pub decoded: std::collections::HashMap<String, std::sync::Arc<Vec<u8>>>,
+}
+
+/// The Chat window and the controls on it. Built once and filled by
+/// `wiring::wire_chat` from the engine's view; this draws and decides nothing.
+#[derive(Clone)]
+pub struct ChatWindow {
+    pub window: window::Window,
+    pub rooms: browser::HoldBrowser,
+    pub room_name: frame::Frame,
+    pub room_about: frame::Frame,
+    pub feed: text::TextDisplay,
+    pub feed_text: text::TextBuffer,
+    pub feed_style: text::TextBuffer,
+    pub status: frame::Frame,
+    pub input: input::Input,
+    pub send: button::Button,
+    /// Present while this machine has no chat key and no account.
+    pub make_key: button::Button,
+    /// Present while there is an account and this machine's key is not linked
+    /// to it — the same slot as `make_key`, never both.
+    pub link: button::Button,
+    /// Present while this machine's key is linked to the account — the slot
+    /// again.
+    pub unlink: button::Button,
+    pub you: frame::Frame,
+    /// Why the last note did not post, when it did not.
+    pub said: frame::Frame,
+    /// The faces beside the messages. Shared with the feed's draw.
+    pub faces: std::rc::Rc<std::cell::RefCell<Faces>>,
+}
+
+/// One line of the room list: our ink, then the name as literal text.
+///
+/// ⚠ **`@.` is the safety half of this, not the colour.** `Fl_Browser` reads
+/// `@` codes at the start of a line, and a room's name is the origin's to
+/// write. `@.` ends the codes — *"print rest of line, don't look for more '@'
+/// signs"* (`Fl_Browser.cxx`) — so whatever follows is drawn as text. The
+/// colour has to ride here at all because fltk-rs exposes no text colour for
+/// this widget, and the default is black on a dark olive well.
+pub fn room_line(label: &str) -> String {
+    format!("@C{}@.{}", theme::INK.bits(), label)
+}
+
+/// Chat — the rooms, live.
+///
+/// **The feed is a text widget, never labels** (`chatpane`'s header says why),
+/// and every room-list line goes through [`room_line`].
+pub fn chat() -> ChatWindow {
+    use crate::chatpane::{S_HOUSE, S_QUIET, S_SWORN, S_TEXT, S_TIME, S_UNCHECKED};
+    let (ww, wh) = (760, 492);
+    let mut w = window::Window::new(150, 130, ww, wh, None);
+    mark(&mut w);
+    w.set_label("elo — chat");
+    w.set_color(theme::BG);
+
+    chrome::label(16, 12, 200, 22, "chat", theme::HEAD, 16);
+    let mut status = chrome::label(220, 14, 524, 18, "", theme::MUTED, 11);
+    status.set_align(enums::Align::Right | enums::Align::Inside | enums::Align::Clip);
+
+    let mut rooms = browser::HoldBrowser::new(16, 44, 160, 372, None);
+    rooms.set_color(theme::WELL);
+    rooms.set_selection_color(theme::SEL);
+    rooms.set_text_size(13);
+    rooms.set_frame(enums::FrameType::ThinDownBox);
+    // ⚠ No `set_column_char('\0')`: fltk-rs asserts on a NUL and the window
+    // is built at startup, so that line took the whole launcher down before
+    // the menu drew. It was never needed — `Fl_Browser` splits columns only
+    // when column widths are set, and none are, and `safe_line` has already
+    // turned any tab in a name into a space.
+    rooms.set_scrollbar_size(13);
+
+    let room_name = chrome::label_untrusted(190, 44, 554, 20, "", theme::INK, 14);
+    let room_about = chrome::label_untrusted(190, 64, 554, 16, "", theme::MUTED, 11);
+
+    let feed_text = text::TextBuffer::default();
+    let feed_style = text::TextBuffer::default();
+    let mut feed = text::TextDisplay::new(190, 86, 554, 330, None);
+    feed.set_buffer(feed_text.clone());
+    feed.set_color(theme::WELL);
+    feed.set_frame(enums::FrameType::ThinDownBox);
+    feed.set_text_color(theme::INK);
+    feed.set_text_size(13);
+    feed.set_scrollbar_size(13);
+    feed.wrap_mode(text::WrapMode::AtBounds, 0);
+    // The order is the style letters' order in `chatpane` — 'A' first.
+    let entry = |color, font, size| text::StyleTableEntry { color, font, size };
+    let styles = vec![
+        (S_TIME, entry(theme::DIM, enums::Font::Helvetica, 11)),
+        (S_SWORN, entry(theme::HEAD, enums::Font::HelveticaBold, 13)),
+        (S_UNCHECKED, entry(theme::MUTED, enums::Font::Helvetica, 13)),
+        (S_HOUSE, entry(theme::GOLD, enums::Font::HelveticaBold, 13)),
+        (S_TEXT, entry(theme::INK, enums::Font::Helvetica, 13)),
+        (S_QUIET, entry(theme::DIM, enums::Font::HelveticaItalic, 12)),
+    ];
+    debug_assert!(styles.iter().enumerate().all(|(i, (c, _))| *c as usize == 'A' as usize + i));
+    feed.set_highlight_data(feed_style.clone(), styles.into_iter().map(|(_, e)| e).collect::<Vec<_>>());
+    // The faces' column. FLTK's line-number margin is the one gutter a text
+    // display keeps clear of text, wrapped lines included; the numbers are
+    // drawn in the well's own colour, so only the faces show in it.
+    feed.set_linenumber_width(GUTTER);
+    feed.set_linenumber_bgcolor(theme::WELL);
+    feed.set_linenumber_fgcolor(theme::WELL);
+
+    let faces = std::rc::Rc::new(std::cell::RefCell::new(Faces::default()));
+    if let Some(mark) = art::Icon::decode(MARK.as_bytes().to_vec()).and_then(|i| i.picture(FACE)) {
+        faces.borrow_mut().pictures.insert(HOUSE_FACE.into(), mark);
+    }
+    {
+        let faces = std::rc::Rc::clone(&faces);
+        feed.draw(move |t| paint_faces(t, &faces));
+    }
+
+    let mut make_key = chrome::button(16, 424, 160, 28, "Make a chat key", Tone::Plain);
+    make_key.set_align(enums::Align::Center | enums::Align::Inside);
+    make_key.set_tooltip("a key that talks for you in chat — it can't move money");
+    let mut link = chrome::button(16, 424, 160, 28, "Link to my wallet", Tone::Plain);
+    link.set_align(enums::Align::Center | enums::Align::Inside);
+    link.set_tooltip("use your wallet's chat key, so people see your profile name and picture");
+    link.hide();
+    let mut unlink = chrome::button(16, 424, 160, 28, "Unlink my wallet", Tone::Plain);
+    unlink.set_align(enums::Align::Center | enums::Align::Inside);
+    unlink.set_tooltip("rooms stop showing your profile name and picture; the key stays here");
+    unlink.hide();
+    let you = chrome::label_untrusted(16, 458, 160, 16, "", theme::DIM, 11);
+
+    let mut input = input::Input::new(190, 424, 446, 28, None);
+    input.set_color(theme::WELL);
+    input.set_text_color(theme::INK);
+    input.set_text_size(13);
+    input.set_selection_color(theme::SEL);
+    input.set_cursor_color(theme::INK);
+    input.set_frame(enums::FrameType::ThinDownBox);
+    // Enter sends, and a second Enter after a refusal sends again rather than
+    // being swallowed as "no change".
+    input.set_trigger(enums::CallbackTrigger::EnterKeyAlways);
+    let mut send = chrome::button(644, 424, 100, 28, "Send", Tone::Plain);
+    send.set_align(enums::Align::Center | enums::Align::Inside);
+    let said = chrome::label_untrusted(190, 458, 554, 16, "", theme::GOLD, 11);
+
+    w.end();
+    // The feed takes the extra room when the window grows; the rest keeps its
+    // place against the edges it was laid out from.
+    w.resizable(&feed);
+    w.size_range(ww, wh, 0, 0);
+    ChatWindow {
+        window: w, rooms, room_name, room_about, feed, feed_text, feed_style, status,
+        input, send, make_key, link, unlink, you, said, faces,
+    }
+}
+
+/// Paint each visible message's face into the feed's gutter, after the feed
+/// has drawn itself (fltk-rs runs a draw callback after the widget's own).
+///
+/// A face is level with its message's name line, and only drawn when that line
+/// is on screen: `position_to_xy` leaves `(0, 0)` for a position that is not.
+/// The house wears our mark; a speaker with no picture wears a tile with their
+/// letter, drawn with `draw_text` — which parses no `@` symbols, unlike the
+/// aligned variant, and the letter is a stranger's.
+fn paint_faces(t: &mut text::TextDisplay, faces: &std::rc::Rc<std::cell::RefCell<Faces>>) {
+    use fltk::draw;
+    let Ok(mut f) = faces.try_borrow_mut() else { return };
+    if f.rows.is_empty() {
+        return;
+    }
+    let (x0, y0, h0) = (t.x(), t.y(), t.h());
+    draw::push_clip(x0 + 2, y0 + 2, GUTTER - 2, h0 - 4);
+    let rows = std::mem::take(&mut f.rows);
+    for r in &rows {
+        let (_, y) = t.position_to_xy(r.pos);
+        if y < y0 || y >= y0 + h0 {
+            continue;
+        }
+        let (ax, ay) = (x0 + 6, y + 2);
+        let key = if r.house { HOUSE_FACE } else { r.key.as_str() };
+        if let Some(p) = f.pictures.get_mut(key) {
+            p.draw(ax, ay, FACE, FACE);
+            continue;
+        }
+        draw::draw_rbox(ax, ay, FACE, FACE, 6, true, TINTS[r.tint % TINTS.len()]);
+        draw::set_draw_color(theme::INK);
+        draw::set_font(enums::Font::HelveticaBold, 14);
+        let tw = draw::width(&r.initial) as i32;
+        let base = ay + (FACE + draw::height()) / 2 - draw::descent();
+        draw::draw_text(&r.initial, ax + (FACE - tw) / 2, base);
+    }
+    f.rows = rows;
+    draw::pop_clip();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{wrap_lines, MARK};
     use fltk::{image, prelude::*};
+
+    #[test]
+    fn a_room_line_ends_the_format_codes_before_the_name() {
+        let line = super::room_line("@B1@C88 #general");
+        let at = line.find("@.").expect("the stop code");
+        assert!(line[at + 2..].starts_with("@B1@C88 #general"), "{line}");
+        assert!(line[..at].starts_with("@C"), "{line}");
+        assert!(line[2..at].chars().all(|c| c.is_ascii_digit()), "{line}");
+    }
 
     #[test]
     fn a_long_error_wraps_and_keeps_its_reason() {

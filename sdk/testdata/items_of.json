@@ -1,0 +1,103 @@
+{
+  "about": "GET /api/items/of/{wallet}[?title=] (meter/items.py items_of), captured with the explorer and chain scripted. A held item is a token (token_id, catalog_id, mint_ref, derived…) or a skin held as its vault's token (via: vault, no token_id). `reachable` is present only when false: then the wallet could not be enumerated, which is not 'owns nothing'. `not_configured` is a meter with no item contract, where nobody holds an item.",
+  "held": {
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "collection": "0x93f4965638f9c99dd53f13bf2b47358a6ff7630c",
+    "title": null,
+    "items": [
+      {
+        "token_id": 41,
+        "catalog_id": 1,
+        "mint_kind": 0,
+        "mint_kind_name": "play",
+        "mint_ref": "0x797ab1b8d7730e3158abf06108311f510cf54854a912ed261a329bd65f6c07e5",
+        "derived": {},
+        "catalog_name": "Obsidian Bat",
+        "shape": "entitlement",
+        "derives_nothing": true,
+        "why_nothing": "this catalog declares no derived fields — a store-shaped entitlement where every copy is identical by design (ITEM-CONTRACT.md §0). Nothing is missing.",
+        "image": "https://elopros.com/art/items/gates/1.jpg"
+      },
+      {
+        "token_id": 42,
+        "catalog_id": 9001,
+        "mint_kind": 0,
+        "mint_kind_name": "play",
+        "mint_ref": "0x20712c8c9eef92d9ccb617a2c52b3a7327dfaa596f0cd3330117883f01e72962",
+        "derived": {
+          "float": {
+            "tag": "float",
+            "kind": "range",
+            "h": "0xebba7a6116f7c856ccdc857fa2dede04eba9af05ef733a3065a77a1f18918369",
+            "value": 0.920814,
+            "exact": 0.9208141791377492,
+            "min": 0.0,
+            "max": 1.0,
+            "band": "battle-scarred"
+          },
+          "pattern": {
+            "tag": "pattern",
+            "kind": "index",
+            "h": "0x9760024bd7d804d5b2c14ec09c1901fe1dd62bc8bbbca86c89cc7615f5aeb65b",
+            "value": 83,
+            "n": 1000
+          },
+          "finish": {
+            "tag": "finish",
+            "kind": "pick",
+            "h": "0xeafcd8bba25528ab39f5ff164bef21ec5ff25182713dc4edd7c1f40de50dfd6a",
+            "value": "standard",
+            "weights_total": 1000,
+            "roll": 90
+          }
+        },
+        "catalog_name": "Shape Example — instance",
+        "shape": "instance",
+        "derives_nothing": false,
+        "why_nothing": null
+      },
+      {
+        "catalog_id": 2,
+        "via": "vault",
+        "vault": "0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        "copies": 1,
+        "balance": "1000000000000000000"
+      }
+    ],
+    "count": 3,
+    "balance_onchain": 2,
+    "index_disagrees": false,
+    "index_note": "`balance_onchain` is an eth_call and is authoritative; the token ids come from the index because no RPC method enumerates them. If these disagree the index is lagging — the items shown are still real, because every one of them was re-read off chain.",
+    "truncated": null,
+    "cap": 200,
+    "vault_errors": null,
+    "sources": {
+      "which_tokens": "explorer",
+      "what_each_is": "eth_call instanceOf",
+      "held_as_a_vault_token": "eth_call balanceOf on each skin's EloSkinVault",
+      "attributes": "derived — GET /api/items/provenance"
+    },
+    "scope": "Items are ERC-721s on chain 4663 — tradable anywhere the chain reaches, by construction. This page is a view of what you hold and never a vault: scry custodies nothing and cannot move an item. Attributes are not stored anywhere; they are derived from each token's mintRef by the published spec, so anyone can recompute them without us."
+  },
+  "could_not_look": {
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "items": [],
+    "count": 0,
+    "reachable": false,
+    "balance_onchain": null,
+    "error": "could not enumerate this wallet's items: timeout after 6.6s",
+    "why_it_matters": "this is 'we could not look', not 'you own nothing' — the two are different claims and this surface will not merge them.",
+    "scope": "Items are ERC-721s on chain 4663 — tradable anywhere the chain reaches, by construction. This page is a view of what you hold and never a vault: scry custodies nothing and cannot move an item. Attributes are not stored anywhere; they are derived from each token's mintRef by the published spec, so anyone can recompute them without us."
+  },
+  "not_configured": {
+    "configured": false,
+    "deployed": false,
+    "why": "no item contract is configured, so no wallet can hold one of its items yet.",
+    "arms_with": "EloItem:GATES in contracts/deployments.json (or SCRY_ITEM=0x… on the meter), after the catalog's creator deploys EloItem. The house does not hold a key on a creator's contract (ITEM-CONTRACT.md §1); for its own catalogs it IS the creator.",
+    "what_exists": "the contract is written and compiles (contracts/src/EloItem.sol); the derivation spec is live at GET /api/items/provenance and needs no contract at all.",
+    "scope": "Items are ERC-721s on chain 4663 — tradable anywhere the chain reaches, by construction. This page is a view of what you hold and never a vault: scry custodies nothing and cannot move an item. Attributes are not stored anywhere; they are derived from each token's mintRef by the published spec, so anyone can recompute them without us.",
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "items": [],
+    "count": 0
+  }
+}

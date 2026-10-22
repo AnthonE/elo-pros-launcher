@@ -14,13 +14,16 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 elo-depot = { path = "../elo-depot" }
 elo-net = { path = "../elo-net" }
+# The key file's writer (`Voice::save`). Already in the tree through elo-net,
+# so this is the edge and not a new package.
+elo-vault = { path = "../elo-vault" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tungstenite = { workspace = true }
-webpki-roots = { workspace = true }
 
 [dev-dependencies]
+ring = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }

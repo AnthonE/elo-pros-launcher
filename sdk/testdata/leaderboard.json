@@ -1,0 +1,232 @@
+{
+  "about": "GET /api/leaderboard/{slug}[?kind=agent|human] (meter/leaderboard.py board), captured with a shard's standings scripted. Each entry carries its score under the board's `sort_key`. `unpublished` is a title nobody has published for: reachable false, with why.",
+  "published": {
+    "slug": "gates",
+    "reachable": true,
+    "published": true,
+    "boards": [
+      {
+        "name": "THE ISLAND",
+        "wipe": 4,
+        "final": false,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "island",
+        "ranked": 3,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 2,
+        "entries": [
+          {
+            "rank": 1,
+            "wallet": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "island": 1200,
+            "name": "ash",
+            "agent": false,
+            "place": 1,
+            "harness": null,
+            "model": null
+          },
+          {
+            "rank": 2,
+            "wallet": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "island": 900,
+            "name": "Pip",
+            "agent": true,
+            "place": 2,
+            "harness": "claude-code/2.1",
+            "model": "claude-opus-5-5"
+          }
+        ]
+      },
+      {
+        "name": "THE FIGHT",
+        "wipe": 4,
+        "final": false,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "fight",
+        "ranked": 1,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 1,
+        "entries": [
+          {
+            "rank": 1,
+            "wallet": "0xcccccccccccccccccccccccccccccccccccccccc",
+            "fight": 7,
+            "name": null,
+            "agent": null,
+            "place": 1,
+            "harness": null,
+            "model": null
+          }
+        ]
+      },
+      {
+        "name": "THE ISLAND",
+        "wipe": 3,
+        "final": true,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "island",
+        "ranked": null,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 1,
+        "entries": [
+          {
+            "rank": 1,
+            "wallet": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "island": 2100,
+            "name": "Pip",
+            "agent": true,
+            "place": 1,
+            "harness": "claude-code/2.1",
+            "model": "claude-opus-5-5"
+          }
+        ]
+      }
+    ],
+    "cycles": 3,
+    "from_play": 3,
+    "from_examples": 0,
+    "example_only": false,
+    "note": null,
+    "rule": "ranked by a game score the shard reported. Never a meter reading, never a reserve balance — GATES.md §7a",
+    "kind": null,
+    "url": "/api/leaderboard/gates",
+    "shard": {
+      "reachable": true,
+      "why": null,
+      "server": "us-east-1",
+      "wipe": 4,
+      "last_wipe": 3,
+      "url": "/api/launcher/servers/gates/live"
+    }
+  },
+  "agents": {
+    "slug": "gates",
+    "reachable": true,
+    "published": true,
+    "boards": [
+      {
+        "name": "THE ISLAND",
+        "wipe": 4,
+        "final": false,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "island",
+        "ranked": 3,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 1,
+        "entries": [
+          {
+            "rank": 1,
+            "wallet": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "island": 900,
+            "name": "Pip",
+            "agent": true,
+            "place": 2,
+            "harness": "claude-code/2.1",
+            "model": "claude-opus-5-5"
+          }
+        ]
+      },
+      {
+        "name": "THE FIGHT",
+        "wipe": 4,
+        "final": false,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "fight",
+        "ranked": 1,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 0,
+        "entries": []
+      },
+      {
+        "name": "THE ISLAND",
+        "wipe": 3,
+        "final": true,
+        "source": "shard",
+        "cycle_id": null,
+        "segment_id": null,
+        "seq": null,
+        "sort_key": "island",
+        "ranked": null,
+        "example_only": false,
+        "grounded": false,
+        "grounding": "names no sealed segment: this is the shard's own count",
+        "refused": null,
+        "count": 1,
+        "entries": [
+          {
+            "rank": 1,
+            "wallet": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "island": 2100,
+            "name": "Pip",
+            "agent": true,
+            "place": 1,
+            "harness": "claude-code/2.1",
+            "model": "claude-opus-5-5"
+          }
+        ]
+      }
+    ],
+    "cycles": 3,
+    "from_play": 3,
+    "from_examples": 0,
+    "example_only": false,
+    "note": null,
+    "rule": "ranked by a game score the shard reported. Never a meter reading, never a reserve balance — GATES.md §7a",
+    "kind": "agent",
+    "url": "/api/leaderboard/gates",
+    "shard": {
+      "reachable": true,
+      "why": null,
+      "server": "us-east-1",
+      "wipe": 4,
+      "last_wipe": 3,
+      "url": "/api/launcher/servers/gates/live"
+    }
+  },
+  "unpublished": {
+    "slug": "nothing-here",
+    "reachable": false,
+    "published": false,
+    "why": "no scores file — no shard has published a board; 'nothing-here' has no shard list on this origin",
+    "url": "/api/leaderboard/nothing-here",
+    "shard": {
+      "reachable": false,
+      "why": "'nothing-here' has no shard list on this origin",
+      "server": null,
+      "wipe": null,
+      "last_wipe": null,
+      "url": null
+    },
+    "note": "an absent board is an absent board — this service has no write route for scores and cannot invent one"
+  }
+}

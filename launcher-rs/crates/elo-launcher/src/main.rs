@@ -7,9 +7,13 @@
 //! platform has agents as first-class players (`GATES.md` §0).
 
 mod args;
+mod chatkey;
 mod dev;
+mod friends;
 mod mcp;
 mod prompt;
+mod relay;
+mod send;
 mod signer;
 
 // The account's address and signature both come through this trait, so the CLI
@@ -17,6 +21,7 @@ mod signer;
 use elo_broker::signer::Signer;
 use elo_depot::session::{self, Ending, Session};
 use elo_depot::publisher;
+use elo_depot::dirs::{home_based, state_root};
 use elo_depot::update::{Checked, UpdateState};
 use elo_depot::{
     install, installed, launch, manifest, parse_depot, plan, superseded, uninstall, verify,
@@ -44,23 +49,36 @@ elo — the desktop client
   elo prune   <slug>              remove builds superseded by the newest
   elo uninstall <slug> <build>    remove one build
   elo play    <title>             start the installed build (or open the page)
+  elo streamer [on|off]           streamer mode: games start with it on, and
+                                   the window hides wallets and server addresses
   elo join    <link>              follow a friend's elo://join/… link
   elo servers <title>             the shards that title is serving, live
   elo digest  <depot>             the bytes32 a notary would commit
   elo chat [rooms|read|voice]     the Elo Pros chat rooms, read
   elo chat whoami                 the chat key this machine speaks with
   elo chat voice-new              make one (schnorr, kept here, never sent)
+  elo chat link                   speak with your wallet's own chat key, so
+                                   rooms show your profile name and picture
+  elo chat unlink                 undo that — the key stays on this machine
   elo chat say <text>             say something in #general or --room
   elo chat presence               show as online until interrupted
                                   (`elo hive …` still works)
   elo who [handle]                one identity — name, face, and who checked
+  elo friends                     your friends, and what each one is playing
+  elo friends add <who>           ask a wallet (0x…) or a name to be friends
+  elo friends accept|decline <who>    answer an ask
+  elo friends cancel|remove|block|unblock <who>
+  elo friends join <who>          join the server a friend is playing on
   elo seat [--wallet ADDR]        the characters a wallet holds, and whether
                                    it may still mint — one call, no key
   elo seat card                   the collection: contract, supply, doors
   elo sessions                    what has been played, and what is running
   elo account                     the account on this machine (exit 3 if none)
-  elo account new                 make one — generated here, transmitted nowhere
-  elo account import              adopt a key you already have
+  elo account new                 make one — twelve recovery words, shown once
+  elo account import              restore from recovery words, or adopt a key
+  elo wallet [--wallet ADDR]      what this account holds, read off the chain
+  elo send <amount> <coin> <to>   send ETH or a coin: checked, shown, then the
+                                   passphrase — asked for every send
   elo account sign <message>      sign with it (EIP-191), for a game or a claim
   elo pair                        sign with the wallet in your BROWSER instead
                                    — prints a code to type at <host>/pair.html
@@ -92,7 +110,7 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --quiet             do not show as online in chat while playing
   --platform TAG      override this machine's platform tag
   --server ADDR       passed to the game as {server}
-  --wallet ADDR       passed to the game as {wallet}
+  --wallet ADDR       passed to the game as {wallet}; whose list, for `friends`
   --browser CMD       browser command; `{url}` marks where the url goes,
                       which is what app mode needs: 'chromium --app={url}'
   --json              machine-readable output
@@ -101,17 +119,21 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --local             sign with the account on this machine, even when a
                       browser pairing is live
   --no-reuse          download every file, even ones already on disk
-  --allow-insecure    permit an http depot root (a local test server)
+  --allow-insecure    permit http manifests and depots (a local test server)
   --dry-run           say what would happen, do nothing
   --yes               do not ask before removing anything
 ";
 
 fn main() {
+    // Before any key can be in memory: no core file, no same-user attach.
+    for e in elo_vault::harden_process() {
+        eprintln!("elo: {e}");
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let parsed = match args::parse(&argv) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("elo: {e}");
+            eprintln!("elo: {}", shown(&e));
             std::process::exit(2);
         }
     };
@@ -123,10 +145,22 @@ fn main() {
     match run(&parsed) {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            eprintln!("elo: {e}");
+            eprintln!("elo: {}", shown(&e));
             std::process::exit(1);
         }
     }
+}
+
+/// The CLI's error sink, made fit for a terminal.
+///
+/// An error can carry text somebody else chose — a relay's refusal reason, an
+/// origin's message, an `elo://` link a web page built — and an escape in it
+/// is an instruction to the player's terminal (OSC 52 writes the clipboard).
+/// The relay cleans its own words where they enter an error; this is the
+/// backstop for every path that does not, line by line so a multi-line error
+/// keeps its shape.
+fn shown(e: &dyn std::fmt::Display) -> String {
+    e.to_string().lines().map(render::safe_line).collect::<Vec<_>>().join("\n")
 }
 
 fn run(a: &args::Args) -> Result<i32, DepotError> {
@@ -142,8 +176,30 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         .trim_end_matches('/')
         .to_string();
     let json_out = a.has("--json");
+    // Every game this run starts is told (`elo_depot::streamer`).
+    elo_depot::streamer::load(&state_root());
 
     match a.verb.as_str() {
+        "streamer" => {
+            match a.positional.first().map(String::as_str) {
+                Some("on") => elo_depot::streamer::save(&state_root(), true)?,
+                Some("off") => elo_depot::streamer::save(&state_root(), false)?,
+                Some(other) => {
+                    return Err(DepotError::new(format!("streamer: on or off, not {other:?}")))
+                }
+                None => {}
+            }
+            let on = elo_depot::streamer::on();
+            if json_out {
+                println!("{}", serde_json::json!({ "streamer": on }));
+            } else if on {
+                println!("streamer mode is on: games start with it on, and the window hides \
+                          wallets and server addresses");
+            } else {
+                println!("streamer mode is off (`elo streamer on` to turn it on)");
+            }
+            Ok(0)
+        }
         "check" => {
             let net = Net::new();
             println!("elo launcher {}", env!("CARGO_PKG_VERSION"));
@@ -287,13 +343,35 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     }
                 }
 
+                // Twelve words first, checked, and only then a file. The words
+                // go to stderr so `ADDR=$(elo account new)` captures the
+                // address and nothing else, and they are never written by us.
                 "new" => {
                     refuse_if_occupied(&path)?;
-                    warn_if_echoing();
+                    if elo_depot::streamer::on() {
+                        return Err(DepotError::new(
+                            "streamer mode is on, and the recovery words would be on \
+                             stream — `elo streamer off` first",
+                        ));
+                    }
+                    let phrase = elo_vault::Phrase::generate().map_err(DepotError::new)?;
+                    show_words(&phrase);
+                    let quiz = phrase.quiz().map_err(DepotError::new)?;
+                    let answer = prompt::secret(&format!(
+                        "to check you have them, type words {}, {} and {}: ",
+                        quiz[0], quiz[1], quiz[2]
+                    ))
+                    .map_err(DepotError::new)?;
+                    if !phrase.check(&quiz, &answer) {
+                        return Err(DepotError::new(
+                            "those are not the words — nothing was written. Run it again \
+                             for a new set, and write them down this time",
+                        ));
+                    }
                     let pass = passphrase_twice()?;
-                    let signer = elo_vault::LocalSigner::create(&path, &pass)
+                    let signer = elo_vault::LocalSigner::restore(&path, &pass, &phrase)
                         .map_err(DepotError::new)?;
-                    report_new_account(&signer, &path);
+                    report_new_account(&signer, &path, true);
                     Ok(0)
                 }
 
@@ -303,13 +381,19 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 "import" => {
                     refuse_if_occupied(&path)?;
                     warn_if_echoing();
-                    let raw = prompt::secret("the private key to adopt (64 hex): ")
+                    let raw = prompt::secret("your recovery words, or a private key (64 hex): ")
                         .map_err(DepotError::new)?;
-                    let secret = parse_secret(&raw)?;
-                    let pass = passphrase_twice()?;
-                    let signer = elo_vault::LocalSigner::import(&path, &pass, &secret)
-                        .map_err(DepotError::new)?;
-                    report_new_account(&signer, &path);
+                    let signer = if raw.split_whitespace().count() > 1 {
+                        let phrase = elo_vault::Phrase::parse(&raw).map_err(DepotError::new)?;
+                        let pass = passphrase_twice()?;
+                        elo_vault::LocalSigner::restore(&path, &pass, &phrase)
+                    } else {
+                        let secret = parse_secret(&raw)?;
+                        let pass = passphrase_twice()?;
+                        elo_vault::LocalSigner::import(&path, &pass, secret.as_slice())
+                    }
+                    .map_err(DepotError::new)?;
+                    report_new_account(&signer, &path, false);
                     Ok(0)
                 }
 
@@ -353,6 +437,10 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 ))),
             }
         }
+
+        // ── the wallet: balances off the chain, and a send ─────────────────
+        "wallet" => send::show(a, &host, json_out),
+        "send" => send::send(a, &host, json_out),
 
         // ── pair: the wallet you already have, in the browser it lives in ───
         //
@@ -792,17 +880,29 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     if id.is_empty() || text.is_empty() {
                         continue;
                     }
-                    println!("\nthe page asks for a signature over exactly this:");
-                    println!("──");
-                    println!("{text}");
-                    println!("──");
-                    if !why.is_empty() {
-                        // The page's own stated reason — a claim, and drawn as
-                        // one, the same rule the broker's consent prompt holds.
-                        println!("(the page says: {why})");
-                    }
-                    let yes = prompt::confirm("sign it? [y/N] ").unwrap_or(false);
-                    let body = if yes {
+                    // `why` first, through safe_line; the verbatim text last,
+                    // right above the prompt (relay.rs says why). A text the
+                    // terminal would draw as something else is refused unasked.
+                    let shown = relay::ask_block(text, why);
+                    let yes = match &shown {
+                        Some(block) => {
+                            println!("\n{block}");
+                            prompt::confirm("sign it? [y/N] ").unwrap_or(false)
+                        }
+                        None => {
+                            println!(
+                                "\nthe page sent a text with control or direction \
+                                 characters — refused without asking"
+                            );
+                            false
+                        }
+                    };
+                    let body = if shown.is_none() {
+                        serde_json::json!({
+                            "approver": approver, "id": id,
+                            "refusal": "the launcher cannot show this text as it would be signed",
+                        })
+                    } else if yes {
                         match signer.sign(text, "site relay") {
                             Ok(o) => serde_json::json!({
                                 "approver": approver, "id": id,
@@ -851,7 +951,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         //
         //     elo publisher gates --statement | xargs -0 elo account sign
         "publisher" => {
-            let m = load_manifest(need(a.positional.first(), "a title")?, &host)?;
+            let m = load_manifest(need(a.positional.first(), "a title")?, &host, READS_ONLY)?;
             if a.has("--statement") {
                 // No trailing newline: it is a message to be signed, and a
                 // stray byte is a different signature.
@@ -1204,6 +1304,14 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     let v = Voice::load(&dir).map_err(DepotError::from)?;
                     println!("npub    {}", v.npub());
                     println!("key     {}", dir.join(elo_hive::voice::KEY_NAME).display());
+                    // The public record, from the key's end. A failed look is
+                    // said as one, never as "not linked".
+                    let got = net.get_json_quick(&format!("{host}/api/hive/link/{}", v.npub()));
+                    match got.value.as_ref().map(|r| r.get("wallet").and_then(Value::as_str)) {
+                        Some(Some(w)) => println!("linked  {w} — rooms show its profile name and picture"),
+                        Some(None) => println!("linked  no — `elo chat link` uses your wallet's own key"),
+                        None => println!("linked  could not look — {}", render::safe_line(&got.why)),
+                    }
                     // Said on the surface every time, not once in a doc. This
                     // key can speak as you and cannot touch anything else, and
                     // both halves of that matter.
@@ -1211,6 +1319,10 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     println!("no transaction. It sits at 0600 unencrypted, so anyone who can read");
                     println!("your home directory can speak as you in chat. elo never sees it.");
                     Ok(0)
+                }
+                "link" | "unlink" => {
+                    let unlink = a.positional.first().map(String::as_str) == Some("unlink");
+                    chatkey::run(a, &host, &voice_dir(), unlink)
                 }
                 "voice-new" => {
                     let dir = voice_dir();
@@ -1229,7 +1341,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     println!("saved   {}", path.display());
                     println!("\nBack it up as an nsec if you want this identity to survive this");
                     println!("machine. It is a speaking key: no funds, no transactions, and elo");
-                    println!("never sees it.");
+                    println!("never sees it. With a wallet, `elo chat link` speaks with the");
+                    println!("wallet's own key instead, and rooms show your profile name.");
                     Ok(0)
                 }
                 "presence" => {
@@ -1335,9 +1448,30 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     // chat window rather than backwards like an API.
                     let mut rows = r.messages.clone();
                     rows.sort_by_key(|m| m.at);
+                    // A speaker the room ties to a wallet (a sworn vow, or a
+                    // linked key) wears the wallet's own profile name, as in
+                    // the window and on the site. One look per wallet, a few
+                    // wallets at most, and a failed look keeps the room's name.
+                    let mut profiles: BTreeMap<String, Option<String>> = BTreeMap::new();
+                    for w in rows.iter().filter(|m| !m.house).filter_map(|m| m.wallet.as_deref()) {
+                        let w = w.to_lowercase();
+                        if who::looks_like_wallet(&w) && profiles.len() < 12 {
+                            profiles.entry(w.clone()).or_insert_with(|| {
+                                who::resolve(&net, &host, &w).value
+                                    .filter(|id| id.kind == NameKind::Declared)
+                                    .map(|id| id.name)
+                            });
+                        }
+                    }
                     for m in &rows {
                         // One resolver, the same one `elo who` uses.
-                        let id = who::from_message(m, &host);
+                        let mut id = who::from_message(m, &host);
+                        let named = m.wallet.as_deref()
+                            .and_then(|w| profiles.get(&w.to_lowercase()).cloned().flatten());
+                        if let Some(name) = named.filter(|n| !n.trim().is_empty() && !m.house) {
+                            id.name = name;
+                            id.kind = NameKind::Declared;
+                        }
                         println!(
                             "{}",
                             render::chat_line(
@@ -1389,7 +1523,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             }
             println!("name    {}", id.name);
             println!("        {}", id.kind.line());
-            println!("face    {}", id.face);
+            if id.face.is_empty() {
+                println!("face    none set — a letter tile");
+            } else {
+                println!("face    {}", id.face);
+            }
             for (label, v) in [("wallet", &id.wallet), ("npub", &id.npub),
                                ("vow", &id.vow_id), ("nip05", &id.nip05)] {
                 if let Some(v) = v {
@@ -1417,10 +1555,39 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             Ok(0)
         }
 
+        // ── friends ──────────────────────────────────────────────────────────
+        //
+        // Its own module for the same reason `dev` is: a list, a presence
+        // line and seven signed changes are a desk, not a verb. What comes
+        // back to this dispatcher is either an exit code or a friend's link —
+        // and a link goes through `join` exactly as a pasted one does, which
+        // then becomes `play`. Following a friend is not a third launch path.
+        "friends" => match friends::run(a, &host, json_out)? {
+            friends::Done::Code(code) => Ok(code),
+            friends::Done::Join(link) => {
+                let mut join = a.clone();
+                join.verb = "join".into();
+                join.positional = vec![link];
+                // `--wallet` here named whose LIST to read, and `play` would
+                // hand it to the game as `{wallet}` — joining from a friend's
+                // list as that friend. Dropped, so the game asks this
+                // launcher who is playing, as the window's Join does.
+                join.flags.remove("--wallet");
+                join.repeats.remove("--wallet");
+                run(&join)
+            }
+        },
+
         "mcp" => {
             // Read-only by construction — see `mcp.rs`. Installing, launching
             // and speaking stay on the CLI where a person typed them.
-            mcp::run(a, &games, &state_root(), &host, &platform)
+            // `what=friends` defaults to the wallet `elo friends` reads, asked
+            // per call so a pairing made while the server runs is the one read.
+            let whose: mcp::Whose = {
+                let (a, host) = (a.clone(), host.clone());
+                Box::new(move || friends::whose(&a, &host).map_err(|e| e.to_string()))
+            };
+            mcp::run(a, &games, &state_root(), &host, &platform, whose)
                 .map_err(|e| DepotError::new(format!("mcp: {e}")))?;
             Ok(0)
         }
@@ -1476,7 +1643,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
         "status" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host)?;
+            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, insecure)?;
             let checked = check_updates(&m, &platform, &games, insecure);
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&state_json(&checked.state)).unwrap_or_default());
@@ -1493,7 +1660,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
         "install" | "update" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host)?;
+            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, insecure)?;
             use_cached_grant(&games, &m.slug, &host);
             let checked = check_updates(&m, &platform, &games, insecure);
             println!("{} — {}", m.name, checked.state.line());
@@ -1589,7 +1756,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
         "play" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host)?;
+            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, READS_ONLY)?;
             // `{servers}` comes from the MANIFEST, never from a flag: the shard
             // list is the title's to name and it has already named it in the
             // document we just loaded, so the game's own browser and the
@@ -1598,11 +1765,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             // Prefer an installed native build; fall back to the browser row;
             // refuse rather than guess when neither is published.
             //
-            // `next_back`, not `find` — builds sort by name and a title can
-            // have several installed at once, so the first match is the OLDEST.
-            // Starting the build a player just updated away from is the kind of
-            // bug that reads as "the patch did nothing".
-            if let Some(i) = installed(&games).into_iter().rfind(|i| i.slug == m.slug) {
+            // The build installed MOST RECENTLY, not the last by name: a
+            // build id's sha carries no order, and a name chosen to sort last
+            // would otherwise win every Play. And only a build this manifest's
+            // origin installed (`newest_from`): a slug is anyone's to write.
+            if let Some(i) = elo_depot::newest_from(&games, &m.slug, &m.origin) {
                 let l = launch::resolve(&i, &values, &BTreeMap::new())?;
                 if a.has("--dry-run") {
                     println!("{}", l.argv.join(" "));
@@ -1680,7 +1847,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // origin from a terminal, so "is the list up, and is it saying
         // anything" is answerable without a display.
         "servers" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host)?;
+            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, READS_ONLY)?;
             let net = Net::new();
             let Some(url) = m.servers_url.clone() else {
                 // Dark, and it names the field that would light it — the same
@@ -1716,8 +1883,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             // is stale before anybody reads it. A shard that does not answer
             // keeps whatever the row said, which is usually nothing.
             for r in rows.iter_mut() {
-                let Some(su) = r.status_url.clone() else { continue };
-                if let Some(s) = net.status(&su).value {
+                let Some(su) = r.status_url_to_poll(&url).map(str::to_string) else { continue };
+                if let Some(s) = net.status(&su, &url).value {
                     r.apply_status(&s);
                 }
             }
@@ -1804,7 +1971,7 @@ fn do_install(depot: &Depot, games: &Path, a: &args::Args) -> Result<PathBuf, De
         println!(
             "note: this build names its files on {}, which is retired and answers 410.\n\
              \x20     downloading from {} instead — every file is still checked against\n\
-             \x20     the sha256 in the notarized depot.",
+             \x20     the sha256 in the depot this origin served (its digest is below).",
             elo_depot::origin_of(was),
             elo_depot::origin_of(&depot.root)
         );
@@ -1894,18 +2061,21 @@ fn hold_presence_while_playing(a: &args::Args, host: &str, slug: &str) -> Option
     let voice = Voice::load(&dir).ok()?;
     let net = Net::new();
     let url = relay_url(&Hive::new(&net, host)).ok()?;
-    let mut held = match Presence::hold(&url, voice, Status::Online) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("elo: chat presence unavailable ({e}) — playing anyway");
-            return None;
-        }
-    };
-    println!("chat: {} online while you play {slug}", held.npub());
 
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
+    let slug = slug.to_string();
     let joiner = std::thread::spawn(move || {
+        // Connected here, not on the play path: a slow relay must never stand
+        // between the game and `child.wait`, which is where playtime comes from.
+        let mut held = match Presence::hold(&url, voice, Status::Online) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("elo: chat presence unavailable ({}) — playing anyway", shown(&e));
+                return;
+            }
+        };
+        println!("chat: {} online while you play {slug}", held.npub());
         // Woken often, beats rarely: the relay's TTL is three heartbeats, so
         // sleeping the whole interval would make quitting wait for it.
         let tick = std::time::Duration::from_millis(500);
@@ -1946,56 +2116,10 @@ fn relay_url(hive: &Hive) -> Result<String, DepotError> {
         .ok_or_else(|| DepotError::new("the house has posted no relay"))
 }
 
+/// The chat key's directory. One definition, in `elo-hive`, so the window and
+/// this CLI find the same voice (`elo_hive::voice::default_dir`).
 fn voice_dir() -> PathBuf {
-    if let Ok(p) = std::env::var("ELO_VOICE_DIR") {
-        return PathBuf::from(p);
-    }
-    state_root().join("voice")
-}
-
-fn state_root() -> PathBuf {
-    if let Ok(p) = std::env::var("ELO_STATE") {
-        return PathBuf::from(p);
-    }
-    home_based("XDG_STATE_HOME", ".local/state").join("elo")
-}
-
-/// The XDG dir on unix, `%LOCALAPPDATA%` on Windows — and never a path rooted
-/// at `/` because an env var was missing.
-///
-/// ⚠ **This is why it is a function.** Both callers read `$HOME` directly and
-/// `unwrap_or_default()`'d it, which is empty on Windows — `HOME` is not set
-/// there, `USERPROFILE` is. That produced `/.local/share/elo/games`: an
-/// absolute path at the filesystem root, which is the wrong place on unix with
-/// no `HOME` and unwritable nonsense on Windows. An empty base is now a real
-/// failure rather than a silent root-relative write, and it falls back to the
-/// current directory so a game lands somewhere the caller can find rather than
-/// somewhere they cannot.
-fn home_based(xdg_var: &str, unix_tail: &str) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let _ = (xdg_var, unix_tail);
-        for var in ["LOCALAPPDATA", "APPDATA", "USERPROFILE"] {
-            if let Ok(p) = std::env::var(var) {
-                if !p.is_empty() {
-                    return PathBuf::from(p);
-                }
-            }
-        }
-        PathBuf::from(".")
-    }
-    #[cfg(not(windows))]
-    {
-        if let Ok(p) = std::env::var(xdg_var) {
-            if !p.is_empty() {
-                return PathBuf::from(p);
-            }
-        }
-        match std::env::var("HOME") {
-            Ok(h) if !h.is_empty() => PathBuf::from(h).join(unix_tail),
-            _ => PathBuf::from("."),
-        }
-    }
+    elo_hive::voice::default_dir()
 }
 
 fn games_root(a: &args::Args) -> PathBuf {
@@ -2061,8 +2185,12 @@ fn warn_if_echoing() {
     }
 }
 
-fn passphrase_twice() -> Result<String, DepotError> {
-    let pass = prompt::secret("a passphrase for this account: ").map_err(DepotError::new)?;
+fn passphrase_twice() -> Result<elo_vault::Zeroizing<String>, DepotError> {
+    let pass = prompt::secret(&format!(
+        "a passphrase for this account (at least {} characters): ",
+        elo_vault::local::MIN_PASSPHRASE
+    ))
+    .map_err(DepotError::new)?;
     let again = prompt::secret("type it again: ").map_err(DepotError::new)?;
     if pass != again {
         // Nothing was written, and saying so is the point: the alternative
@@ -2075,7 +2203,7 @@ fn passphrase_twice() -> Result<String, DepotError> {
 /// 32 bytes from hex, and **no input ever reaches an error message** — the
 /// input here is a private key, and a client that echoed a bad one into a
 /// terminal, a log or a bug report would leak exactly what it was handed.
-fn parse_secret(raw: &str) -> Result<[u8; 32], DepotError> {
+fn parse_secret(raw: &str) -> Result<elo_vault::Zeroizing<[u8; 32]>, DepotError> {
     let hex = raw.trim();
     let hex = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X")).unwrap_or(hex);
     if hex.len() != 64 {
@@ -2084,7 +2212,12 @@ fn parse_secret(raw: &str) -> Result<[u8; 32], DepotError> {
             hex.len()
         )));
     }
-    let mut out = [0u8; 32];
+    // Bytes checked before slicing: a multibyte character across a cut
+    // would panic rather than say "not hexadecimal".
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(DepotError::new("that is not hexadecimal — nothing was written"));
+    }
+    let mut out = elo_vault::Zeroizing::new([0u8; 32]);
     for (i, b) in out.iter_mut().enumerate() {
         *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
             .map_err(|_| DepotError::new("that is not hexadecimal — nothing was written"))?;
@@ -2092,14 +2225,43 @@ fn parse_secret(raw: &str) -> Result<[u8; 32], DepotError> {
     Ok(out)
 }
 
-fn report_new_account(signer: &elo_vault::LocalSigner, path: &Path) {
+fn report_new_account(signer: &elo_vault::LocalSigner, path: &Path, made: bool) {
     println!("{}", signer.address().unwrap_or_default());
     println!("  written to {}", path.display());
-    // The two sentences a holder needs BEFORE they rely on this file, not after
-    // they have lost it. There is no reset here and there is no copy anywhere
-    // else — that is what self-custody means and it is the part that surprises.
-    println!("  ⚠ this file is the only copy of the key. Back it up.");
+    // The sentences a holder needs BEFORE they rely on this, not after they
+    // have lost it. There is no reset and no copy anywhere else — that is what
+    // self-custody means and it is the part that surprises.
+    if made {
+        println!("  your recovery words bring this account back in any wallet; keep them offline.");
+        println!("  the account is empty until something is sent to it.");
+    } else {
+        println!("  ⚠ if you imported a bare key, this file is its only copy here. Back it up.");
+    }
     println!("  ⚠ the passphrase cannot be reset — nobody else has it, including elo.");
+}
+
+/// The words, numbered, to stderr. Three columns of four, so a holder copies
+/// them in order without counting.
+fn show_words(phrase: &elo_vault::Phrase) {
+    let w = phrase.words();
+    let rows = w.len().div_ceil(3);
+    eprintln!();
+    eprintln!("  your recovery words — write them down, in order, on paper:");
+    eprintln!();
+    for r in 0..rows {
+        let mut line = String::from("   ");
+        for c in 0..3 {
+            let i = c * rows + r;
+            if let Some(word) = w.get(i) {
+                line.push_str(&format!(" {:>2}. {:<10}", i + 1, word));
+            }
+        }
+        eprintln!("{line}");
+    }
+    eprintln!();
+    eprintln!("  anyone with these words has the account. elo never sees them and");
+    eprintln!("  cannot show them again. no screenshot, no cloud notes, no chat.");
+    eprintln!();
 }
 
 fn load_json(source: &str) -> Result<Value, DepotError> {
@@ -2138,7 +2300,12 @@ fn load_json(source: &str) -> Result<Value, DepotError> {
 /// origin that served it (`Manifest::rebase`) — an origin cannot write its own
 /// public name into a download url safely, so it writes a path and the client,
 /// which knows where it asked, completes it.
-fn load_manifest(source: &str, host: &str) -> Result<Manifest, DepotError> {
+/// For [`load_manifest`] from a verb that installs nothing the manifest names
+/// (`play`, `servers`, `publisher`): an http origin is a local test server
+/// there, and reading it moves no bytes onto the disk.
+const READS_ONLY: bool = true;
+
+fn load_manifest(source: &str, host: &str, insecure: bool) -> Result<Manifest, DepotError> {
     let is_url = source.starts_with("https://") || source.starts_with("http://");
     let is_slug = !source.is_empty()
         && source
@@ -2164,8 +2331,23 @@ fn load_manifest(source: &str, host: &str) -> Result<Manifest, DepotError> {
         )));
     };
 
+    // The manifest names the depot, and the depot names every hash — so a
+    // manifest read over http lets whoever is on that hop pick them. Held to
+    // the same flag as an http depot.
+    if from.starts_with("http://") && !insecure {
+        return Err(DepotError::new(format!(
+            "{from} is http — a manifest must be https. Pass --allow-insecure \
+             for a local test server."
+        )));
+    }
     let mut m = manifest::parse_manifest(&load_json(&from)?)?;
     m.rebase(&base);
+    if !is_url && Path::new(source).is_file() {
+        // Rebased against the host, but it did not come from there: a file
+        // claiming the host's slug must not be filed as the host's build.
+        let at = std::fs::canonicalize(source).unwrap_or_else(|_| PathBuf::from(source));
+        m.origin = format!("file:{}", at.display());
+    }
     Ok(m)
 }
 
@@ -2189,10 +2371,10 @@ fn save_grant(games: &Path, slug: &str, origin: &str, grant: &str, expires: u64)
         m.insert(slug.to_string(), serde_json::json!({
             "grant": grant, "expires": expires, "origin": origin }));
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| DepotError::new(format!("{}: {e}", dir.display())))?;
-    }
-    std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap_or_default())
+    // A bearer for a paid download, so 0600 from the first byte — the keystore's
+    // writer, not `fs::write` at the umask's 0644 beside a 0755 games root.
+    let body = serde_json::to_string_pretty(&all).unwrap_or_default();
+    elo_vault::write_private(&path, body.as_bytes(), false)
         .map_err(|e| DepotError::new(format!("{}: {e}", path.display())))
 }
 
@@ -2231,4 +2413,39 @@ fn use_cached_grant(games: &Path, slug: &str, host: &str) {
 #[allow(dead_code)]
 fn _unused(raw: &Value) -> Result<Depot, DepotError> {
     parse_depot(raw, false)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The backstop keeps an error's lines and drops what would drive the
+    /// terminal: an OSC 52 clipboard write and a screen clear.
+    #[test]
+    fn an_error_cannot_drive_the_terminal() {
+        let e = "the relay refused this key: \x1b]52;c;MHhB\x07\x1b[2Jok\n  try again";
+        let got = super::shown(&e);
+        assert!(!got.contains('\x1b') && !got.contains('\x07'), "{got:?}");
+        assert_eq!(got.lines().count(), 2, "a multi-line error keeps its lines: {got:?}");
+        assert!(got.ends_with("  try again"), "{got:?}");
+    }
+
+    /// The grant cache is a bearer for a paid download: another user on the
+    /// machine must not be able to read it, so it is 0600 and never widened.
+    #[cfg(unix)]
+    #[test]
+    fn the_grant_cache_is_the_holders_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().expect("tmp");
+        let games = root.path().join("games");
+        super::save_grant(&games, "gates", "https://elopros.com", "g.1", u64::MAX).expect("save");
+        let path = super::grants_path(&games);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "grants.json is a bearer");
+        // A second grant keeps the first and the mode.
+        super::save_grant(&games, "other", "https://elopros.com", "g.2", u64::MAX).expect("save");
+        let all: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(all["gates"]["grant"], "g.1");
+        assert_eq!(all["other"]["grant"], "g.2");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
 }

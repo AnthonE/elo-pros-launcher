@@ -185,20 +185,12 @@ pub fn load_even_if_expired(path: &Path) -> Option<Pairing> {
 }
 
 pub fn save(path: &Path, p: &Pairing) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
     let body = serde_json::to_string_pretty(&p.to_json()).unwrap_or_default();
-    std::fs::write(path, body).map_err(|e| format!("{}: {e}", path.display()))?;
-    // A bearer credential, so the same mode the keystore gets. Best effort:
-    // on a filesystem with no unix modes this is not a reason to fail a
-    // pairing that otherwise worked.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    // A bearer credential, so the same writer the keystore uses: 0600 from
+    // the first byte (never written wide and narrowed after), in a 0700
+    // directory if it had to make one. A re-pair replaces the file.
+    elo_vault::write_private(path, body.as_bytes(), false)
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 pub fn forget(path: &Path) -> Result<bool, String> {

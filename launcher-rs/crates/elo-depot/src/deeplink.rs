@@ -222,6 +222,9 @@ pub fn check_addr(addr: &str) -> Result<()> {
         let p = r
             .strip_prefix(':')
             .ok_or_else(|| DepotError::new(format!("{addr:?} has no port")))?;
+        if h.parse::<std::net::Ipv6Addr>().is_err() {
+            return bad(format!("{addr:?} brackets something that is not an IPv6 address"));
+        }
         (h, p)
     } else {
         let (h, p) = addr
@@ -236,6 +239,23 @@ pub fn check_addr(addr: &str) -> Result<()> {
     };
     if host.is_empty() {
         return bad(format!("{addr:?} has no host"));
+    }
+    // **A host is a DNS name or an IP literal, and nothing that reads as one.**
+    // The value reaches a game's argv as `{server}` and is drawn as "joining …
+    // on <host>", so a leading `-` is an option (`--identity=…`), an `@` makes
+    // `game.elopros.com@evil.example` connect to evil.example, and a Unicode
+    // format character (U+202E is `Cf`, not `Cc`) draws one host as another.
+    if !addr.starts_with('[') {
+        if !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_') {
+            return bad(format!(
+                "{addr:?} is not a host name — ASCII letters, digits, dots and hyphens"
+            ));
+        }
+        if host.split('.').any(|label| label.is_empty() || label.starts_with('-')) {
+            return bad(format!(
+                "{addr:?} is not a host name — an empty label or one starting with '-'"
+            ));
+        }
     }
     match port.parse::<u16>() {
         Ok(0) => bad(format!("{addr:?} has port 0")),

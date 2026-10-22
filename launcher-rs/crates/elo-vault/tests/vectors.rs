@@ -9,6 +9,9 @@
 
 use elo_vault::{eip191_digest, keystore, to_checksum, Account};
 
+/// New keystores refuse a passphrase under eight characters.
+const PASS: &str = "test passphrase";
+
 /// EIP-55's own examples. If the casing rule were subtly wrong every address
 /// this client shows would be a valid address with the wrong capitalisation —
 /// which most tools accept, so nothing would break until one did not.
@@ -70,7 +73,7 @@ fn a_keystore_round_trips_at_the_shipped_work_factor() {
     assert_eq!(back, secret, "the key did not survive the round trip");
 
     // And the recovered key is the same account, not merely the same bytes.
-    let again = Account::from_secret(&back).expect("valid key");
+    let again = Account::from_secret(back.as_slice()).expect("valid key");
     assert_eq!(again.address(), addr);
 }
 
@@ -170,8 +173,8 @@ fn a_locked_account_shows_the_same_address_as_an_unlocked_one() {
     let dir = tempfile::tempdir().expect("tmp");
     let path = dir.path().join("keystore.json");
 
-    let created = match elo_vault::LocalSigner::create(&path, "pass") {
-        Ok(s) => s,
+    let created = match elo_vault::LocalSigner::create(&path, PASS) {
+        Ok((s, _words)) => s,
         Err(e) => panic!("create: {e}"),
     };
     let unlocked_addr = created.address().expect("an unlocked account knows itself");
@@ -180,7 +183,7 @@ fn a_locked_account_shows_the_same_address_as_an_unlocked_one() {
     let locked_addr = reopened.address().expect("a locked account still shows who it is");
     assert_eq!(locked_addr, unlocked_addr, "locked and unlocked must agree");
 
-    reopened.unlock("pass").expect("unlock");
+    reopened.unlock(PASS).expect("unlock");
     assert_eq!(reopened.address().unwrap(), unlocked_addr, "and unlocking changes nothing");
 
     // And it is the checksummed form, which is what a wallet will show.
@@ -194,7 +197,7 @@ fn a_locked_account_refuses_to_sign() {
     use elo_broker::signer::Signer;
     let dir = tempfile::tempdir().expect("tmp");
     let path = dir.path().join("keystore.json");
-    let _ = elo_vault::LocalSigner::create(&path, "pass").map_err(|e| panic!("create: {e}"));
+    let _ = elo_vault::LocalSigner::create(&path, PASS).map_err(|e| panic!("create: {e}"));
 
     let mut locked = elo_vault::LocalSigner::at(&path);
     let e = locked.sign("elo play\nx", "y").expect_err("locked must not sign");
@@ -207,8 +210,8 @@ fn a_locked_account_refuses_to_sign() {
 fn creating_over_an_existing_keystore_is_refused() {
     let dir = tempfile::tempdir().expect("tmp");
     let path = dir.path().join("keystore.json");
-    let _ = elo_vault::LocalSigner::create(&path, "pass").map_err(|e| panic!("first: {e}"));
-    let e = match elo_vault::LocalSigner::create(&path, "other") {
+    let _ = elo_vault::LocalSigner::create(&path, PASS).map_err(|e| panic!("first: {e}"));
+    let e = match elo_vault::LocalSigner::create(&path, "other passphrase") {
         Ok(_) => panic!("must not clobber an existing keystore"),
         Err(e) => e,
     };
@@ -281,7 +284,7 @@ fn importing_a_known_key_keeps_its_address() {
     secret[31] = 1;
     const KNOWN: &str = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
 
-    let imported = match elo_vault::LocalSigner::import(&path, "pass", &secret) {
+    let imported = match elo_vault::LocalSigner::import(&path, PASS, &secret) {
         Ok(s) => s,
         Err(e) => panic!("import: {e}"),
     };
@@ -289,7 +292,7 @@ fn importing_a_known_key_keeps_its_address() {
 
     // And it survives the file: reopen and unlock gives the same account.
     let mut reopened = elo_vault::LocalSigner::at(&path);
-    reopened.unlock("pass").expect("unlock an imported keystore");
+    reopened.unlock(PASS).expect("unlock an imported keystore");
     assert_eq!(reopened.address().as_deref(), Some(KNOWN), "and the file holds that same key");
 }
 
@@ -299,8 +302,8 @@ fn importing_a_known_key_keeps_its_address() {
 fn importing_over_an_existing_keystore_is_refused() {
     let dir = tempfile::tempdir().expect("tmp");
     let path = dir.path().join("keystore.json");
-    let _ = elo_vault::LocalSigner::create(&path, "pass").map_err(|e| panic!("first: {e}"));
-    let e = match elo_vault::LocalSigner::import(&path, "other", &[9u8; 32]) {
+    let _ = elo_vault::LocalSigner::create(&path, PASS).map_err(|e| panic!("first: {e}"));
+    let e = match elo_vault::LocalSigner::import(&path, "other passphrase", &[9u8; 32]) {
         Ok(_) => panic!("import must not clobber an existing keystore"),
         Err(e) => e,
     };
@@ -320,7 +323,7 @@ fn a_signature_recovers_to_the_account_that_made_it() {
     let path = dir.path().join("keystore.json");
     let mut secret = [0u8; 32];
     secret[31] = 1;
-    let signer = match elo_vault::LocalSigner::import(&path, "pass", &secret) {
+    let signer = match elo_vault::LocalSigner::import(&path, PASS, &secret) {
         Ok(s) => s,
         Err(e) => panic!("import: {e}"),
     };

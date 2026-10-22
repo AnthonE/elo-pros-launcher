@@ -1,0 +1,179 @@
+{
+  "about": "Payout rows and files gamepay refuses. Each row in `payouts` fails gamepay._check for the reason beside it; each of `files` fails gamepay.import_doc before any row is read. The coins a cashier never pays (minted only by the farm, or retired) are the cashier's policy, not the file format, and are not here.",
+  "payouts": [
+    {
+      "why": "not a wallet",
+      "row": {
+        "address": "0x123",
+        "amount": 5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "not a wallet",
+      "row": {
+        "address": "2222222222222222222222222222222222222222",
+        "amount": 5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "not a wallet",
+      "row": {
+        "amount": 5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "not a wallet",
+      "row": {
+        "address": "0x222222222222222222222222222222222222222g",
+        "amount": 5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 0,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": -5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 1.5,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": true,
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": "120",
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "amount",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "ticker": "JUNK"
+      }
+    },
+    {
+      "why": "ticker",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 5
+      }
+    },
+    {
+      "why": "ticker",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 5,
+        "ticker": ""
+      }
+    },
+    {
+      "why": "ticker",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 5,
+        "ticker": "JUNK!"
+      }
+    },
+    {
+      "why": "ticker",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 5,
+        "ticker": "ABCDEFGHIJKLM"
+      }
+    },
+    {
+      "why": "ticker",
+      "row": {
+        "address": "0x2222222222222222222222222222222222222222",
+        "amount": 5,
+        "ticker": "JU NK"
+      }
+    },
+    {
+      "why": "not a wallet",
+      "row": "0x2222222222222222222222222222222222222222"
+    },
+    {
+      "why": "not a wallet",
+      "row": null
+    }
+  ],
+  "files": [
+    {
+      "why": "no wipe",
+      "doc": {
+        "payouts": []
+      }
+    },
+    {
+      "why": "wipe 0",
+      "doc": {
+        "wipe": 0,
+        "payouts": []
+      }
+    },
+    {
+      "why": "wipe is a bool",
+      "doc": {
+        "wipe": true,
+        "payouts": []
+      }
+    },
+    {
+      "why": "wipe is a string",
+      "doc": {
+        "wipe": "3",
+        "payouts": []
+      }
+    },
+    {
+      "why": "no payouts array",
+      "doc": {
+        "wipe": 3
+      }
+    },
+    {
+      "why": "payouts is not an array",
+      "doc": {
+        "wipe": 3,
+        "payouts": {}
+      }
+    },
+    {
+      "why": "not an object",
+      "doc": [
+        1,
+        2
+      ]
+    }
+  ]
+}

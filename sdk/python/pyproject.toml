@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elo-sdk"
+version = "0.1.0"
+description = "The Elo Pros platform SDK: a player's identity and signatures through the launcher with no key in the game, plus the platform's HTTP API (friends and buddies, tickets, items, faces, leaderboards, payout files)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Elo Pros" }]
+keywords = ["gamedev", "ethereum", "sdk", "multiplayer", "launcher"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Games/Entertainment",
+    "Typing :: Typed",
+]
+# None: the standard library only.
+dependencies = []
+
+[project.urls]
+Homepage = "https://elopros.com"
+Source = "https://github.com/AnthonE/elo-pros-launcher"
+
+[tool.setuptools]
+# The overlay ships as its own top-level module, the same bytes a game may
+# vendor as one file (sdk/SHA256SUMS); elo_sdk re-exports it.
+py-modules = ["elo_overlay"]
+packages = ["elo_sdk"]
+
+[tool.setuptools.package-data]
+elo_sdk = ["py.typed"]

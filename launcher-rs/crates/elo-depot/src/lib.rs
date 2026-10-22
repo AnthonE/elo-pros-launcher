@@ -36,6 +36,8 @@
 pub mod deeplink;
 pub mod depot;
 pub mod digest;
+/// Where the client keeps its state, for both binaries.
+pub mod dirs;
 pub mod error;
 pub mod install;
 pub mod launch;
@@ -43,6 +45,7 @@ pub mod manifest;
 pub mod path;
 /// `elo-shardlist-v1` — the list a title serves so its shards can be found.
 pub mod shardlist;
+pub mod streamer;
 /// Who published a title — a signature, where `publisher` was a typed string.
 pub mod publisher;
 pub mod session;
@@ -63,4 +66,7 @@ pub use install::{
 pub use launch::{platform_tag, browser_argv};
 pub use manifest::{parse_manifest, Build, Manifest, BUILD_KINDS, MANIFEST_VERSION, PLATFORMS};
 pub use session::{Ending, Session};
-pub use update::{builds_of, check, newest_of, superseded, Checked, JsonSource, UpdateState};
+pub use update::{
+    builds_from, builds_of, check, newest_from, newest_of, superseded, Checked, JsonSource,
+    UpdateState,
+};

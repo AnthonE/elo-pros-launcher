@@ -91,8 +91,16 @@ pub struct Identity {
     pub name: String,
     /// Who checked it.
     pub kind: NameKind,
-    /// **The one picture**, absolute. Never empty — the register's derived
-    /// mark is the fallback, so nobody is faceless.
+    /// **The one picture**, absolute — or empty, and then a surface draws the
+    /// letter tile. The order is the site's own (`store.js` `faceSrc`, the
+    /// `/who` route's comment): the wallet's own picture, the Elo Pros seat it
+    /// holds, a hive picture, the vow's mark.
+    ///
+    /// ⚠ **This said "never empty — the register's derived mark is the
+    /// fallback" and the fallback was `/api/mark/{handle}.svg`, a route that
+    /// does not exist** (404, measured 2026-10-20). Every bare identity carried
+    /// a dead url. Empty is the honest value; [`Identity::origin_face`] is the
+    /// one a window may fetch.
     pub face: String,
     /// True when this identity is only an address with nothing bound to it.
     pub bare: bool,
@@ -118,6 +126,17 @@ impl Identity {
         self.vows > 1
     }
 
+    /// The picture, only when it lives on `host` — the one a window may fetch.
+    ///
+    /// A hive picture is a url its owner chose on any host, and fetching it
+    /// would tell that host every reader's IP; the site refuses it with its CSP
+    /// (`img-src 'self'`) and the launcher refuses it here. A face on our own
+    /// origin is our own bytes.
+    pub fn origin_face(&self, host: &str) -> Option<&str> {
+        let base = format!("{}/api/", host.trim_end_matches('/'));
+        self.face.starts_with(&base).then_some(self.face.as_str())
+    }
+
     /// Everything a surface needs, in one line: `~name` or ` name`.
     pub fn label(&self) -> String {
         format!("{}{}", self.kind.mark(), self.name).trim_start().to_string()
@@ -125,9 +144,12 @@ impl Identity {
 
     /// An identity for an address the town knows nothing about.
     ///
-    /// A bare wallet still gets a name and a face: *a bare wallet with no vow
+    /// A bare wallet still gets a name, and a letter tile for a face: *a bare wallet with no vow
     /// still gets a page — no account exists to require.*
-    pub fn bare(address: &str, host: &str) -> Identity {
+    ///
+    /// `_host` is kept so every caller still reads the same: a bare identity
+    /// has no picture on any host, so it no longer builds one.
+    pub fn bare(address: &str, _host: &str) -> Identity {
         Identity {
             wallet: address.starts_with("0x").then(|| address.to_string()),
             npub: address.starts_with("npub").then(|| address.to_string()),
@@ -136,7 +158,7 @@ impl Identity {
             name: short(address),
             kind: NameKind::Address,
             vows: 0,
-            face: format!("{}/api/mark/{}.svg", host.trim_end_matches('/'), address),
+            face: String::new(),
             bare: true,
         }
     }
@@ -147,6 +169,12 @@ impl Identity {
 pub fn short(address: &str) -> String {
     if address.len() <= 16 {
         return address.to_string();
+    }
+    // Byte slicing below is only safe on ASCII. An address is always ASCII; a
+    // string that only claims to be one is clipped by characters instead, so
+    // a stranger's value can never take a window down on a char boundary.
+    if !address.is_ascii() {
+        return crate::render::clip(address, 16);
     }
     let head = if address.starts_with("npub") { 10 } else { 6 };
     format!("{}…{}", &address[..head], &address[address.len() - 4..])
@@ -160,6 +188,25 @@ struct Face {
     display_name: Option<String>,
     #[serde(default)]
     picture: Option<String>,
+}
+
+/// The wallet's own name and picture (`meter/faces.py`). Wallet-signed, so it
+/// is theirs; the name is still whatever they typed.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct Profile {
+    #[serde(default)]
+    name: Option<String>,
+    /// Already an `/api/face/…` path.
+    #[serde(default)]
+    picture: Option<String>,
+}
+
+/// The Elo Pros seat a wallet holds — the one face a stranger can verify,
+/// with `ownerOf`. `src` is a ROUTE path (`/seat/{id}/face.svg`).
+#[derive(Debug, Clone, Deserialize, Default)]
+struct Seat {
+    #[serde(default)]
+    src: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -179,6 +226,10 @@ struct WhoIdentity {
     avatar: Option<String>,
     #[serde(default)]
     face: Option<Face>,
+    #[serde(default)]
+    profile: Option<Profile>,
+    #[serde(default)]
+    seat: Option<Seat>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -261,7 +312,11 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
     let agent = pick(id.agent.as_ref(), reply.agent.as_ref());
     let avatar = pick(id.avatar.as_ref(), reply.avatar.as_ref());
     let face = id.face.clone().or_else(|| reply.face.clone()).unwrap_or_default();
-    let declared = non_empty(face.display_name.as_ref());
+    let profile = id.profile.clone().unwrap_or_default();
+    // The wallet's own signed name leads the hive's self-declared one: it is
+    // the name the game and the store show for this account.
+    let declared = non_empty(profile.name.as_ref())
+        .or_else(|| non_empty(face.display_name.as_ref()));
     let picture = non_empty(face.picture.as_ref());
 
     // The sworn name is the NIP-05 local part, and it is the only one the
@@ -280,11 +335,15 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
     };
 
     let host = host.trim_end_matches('/');
-    let face_url = picture
-        // `avatar` is a path on our own origin; `picture` is already absolute
-        // and belongs to the hive, so only one of them gets a prefix.
-        .or_else(|| avatar.map(|a| format!("{host}{a}")))
-        .unwrap_or_else(|| format!("{host}/api/mark/{handle}.svg"));
+    let seat = id.seat.as_ref().and_then(|s| non_empty(s.src.as_ref()));
+    let face_url = non_empty(profile.picture.as_ref())
+        .and_then(|p| on_origin(host, &p))
+        .or_else(|| seat.and_then(|p| on_origin(host, &p)))
+        // A hive picture is absolute and belongs to whoever posted it — kept
+        // as the identity's face, never fetched by a window (`origin_face`).
+        .or_else(|| picture.filter(|p| p.starts_with("https://")))
+        .or_else(|| avatar.and_then(|a| on_origin(host, &a)))
+        .unwrap_or_default();
 
     Identity {
         bare: wallet.is_none() && npub.is_none() && vow_id.is_none(),
@@ -302,6 +361,26 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
         kind,
         face: face_url,
     }
+}
+
+/// A path the origin wrote, as an absolute url on it — or `None` for anything
+/// that is not a plain path on our own host.
+///
+/// ⚠ **The `/api` is added here because the routes are declared bare.** `/who`
+/// answers `avatar: "/vow/…/mark.svg"` and `seat.src: "/seat/…/face.svg"`,
+/// which are the meter's own route paths; nginx serves them under `/api/`, and
+/// at the site root they are a 404 page. The site prefixes them the same way
+/// (`store.js`). A path already under `/api/` is left alone, and `//host/…`
+/// looks like a path and is another host, so it is refused.
+fn on_origin(host: &str, path: &str) -> Option<String> {
+    if !path.starts_with('/') || path.starts_with("//") {
+        return None;
+    }
+    Some(if path.starts_with("/api/") {
+        format!("{host}{path}")
+    } else {
+        format!("{host}/api{path}")
+    })
 }
 
 /// Resolve one handle — **a wallet, an npub, a vow id, or a sworn name.**
@@ -497,24 +576,55 @@ mod tests {
         assert_eq!(id.name, "0xabc");
     }
 
+    /// ⚠ This test was `nobody_is_faceless`, and it pinned two dead urls: the
+    /// bare fallback `/api/mark/{handle}.svg` (no such route) and the mark at
+    /// `/vow/…/mark.svg` with no `/api` (a 404 page at the site root). Both
+    /// passed for months because they asserted the string we built rather
+    /// than one the origin serves.
     #[test]
-    fn nobody_is_faceless() {
-        // The register's mark is the fallback, so an identity always has a
-        // picture: clearing a field restores the default rather than blanking
-        // the profile.
+    fn a_face_is_a_url_the_origin_serves_or_nothing() {
         let bare = who(json!({"identity": {}}));
-        assert!(bare.face.starts_with("https://elo.test/"), "{}", bare.face);
+        assert_eq!(bare.face, "", "no picture is a tile, not an invented url");
+        assert_eq!(bare.origin_face("https://elo.test"), None);
 
-        // `avatar` is a path on our origin and gets the prefix…
+        // `avatar` is a route path: it is served under /api.
         let marked = who(json!({"identity": {"avatar": "/vow/77c2/mark.svg"}}));
-        assert_eq!(marked.face, "https://elo.test/vow/77c2/mark.svg");
+        assert_eq!(marked.face, "https://elo.test/api/vow/77c2/mark.svg");
+        assert_eq!(marked.origin_face("https://elo.test"), Some(marked.face.as_str()));
 
-        // …while `picture` is already absolute and must NOT be mangled.
+        // A hive picture outranks the mark, as on the site — and is never one
+        // a window may fetch.
         let faced = who(json!({"identity": {
             "avatar": "/vow/77c2/mark.svg",
             "face": {"picture": "https://media.example/p.png"},
         }}));
         assert_eq!(faced.face, "https://media.example/p.png");
+        assert_eq!(faced.origin_face("https://elo.test"), None);
+
+        // `//host/…` looks like a path and is another host.
+        let sneaky = who(json!({"identity": {"avatar": "//evil.example/x.svg"}}));
+        assert_eq!(sneaky.face, "");
+    }
+
+    /// The site's order: the wallet's own picture, the seat it holds, a hive
+    /// picture, the mark.
+    #[test]
+    fn the_wallets_own_picture_leads_then_the_seat() {
+        let all = json!({"identity": {
+            "avatar": "/vow/77c2/mark.svg",
+            "face": {"picture": "https://media.example/p.png"},
+            "seat": {"src": "/seat/41/face.svg"},
+            "profile": {"name": "Mara", "picture": "/api/face/0xabc/pic.png?v=1a2b"},
+        }});
+        let id = who(all.clone());
+        assert_eq!(id.face, "https://elo.test/api/face/0xabc/pic.png?v=1a2b");
+        assert_eq!(id.name, "Mara");
+        assert_eq!(id.kind, NameKind::Declared, "the wallet signed it; nobody checked it");
+
+        let mut no_profile = all;
+        no_profile["identity"]["profile"] = json!(null);
+        let id = who(no_profile);
+        assert_eq!(id.face, "https://elo.test/api/seat/41/face.svg", "a seat path gets /api");
     }
 
     #[test]
@@ -554,7 +664,7 @@ mod tests {
         assert!(id.bare);
         assert_eq!(id.kind, NameKind::Address);
         assert_eq!(id.name, "0x1234…5678");
-        assert!(!id.face.is_empty());
+        assert_eq!(id.face, "", "a bare address draws a tile");
         assert_eq!(id.wallet.as_deref(), Some("0x1234567890abcdef1234567890abcdef12345678"));
         assert_eq!(id.npub, None);
     }
@@ -588,6 +698,7 @@ mod tests {
             who: who.map(str::to_string),
             display: display.map(str::to_string),
             house,
+            ..crate::Message::default()
         };
         assert_eq!(from_message(&msg(None, None, true), "h").kind, NameKind::Sworn);
         assert_eq!(from_message(&msg(None, None, true), "h").name, "the house");
@@ -623,7 +734,7 @@ mod tests {
         assert_eq!(id.name, "Dummmy");
         assert_eq!(id.kind, NameKind::Derived);
         assert_eq!(id.vow_id.as_deref(), Some("1a434221c5333fa7"));
-        assert_eq!(id.face, "https://elo.test/vow/1a434221c5333fa7/mark.svg");
+        assert_eq!(id.face, "https://elo.test/api/vow/1a434221c5333fa7/mark.svg");
         assert!(!id.bare, "a wallet with a vow is not bare");
     }
 

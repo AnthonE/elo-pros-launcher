@@ -92,6 +92,25 @@ the player for a private key.
 `elo://join/<title>/<host:port>` is owned by the client, so a friend's link
 boots you into their server.
 
+### The packages
+
+The same SDK as a package in three languages, one API, tested against one set
+of fixtures ([`sdk/testdata/`](sdk/testdata/)). Each includes the launcher
+overlay (or, for a browser game, the web SDK) and a client for the platform
+API: friends and buddies, tickets, items, faces, profiles, leaderboards, and
+the payout file a game server writes when a wipe closes.
+
+| package | folder |
+|---|---|
+| `elo-sdk` (Rust crate) | [`sdk/rust/`](sdk/rust/) |
+| `elo-sdk` (Python, standard library only) | [`sdk/python/`](sdk/python/) |
+| `@elopros/sdk` (JavaScript, no dependencies) | [`sdk/js/`](sdk/js/) |
+
+Install from a clone for now: `elo-sdk = { path = "sdk/rust" }`,
+`pip install ./sdk/python`, `npm install ./sdk/js`. Every call keeps "could
+not look" apart from "no", and every signed change rebuilds the text it signs
+locally. [`sdk/README.md`](sdk/README.md) has the table.
+
 ### Every multiplayer shape is welcome
 
 **Determinism is one evidence tier, never an entry requirement.** Evidence

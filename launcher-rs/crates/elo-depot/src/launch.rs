@@ -18,7 +18,9 @@ use std::process::Command;
 /// `LD_LIBRARY_PATH` is deliberately **not** here — game builds legitimately
 /// need it — but it is the one variable whose *value* is checked, below, and
 /// it must point inside the build.
-pub const ENV_DENY: [&str; 9] = [
+///
+/// Compared upper-cased, so `Path` on Windows is `PATH`.
+pub const ENV_DENY: [&str; 24] = [
     "LD_PRELOAD",
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
@@ -28,6 +30,31 @@ pub const ENV_DENY: [&str; 9] = [
     "GTK_MODULES",
     "GIO_MODULE_DIR",
     "XDG_DATA_DIRS",
+    "GCONV_PATH",
+    "GIO_EXTRA_MODULES",
+    "QT_PLUGIN_PATH",
+    "GTK_PATH",
+    "NODE_OPTIONS",
+    "PERL5LIB",
+    "RUBYLIB",
+    "LOCPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "BASH_ENV",
+    "ENV",
+];
+
+/// Whole families of loader variables: the glibc and macOS loaders, the
+/// Vulkan, Mesa and GLVND driver loaders. Each names a library or a directory
+/// to load code from. `LD_LIBRARY_PATH` is the one `LD_` name let through, and
+/// only with its value forced inside the build (below). GStreamer's plugin
+/// paths and Lua's module paths carry a version suffix, so they are families
+/// too.
+pub const ENV_DENY_PREFIX: [&str; 9] = [
+    "LD_", "DYLD_", "VK_", "LIBGL_", "__EGL_", "__GLX_", "GST_PLUGIN_", "LUA_PATH", "LUA_CPATH",
 ];
 
 /// Placeholders a depot's argv may use. Anything else is a refusal.
@@ -115,6 +142,51 @@ pub fn browser_argv(url: &str, browser_cmd: &str) -> Result<Vec<String>> {
     Ok(argv)
 }
 
+/// The platform's own "open this page" command, as an argv for this machine.
+pub fn open_argv(url: &str) -> Result<Vec<String>> {
+    open_argv_for(cfg!(target_os = "windows"), url)
+}
+
+/// [`open_argv`], for a named platform so both halves are testable anywhere.
+///
+/// ⚠ **Never `cmd /C start`.** cmd parses the url as a command line, so `&`
+/// in it starts a second command — and a query string is made of `&`. On
+/// Windows the url goes to the url handler as one argument, and nothing reads
+/// it as a command. The url is also held to RFC 3986's characters first, so a
+/// quote, caret or space cannot split it on any platform.
+pub fn open_argv_for(windows: bool, url: &str) -> Result<Vec<String>> {
+    let scheme = url.split_once("://").map(|(s, _)| s).unwrap_or("");
+    if scheme != "https" && scheme != "http" {
+        return Err(DepotError::new(format!(
+            "refusing to open a {} url",
+            if scheme.is_empty() { "schemeless" } else { scheme }
+        )));
+    }
+    if let Some(bad) = url
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || "-._~:/?#[]@!$&'()*+,;=%".contains(*c)))
+    {
+        return Err(DepotError::new(format!(
+            "refusing to open a url carrying {bad:?} — percent-encode it"
+        )));
+    }
+    Ok(if windows {
+        vec!["rundll32.exe".into(), "url.dll,FileProtocolHandler".into(), url.to_string()]
+    } else {
+        vec!["xdg-open".into(), url.to_string()]
+    })
+}
+
+/// Open a page with [`open_argv`]. Spawned, never waited on.
+pub fn open_page(url: &str) -> Result<()> {
+    let argv = open_argv(url)?;
+    Command::new(&argv[0])
+        .args(&argv[1..])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| DepotError::new(format!("could not open a browser: {e}")))
+}
+
 /// Minimal POSIX-ish word splitting with quotes. A browser command is a
 /// setting a human types; it is not a shell line and is never run by one.
 fn split_cmd(cmd: &str) -> Vec<String> {
@@ -154,10 +226,16 @@ fn check_env(env: &BTreeMap<String, String>, build: &Path) -> Result<BTreeMap<St
         {
             return Err(DepotError::new(format!("bad environment variable name {k:?}")));
         }
-        if ENV_DENY.contains(&k.as_str()) {
+        // Upper-cased first: Windows reads environment names without case, so
+        // `Path` IS `PATH` there, and a compare on the spelling lets it by.
+        let upper = k.to_ascii_uppercase();
+        if ENV_DENY.contains(&upper.as_str())
+            || (upper != "LD_LIBRARY_PATH"
+                && ENV_DENY_PREFIX.iter().any(|p| upper.starts_with(p)))
+        {
             return Err(DepotError::new(format!("a depot may not set {k}")));
         }
-        if k == "LD_LIBRARY_PATH" {
+        if upper == "LD_LIBRARY_PATH" {
             // Every entry must be a relative path inside the build, made
             // absolute here. Otherwise the depot picks which libc you run.
             let mut parts = Vec::new();
@@ -302,6 +380,9 @@ pub fn resolve(
     for (k, v) in extra_env {
         env.insert(k.clone(), v.clone());
     }
+    // Streamer mode rides every launch from here, so no door can start a game
+    // that shows what the launcher is hiding (`streamer.rs`).
+    env.extend(crate::streamer::launch_env());
     Ok(Launch { argv, cwd, env })
 }
 

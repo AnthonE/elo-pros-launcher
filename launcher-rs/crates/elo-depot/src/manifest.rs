@@ -62,6 +62,11 @@ pub struct Manifest {
     pub servers_url: Option<String>,
     pub notary: Option<Value>,
     pub raw: Value,
+    /// Where this manifest was read from: the base [`Manifest::rebase`] was
+    /// given, or `file:<path>` for one read off the disk. An install records
+    /// it in the receipt, and a slug is bound to the origin that installed it
+    /// (`update::check`, `update::newest_from`). Empty until rebased.
+    pub origin: String,
 }
 
 impl Manifest {
@@ -117,6 +122,7 @@ impl Manifest {
     /// build row is recoverable; fetching from the wrong host is not.
     pub fn rebase(&mut self, base: &str) {
         let base = base.trim_end_matches('/').to_string();
+        self.origin = base.clone();
         let fix = |u: &mut Option<String>| {
             let Some(v) = u.as_deref() else { return };
             if v.starts_with("https://") || v.starts_with("http://") {
@@ -211,5 +217,6 @@ pub fn parse_manifest(raw: &Value) -> Result<Manifest> {
         servers_url,
         notary: obj.get("notary").filter(|v| v.is_object()).cloned(),
         raw: raw.clone(),
+        origin: String::new(),
     })
 }

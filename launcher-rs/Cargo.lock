@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "elo-broker"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "elo-vault",
  "serde_json",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "elo-depot"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "elo-vault",
  "serde",
@@ -235,13 +235,15 @@ dependencies = [
 
 [[package]]
 name = "elo-hive"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "bech32",
  "elo-depot",
  "elo-net",
+ "elo-vault",
  "getrandom 0.3.4",
  "k256",
+ "ring",
  "rustls",
  "rustls-pemfile",
  "serde",
@@ -249,12 +251,11 @@ dependencies = [
  "sha2",
  "tempfile",
  "tungstenite",
- "webpki-roots",
 ]
 
 [[package]]
 name = "elo-launcher"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "elo-broker",
  "elo-depot",
@@ -269,40 +270,52 @@ dependencies = [
 
 [[package]]
 name = "elo-net"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "elo-broker",
  "elo-depot",
  "elo-vault",
+ "rustls",
+ "rustls-webpki",
  "serde_json",
+ "tempfile",
  "ureq",
+ "webpki-root-certs",
+ "webpki-roots",
 ]
 
 [[package]]
 name = "elo-ui"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "elo-broker",
  "elo-depot",
+ "elo-hive",
  "elo-net",
  "elo-vault",
  "fltk",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "elo-vault"
-version = "0.6.4"
+version = "0.6.6"
 dependencies = [
  "aes",
  "ctr",
  "elo-broker",
  "getrandom 0.3.4",
+ "hmac",
  "k256",
+ "libc",
+ "pbkdf2",
  "scrypt",
  "serde_json",
+ "sha2",
  "sha3",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -630,9 +643,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -663,9 +676,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -960,10 +973,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "webpki-roots"
-version = "1.0.9"
+name = "webpki-root-certs"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

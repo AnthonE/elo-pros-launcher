@@ -3,12 +3,13 @@
 //! # Why there is a prompt here at all
 //!
 //! `sign` is the one verb where the **game writes the words**
-//! (`sdk/PROTOCOL.md`), so it is the one verb the player has to answer for
+//! (`sdk/PROTOCOL.md`), so it is the verb the player has to answer for
 //! themselves. Every other signing path in this client either composes its own
 //! sentence — `prove`, where the game contributes two opaque fields and cannot
 //! say anything with them — or is a human at a terminal typing
-//! `elo account sign`. That is why this file exists for exactly one verb and
-//! must not grow to cover the others.
+//! `elo account sign`. The one exception is `prove` for a domain the title
+//! does not publish: the domain is the field the game picks, and a sign-in to
+//! someone else's site rings this same bell with the message verbatim.
 //!
 //! # The thread boundary, which is the whole problem
 //!
@@ -148,6 +149,32 @@ impl Ask {
     pub fn claim(&self) -> Option<String> {
         let why = one_line(&self.why);
         (!why.is_empty()).then(|| format!("it says: {why}"))
+    }
+
+    /// The message as the well draws it: every character the signer signs,
+    /// one visible character each.
+    ///
+    /// ⚠ **A second wall, not tidying.** FLTK's `TextBuffer::set_text` goes
+    /// through a C string and stops at the first NUL, so a raw NUL here would
+    /// hide everything after it while the signer signed it all. The broker
+    /// refuses such a text before it is asked (`protocol::check_signable`);
+    /// this is for a host that reaches the prompt some other way. A C0 control
+    /// draws as its Unicode control picture (`␀`, `␍`), anything else hidden or
+    /// reordering as `�`, so the player sees that something was there and the
+    /// count of drawn characters is the count of signed ones.
+    pub fn shown(&self) -> String {
+        self.text
+            .chars()
+            .map(|c| match c {
+                '\n' | '\t' => c,
+                c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).unwrap_or('\u{fffd}'),
+                '\u{7f}' => '\u{2421}',
+                c if c.is_control() => '\u{fffd}',
+                '\u{2028}' | '\u{2029}' => '\u{fffd}',
+                '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => '\u{fffd}',
+                c => c,
+            })
+            .collect()
     }
 }
 
@@ -464,5 +491,33 @@ mod tests {
             );
         }
         assert_eq!(ALLOWANCES[0].1, 1, "the first offer must be the smallest");
+    }
+
+    /// What the well draws holds one visible character per signed character.
+    ///
+    /// The broker already refuses these (`protocol::check_signable`); this is
+    /// the second wall, for a host that reaches the prompt some other way.
+    /// FLTK's `set_text` stops at a NUL, so a NUL that reached it would hide
+    /// every byte after it from the player while the signer signed them all.
+    #[test]
+    fn the_drawn_message_is_as_long_as_the_signed_one_and_hides_nothing() {
+        let text = "elo play\ndetail: gg\u{0}\naction: give\r\u{1b}\u{85}\u{202e}\u{2028}x\tend";
+        let ask = Ask::new("gates", "play", text, "");
+        let shown = ask.shown();
+        assert_eq!(shown.chars().count(), text.chars().count(), "{shown:?}");
+        assert!(!shown.contains('\0'), "a NUL would cut the well: {shown:?}");
+        assert!(shown.contains("action: give"), "after the NUL is drawn: {shown:?}");
+        assert!(
+            !shown.chars().any(|c| (c.is_control() && c != '\n' && c != '\t')
+                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                               | '\u{2028}' | '\u{2029}')),
+            "every hidden character is drawn as a mark: {shown:?}"
+        );
+        assert_eq!(Ask::new("g", "play", "elo play\nok\tfine", "").shown(), "elo play\nok\tfine",
+                   "an ordinary message is drawn byte for byte");
+        // And the window draws this, not the raw text.
+        let window = include_str!("windows.rs");
+        assert!(window.contains("buf.set_text(&ask.shown())"), "the well must draw Ask::shown");
+        assert!(!window.contains("set_text(&ask.text)"), "the well must never draw the raw text");
     }
 }

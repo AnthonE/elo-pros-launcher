@@ -95,6 +95,27 @@ fn a_symlinked_component_already_on_disk_is_refused() {
 }
 
 #[test]
+fn a_leaf_symlinked_out_of_the_tree_is_refused() {
+    // The parent is inside; the file itself is a link out. Resolving only the
+    // parent let it through (a-launcher#5, mirrored from the serving side).
+    let tmp = tempfile::tempdir().unwrap();
+    let build = tmp.path().join("build");
+    std::fs::create_dir_all(build.join("lib")).unwrap();
+    let outside = tmp.path().join("secret.txt");
+    std::fs::write(&outside, b"x").unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, build.join("lib/thing.so")).unwrap();
+        let err = resolve_into(&build, "lib/thing.so").unwrap_err();
+        assert!(err.0.contains("outside"), "{}", err.0);
+        std::fs::write(build.join("lib/real.so"), b"y").unwrap();
+        std::os::unix::fs::symlink(build.join("lib/real.so"), build.join("lib/inside.so"))
+            .unwrap();
+        assert!(resolve_into(&build, "lib/inside.so").is_ok());
+    }
+}
+
+#[test]
 fn a_depot_root_must_be_https() {
     assert!(parse_depot(&depot_with(json!({"root": "http://x/"})), false).is_err());
     assert!(parse_depot(&depot_with(json!({"root": "file:///tmp/"})), false).is_err());

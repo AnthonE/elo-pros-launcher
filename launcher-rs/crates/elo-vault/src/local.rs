@@ -25,6 +25,8 @@
 //! gone and installed a wallet elsewhere — loses most players at the door, not
 //! because it is the safe one.
 
+use crate::phrase::Phrase;
+use crate::tx::{Signed, Tx};
 use crate::{keystore, Account};
 use elo_broker::protocol::Refusal;
 use elo_broker::signer::Signer;
@@ -80,7 +82,7 @@ impl LocalSigner {
         let doc: Value = serde_json::from_str(&raw)
             .map_err(|e| format!("{} is not JSON: {e}", self.path.display()))?;
         let secret = keystore::decrypt(&doc, passphrase)?;
-        let account = Account::from_secret(&secret)?;
+        let account = Account::from_secret(secret.as_ref())?;
         self.address = Some(account.address());
         self.account = Some(account);
         self.last_used = Some(std::time::Instant::now());
@@ -91,6 +93,8 @@ impl LocalSigner {
     /// available to a player who wants it gone without quitting. Dropping the
     /// `Account` drops its `SigningKey`, whose scalar zeroizes on drop
     /// (RustCrypto's `ZeroizeOnDrop`) — locking is forgetting, not hiding.
+    /// That holds because every other copy is `Zeroizing` too: the decrypted
+    /// bytes, the scrypt output, and `Account::secret`.
     pub fn lock(&mut self) {
         self.account = None;
         self.last_used = None;
@@ -102,11 +106,28 @@ impl LocalSigner {
         self.last_used.map(|t| t.elapsed())
     }
 
-    /// Make a new account and write it encrypted. **Refuses to overwrite**: a
-    /// keystore is the only copy of a key, and a launcher that clobbered one
-    /// on a stray click would be unforgivable.
-    pub fn create(path: impl Into<PathBuf>, passphrase: &str) -> Result<LocalSigner, String> {
-        Self::write_new(path.into(), passphrase, Account::generate()?)
+    /// Make a new account from a fresh recovery phrase and write it
+    /// encrypted. Returns the phrase so a caller can show it; a caller that
+    /// wants the words checked BEFORE anything is written uses
+    /// [`Phrase::generate`] and [`LocalSigner::restore`] instead, which is
+    /// what both binaries do.
+    ///
+    /// **Refuses to overwrite**: a keystore may be the only copy of a key.
+    pub fn create(path: impl Into<PathBuf>, passphrase: &str) -> Result<(LocalSigner, Phrase), String> {
+        let phrase = Phrase::generate()?;
+        let signer = Self::restore(path, passphrase, &phrase)?;
+        Ok((signer, phrase))
+    }
+
+    /// Write the account a recovery phrase derives (`m/44'/60'/0'/0/0`).
+    /// Used for a new account after its words are checked, and to bring an
+    /// account back from words written down elsewhere.
+    pub fn restore(
+        path: impl Into<PathBuf>,
+        passphrase: &str,
+        phrase: &Phrase,
+    ) -> Result<LocalSigner, String> {
+        Self::write_new(path.into(), passphrase, phrase.account()?)
     }
 
     /// Adopt a key the holder already has, from its 32 raw bytes.
@@ -124,7 +145,29 @@ impl LocalSigner {
         Self::write_new(path.into(), passphrase, Account::from_secret(secret)?)
     }
 
-    /// The shared write half. Both doors refuse the same two things, in the
+    /// Sign a transaction, with the passphrase asked for THIS transaction.
+    ///
+    /// The keystore is decrypted fresh, used once and dropped, whether or not
+    /// the account is unlocked. An unlocked session answers games' sign-in
+    /// messages; it never moves money on its own. A game cannot reach this at
+    /// all: the door's `sign` verb is EIP-191 only.
+    pub fn sign_transaction(&self, passphrase: &str, tx: &Tx) -> Result<Signed, String> {
+        let raw = std::fs::read_to_string(&self.path)
+            .map_err(|e| format!("cannot read {}: {e}", self.path.display()))?;
+        let doc: Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("{} is not JSON: {e}", self.path.display()))?;
+        let secret = keystore::decrypt(&doc, passphrase)?;
+        let account = Account::from_secret(secret.as_ref())?;
+        // The file names an address in the clear, and that is what every
+        // screen showed as "from". A keystore whose key is some other account
+        // would sign from an address nobody reviewed.
+        if self.address.as_deref() != Some(account.address().as_str()) {
+            return Err("this keystore's key is not the address it names — refusing to sign".into());
+        }
+        account.sign_tx(tx)
+    }
+
+    /// The shared write half. Every door refuses the same things, in the
     /// same order, because a refusal that depends on which verb you typed is a
     /// refusal a caller can route around.
     fn write_new(
@@ -132,24 +175,37 @@ impl LocalSigner {
         passphrase: &str,
         account: Account,
     ) -> Result<LocalSigner, String> {
-        if path.exists() {
-            return Err(format!(
+        let occupied = || {
+            format!(
                 "{} already exists — refusing to overwrite a keystore, which \
                  may be the only copy of a key",
                 path.display()
-            ));
+            )
+        };
+        if path.exists() {
+            return Err(occupied());
         }
-        if passphrase.is_empty() {
-            return Err("a keystore needs a passphrase — an empty one encrypts nothing".into());
+        if passphrase.chars().count() < MIN_PASSPHRASE {
+            return Err(format!(
+                "a passphrase needs at least {MIN_PASSPHRASE} characters — it is all that \
+                 stands between a copied keystore file and the money in it"
+            ));
         }
         let address = account.address();
         let doc = keystore::encrypt(&account.secret(), passphrase, &address)?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&path, serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-        restrict(&path);
+        let body = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+        // `fresh`: the check above is a courtesy, and THIS is the refusal — an
+        // exclusive create, so two launchers racing to make an account cannot
+        // both pass the check and have the second truncate the first. The
+        // file is 0600 from its first byte, a directory it makes is 0700, and
+        // a failed write leaves no partial file (`crate::write_private`).
+        crate::write_private(&path, body.as_bytes(), true).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                occupied()
+            } else {
+                format!("cannot write {}: {e}", path.display())
+            }
+        })?;
         Ok(LocalSigner {
             path,
             account: Some(account),
@@ -159,17 +215,9 @@ impl LocalSigner {
     }
 }
 
-/// 0600 where the OS has a notion of it. On Windows the file inherits the
-/// user's profile ACL, which is the platform's equivalent and is not something
-/// this file should second-guess.
-#[cfg(unix)]
-fn restrict(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-}
-
-#[cfg(not(unix))]
-fn restrict(_path: &std::path::Path) {}
+/// The shortest passphrase a NEW keystore accepts. Unlocking an existing one
+/// takes whatever it was made with.
+pub const MIN_PASSPHRASE: usize = 8;
 
 impl Signer for LocalSigner {
     fn kind(&self) -> &'static str { "local" }

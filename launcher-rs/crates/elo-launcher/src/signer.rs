@@ -119,6 +119,16 @@ impl CliSigner {
     pub fn line(&self) -> String {
         format!("{} · {}", self.kind(), self.status())
     }
+
+    /// Will the next `sign` stop for a human? A paired browser asks every
+    /// time; the local keystore asks only for its passphrase, once, so a
+    /// second signature in one command goes unasked unless the caller asks.
+    pub fn will_ask(&self) -> bool {
+        match &self.inner {
+            Inner::Paired(_) => true,
+            Inner::Local(l) => !l.is_unlocked(),
+        }
+    }
 }
 
 impl Signer for CliSigner {

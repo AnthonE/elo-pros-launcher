@@ -82,7 +82,7 @@ fn every_menu_entry_names_a_window_that_exists() {
          correct — but a window for each now exists, so mark them built or \
          remove them: {unbuilt:?}"
     );
-    assert_eq!(MENU.len(), 6, "the menu changed size — was that deliberate?");
+    assert_eq!(MENU.len(), 9, "the menu changed size — was that deliberate?");
     for (name, blurb, _) in MENU.iter() {
         assert!(!blurb.is_empty(), "{name} needs a sentence — the menu is \
                 buttons-with-a-sentence, which is why it needs no nav bar");

@@ -9,14 +9,21 @@
 //! So every read here returns a [`Fetched`] carrying `ok`, `reachable` and
 //! `why`, and no panel may print a count without checking `reachable` first.
 
+pub mod chain;
+pub mod friends;
 pub mod pairing;
 pub mod proxy;
+pub mod tls;
+pub mod wallet;
 
 use elo_depot::{shardlist, DepotError, Fetcher};
 use serde_json::Value;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 pub const USER_AGENT: &str = concat!("elo-launcher/", env!("CARGO_PKG_VERSION"));
 pub const TIMEOUT: Duration = Duration::from_secs(60);
@@ -32,6 +39,58 @@ pub const DEPOT_FLOOR_BYTES_PER_SEC: u64 = 64 * 1024;
 pub fn depot_file_deadline(bytes: i64) -> Duration {
     TIMEOUT + Duration::from_secs(bytes.max(0) as u64 / DEPOT_FLOOR_BYTES_PER_SEC)
 }
+
+/// `(scheme, host, port)` of an absolute http(s) url, lowercased with the
+/// default port filled in. `None` for anything else — and for a url carrying
+/// userinfo, because `origin@elsewhere` reads as one host and connects to the
+/// other.
+fn origin_of(url: &str) -> Option<(String, String, u16)> {
+    let uri: ureq::http::Uri = url.parse().ok()?;
+    let auth = uri.authority()?;
+    if auth.as_str().contains('@') {
+        return None;
+    }
+    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let port = match (auth.port_u16(), scheme.as_str()) {
+        (Some(p), _) => p,
+        (None, "https") => 443,
+        (None, "http") => 80,
+        _ => return None,
+    };
+    Some((scheme, auth.host().to_ascii_lowercase(), port))
+}
+
+/// Whether `url` is on `origin`: the same scheme, host and port, exactly.
+pub fn same_origin(url: &str, origin: &str) -> bool {
+    match (origin_of(url), origin_of(origin)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Where a redirect's `location` points, from the url that answered it.
+/// Absolute, scheme-relative and path-absolute forms; a bare relative path is
+/// taken from the answering url's directory.
+fn redirect_target(from: &str, location: &str) -> Option<String> {
+    if location.starts_with("https://") || location.starts_with("http://") {
+        return Some(location.to_string());
+    }
+    let uri: ureq::http::Uri = from.parse().ok()?;
+    let scheme = uri.scheme_str()?;
+    let auth = uri.authority()?.as_str();
+    if let Some(rest) = location.strip_prefix("//") {
+        return Some(format!("{scheme}://{rest}"));
+    }
+    if location.starts_with('/') {
+        return Some(format!("{scheme}://{auth}{location}"));
+    }
+    let path = uri.path();
+    let dir = &path[..path.rfind('/').map(|i| i + 1).unwrap_or(0)];
+    Some(format!("{scheme}://{auth}{}{location}", if dir.is_empty() { "/" } else { dir }))
+}
+
+/// How many redirects one read follows — ureq's own default.
+const MAX_REDIRECTS: u32 = 10;
 
 /// How long a shard's `/status.json` may take before it is abandoned.
 ///
@@ -50,6 +109,50 @@ pub const MAX_DOC_BYTES: u64 = 8 * 1024 * 1024;
 /// decodes to nothing, and "the icon did not fit" is a better sentence for a
 /// log than "the icon is corrupt".
 pub const MAX_ART_BYTES: u64 = 512 * 1024;
+
+/// Which agents one read goes out on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    /// At [`TIMEOUT`]: documents and depot files.
+    Full,
+    /// At [`STATUS_TIMEOUT`]: art and the launch-time catalog read.
+    Quick,
+    /// At [`STATUS_TIMEOUT`], and never to an address on this machine or its
+    /// network: a shard's status poll for a list served from the internet.
+    Public,
+}
+
+/// A resolver that refuses a name if ANY address it resolves to is this
+/// machine or its network (`shardlist::local_ip`).
+///
+/// ⚠ **A status url's host is the title's choice, and a name is not an
+/// address.** `169.254.169.254.nip.io`, a name the title points at
+/// `192.168.1.1`, or `metadata.google.internal` on a cloud desktop all pass a
+/// check that reads the url, and all connect somewhere a player never meant
+/// their launcher to send a GET. It is the resolver of the agent that connects
+/// (`status_direct`), so the addresses checked are the addresses connected to:
+/// a name cannot answer public to a check and local to the connect.
+#[derive(Debug, Clone)]
+struct PublicOnly(Arc<dyn Resolver>);
+
+impl Resolver for PublicOnly {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let addrs = self.0.resolve(uri, config, timeout)?;
+        match addrs.iter().find(|a| shardlist::local_ip(a.ip())) {
+            Some(a) => Err(ureq::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("{} resolves to {}, which is this machine or its network — not polled",
+                        uri.host().unwrap_or("?"), a.ip()),
+            ))),
+            None => Ok(addrs),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Fetched<T> {
@@ -101,6 +204,16 @@ pub struct Net {
     /// sixty-second one would hang a whole list on one dead shard.
     quick_proxied: ureq::Agent,
     quick_direct: ureq::Agent,
+    /// `quick_direct` for a status poll on a title's list, resolving through
+    /// [`PublicOnly`]. Every such poll goes here, proxy or no proxy.
+    ///
+    /// ⚠ **Never a check, then a send on another agent.** That agent resolves
+    /// the name again (with no proxy, its own resolver; through an HTTP(S)
+    /// proxy, the proxy, which may sit on the player's machine or network), so
+    /// a name answering public to the check and `127.0.0.1` to the second
+    /// lookup got through. A player whose proxy is mandatory sees `?` for a
+    /// shard's status; their game traffic never went through it anyway.
+    status_direct: ureq::Agent,
     no_proxy: Vec<String>,
     /// A ticket grant (`ELO_GRANT`), sent as `X-Elo-Grant` — but ONLY to
     /// urls under `grant_origin`, never to whatever host a manifest names.
@@ -122,6 +235,7 @@ impl Net {
             ureq::Agent::config_builder()
                 .timeout_global(Some(t))
                 .user_agent(USER_AGENT)
+                .tls_config(tls::ureq_config())
         };
         let base = || at(TIMEOUT);
         Net {
@@ -129,6 +243,11 @@ impl Net {
             direct: base().proxy(None).build().new_agent(),
             quick_proxied: at(STATUS_TIMEOUT).build().new_agent(),
             quick_direct: at(STATUS_TIMEOUT).proxy(None).build().new_agent(),
+            status_direct: ureq::Agent::with_parts(
+                at(STATUS_TIMEOUT).proxy(None).build(),
+                DefaultConnector::default(),
+                PublicOnly(Arc::new(DefaultResolver::default())),
+            ),
             no_proxy: proxy::no_proxy_entries(),
             grant: std::env::var("ELO_GRANT").ok().filter(|g| !g.is_empty()),
             grant_origin: std::env::var("ELO_GRANT_ORIGIN")
@@ -142,9 +261,13 @@ impl Net {
     /// depot answers 401 without it (`GET /api/ticket/<slug>` has the whole
     /// dance); an unticketed title never needs it, and sending it costs
     /// nothing — the origin ignores a grant on an open door.
+    ///
+    /// ⚠ **The origin is a tuple, never a prefix.** `starts_with` let
+    /// `https://elopros.com.evil.tld/…` and `https://elopros.com@evil.tld/…`
+    /// through as the origin; see [`same_origin`].
     fn grant_for(&self, url: &str) -> Option<&str> {
         let g = self.grant.as_deref()?;
-        url.starts_with(&self.grant_origin).then_some(g)
+        same_origin(url, &self.grant_origin).then_some(g)
     }
 
     /// The agent for this URL. See `proxy.rs` — ureq does not read `NO_PROXY`,
@@ -265,7 +388,7 @@ impl Net {
     /// hostile origin should not be able to spend eight megabytes of a
     /// player's connection on a window that lists sixty-four rows.
     pub fn shards(&self, url: &str) -> Fetched<Vec<shardlist::Shard>> {
-        let got = self.get_bytes(url, shardlist::MAX_DOC_BYTES as u64 + 1, false);
+        let got = self.get_bytes(url, shardlist::MAX_DOC_BYTES as u64 + 1, Lane::Full, MAX_REDIRECTS);
         let Some(bytes) = got.value else {
             return Fetched {
                 value: None,
@@ -288,8 +411,17 @@ impl Net {
     /// The url comes out of a row's `status_url`. At [`STATUS_TIMEOUT`], since
     /// a whole list of these is polled at once and a dead host must not hold
     /// the others up.
-    pub fn status(&self, url: &str) -> Fetched<shardlist::Status> {
-        let got = self.get_bytes(url, shardlist::MAX_STATUS_BYTES as u64 + 1, true);
+    ///
+    /// ⚠ **No redirect is followed.** The url is held to the row's own host
+    /// (`Shard::status_url_to_poll`), and a `302` to `169.254.169.254` or
+    /// the player's router is the way round that. A shard answers for itself.
+    ///
+    /// ⚠ **Nor to a name that resolves to this machine or its network**
+    /// ([`PublicOnly`]) — unless `list_url`, the list the row came from, is
+    /// itself served from there: a developer reading their own shards.
+    pub fn status(&self, url: &str, list_url: &str) -> Fetched<shardlist::Status> {
+        let lane = if shardlist::local_url(list_url) { Lane::Quick } else { Lane::Public };
+        let got = self.get_bytes(url, shardlist::MAX_STATUS_BYTES as u64 + 1, lane, 0);
         let Some(bytes) = got.value else {
             return Fetched {
                 value: None,
@@ -319,7 +451,7 @@ impl Net {
     /// decoder is a parser, and `elo_ui::art` is where a failed decode
     /// becomes a placeholder instead of a panic.
     pub fn art(&self, url: &str) -> Fetched<Vec<u8>> {
-        let got = self.get_bytes(url, MAX_ART_BYTES + 1, true);
+        let got = self.get_bytes(url, MAX_ART_BYTES + 1, Lane::Quick, MAX_REDIRECTS);
         match got.value {
             Some(b) if b.len() as u64 > MAX_ART_BYTES => Fetched::bad(format!(
                 "the art is over {} KB, so it is not a shelf icon",
@@ -338,21 +470,8 @@ impl Net {
 
     /// One GET, capped, as bytes. The shared body of the two reads above —
     /// they differ only in their cap, their agent and what they parse.
-    fn get_bytes(&self, url: &str, limit: u64, quick: bool) -> Fetched<Vec<u8>> {
-        let agent = if quick {
-            if proxy::should_bypass(url, &self.no_proxy) {
-                &self.quick_direct
-            } else {
-                &self.quick_proxied
-            }
-        } else {
-            self.agent_for(url)
-        };
-        let mut req = agent.get(url);
-        if let Some(g) = self.grant_for(url) {
-            req = req.header("x-elo-grant", g);
-        }
-        let response = match req.call() {
+    fn get_bytes(&self, url: &str, limit: u64, lane: Lane, hops: u32) -> Fetched<Vec<u8>> {
+        let response = match self.get(url, lane, None, hops) {
             Ok(r) => r,
             Err(ureq::Error::StatusCode(code)) => return Fetched::status(code),
             Err(e) => return Fetched::unreachable(format!("{e}")),
@@ -381,7 +500,7 @@ impl Net {
     /// which is worse than the empty list this read exists to prevent. A miss
     /// launches without the list; the game asks the door for it afterwards.
     pub fn get_json_quick(&self, url: &str) -> Fetched<Value> {
-        let got = self.get_bytes(url, MAX_DOC_BYTES, true);
+        let got = self.get_bytes(url, MAX_DOC_BYTES, Lane::Quick, MAX_REDIRECTS);
         let Some(bytes) = got.value else {
             return Fetched { value: None, ok: got.ok, reachable: got.reachable,
                              status: got.status, why: got.why };
@@ -393,11 +512,7 @@ impl Net {
     }
 
     pub fn get_json(&self, url: &str) -> Fetched<Value> {
-        let mut req = self.agent_for(url).get(url);
-        if let Some(g) = self.grant_for(url) {
-            req = req.header("x-elo-grant", g);
-        }
-        let response = match req.call() {
+        let response = match self.get(url, Lane::Full, None, MAX_REDIRECTS) {
             Ok(r) => r,
             Err(ureq::Error::StatusCode(code)) => return Fetched::status(code),
             Err(e) => return Fetched::unreachable(format!("{e}")),
@@ -415,6 +530,57 @@ impl Net {
             Ok(v) => Fetched::good(v),
             Err(e) => Fetched::bad(format!("the reply is not JSON: {e}")),
         }
+    }
+
+    /// One GET, every read's door: redirects followed **by hand**, so the
+    /// grant is decided again for each hop.
+    ///
+    /// ⚠ ureq's own following strips `Authorization` and `Cookie` on a
+    /// redirect and keeps every other header, so `x-elo-grant` set for the
+    /// origin rode on to wherever the origin, or anything in front of it,
+    /// pointed. Here each hop is its own request with its own [`grant_for`],
+    /// and its own agent, since a hop can cross the `NO_PROXY` line too.
+    ///
+    /// [`grant_for`]: Net::grant_for
+    fn get(
+        &self,
+        url: &str,
+        lane: Lane,
+        deadline: Option<Duration>,
+        hops: u32,
+    ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        let mut at = url.to_string();
+        for _ in 0..=hops {
+            let agent = match (lane, proxy::should_bypass(&at, &self.no_proxy)) {
+                (Lane::Public, _) => &self.status_direct,
+                (Lane::Quick, true) => &self.quick_direct,
+                (Lane::Quick, false) => &self.quick_proxied,
+                (Lane::Full, _) => self.agent_for(&at),
+            };
+            let mut req = match deadline {
+                Some(d) => agent.get(&at).config().max_redirects(0).timeout_global(Some(d)).build(),
+                None => agent.get(&at).config().max_redirects(0).build(),
+            };
+            if let Some(g) = self.grant_for(&at) {
+                req = req.header("x-elo-grant", g);
+            }
+            let response = req.call()?;
+            if !response.status().is_redirection() {
+                return Ok(response);
+            }
+            let next = response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|l| redirect_target(&at, l));
+            match next {
+                Some(n) => at = n,
+                // A 3xx with nowhere to go (a 304, a broken header) is the
+                // answer, and the caller reads it as one.
+                None => return Ok(response),
+            }
+        }
+        Err(ureq::Error::TooManyRedirects)
     }
 }
 
@@ -434,33 +600,308 @@ impl elo_depot::JsonSource for Net {
 /// in memory, because a depot file is a game asset and not a document.
 impl Fetcher for Net {
     fn fetch(&self, url: &str, dest: &Path) -> Result<(), DepotError> {
-        self.fetch_within(url, dest, TIMEOUT)
+        self.fetch_within(url, dest, TIMEOUT, None)
     }
 
     fn fetch_sized(&self, url: &str, dest: &Path, bytes: i64) -> Result<(), DepotError> {
-        self.fetch_within(url, dest, depot_file_deadline(bytes))
+        self.fetch_within(url, dest, depot_file_deadline(bytes), Some(bytes.max(0) as u64))
     }
 }
 
 impl Net {
-    fn fetch_within(&self, url: &str, dest: &Path, deadline: Duration) -> Result<(), DepotError> {
-        let mut req = self
-            .agent_for(url)
-            .get(url)
-            .config()
-            .timeout_global(Some(deadline))
-            .build();
-        if let Some(g) = self.grant_for(url) {
-            req = req.header("x-elo-grant", g);
-        }
-        let response = req
-            .call()
+    /// `declared` is the depot's size for the file. When it is known the body
+    /// is read to exactly that many bytes: one more is a refusal **before** it
+    /// lands, because the hash check runs only after the whole stream is on
+    /// disk, and a host that keeps sending would otherwise fill the player's
+    /// disk until the deadline. Unsized, the ceiling is the largest file a
+    /// depot may declare.
+    fn fetch_within(
+        &self,
+        url: &str,
+        dest: &Path,
+        deadline: Duration,
+        declared: Option<u64>,
+    ) -> Result<(), DepotError> {
+        let response = self
+            .get(url, Lane::Full, Some(deadline), MAX_REDIRECTS)
             .map_err(|e| DepotError::new(format!("could not fetch {url}: {e}")))?;
-        let mut reader = response.into_body().into_reader();
+        let cap = declared.unwrap_or(elo_depot::depot::MAX_FILE_BYTES as u64);
+        let mut reader = response.into_body().into_reader().take(cap + 1);
         let mut file = std::fs::File::create(dest)
             .map_err(|e| DepotError::new(format!("{}: {e}", dest.display())))?;
-        std::io::copy(&mut reader, &mut file)
+        let got = std::io::copy(&mut reader, &mut file)
             .map_err(|e| DepotError::new(format!("could not fetch {url}: {e}")))?;
+        if got > cap {
+            return Err(DepotError::new(format!(
+                "could not fetch {url}: the host sent more than the {cap} bytes declared"
+            )));
+        }
+        if declared.is_some_and(|n| got != n) {
+            return Err(DepotError::new(format!(
+                "could not fetch {url}: the host sent {got} of the {cap} bytes declared"
+            )));
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The production spellings of the lookalikes `tests/grant.rs` drives over
+    /// a socket.
+    #[test]
+    fn the_origin_is_a_tuple_and_a_lookalike_is_not_it() {
+        let o = "https://elopros.com";
+        for yes in [
+            "https://elopros.com/api/launcher/depot/gates/1",
+            "https://ELOPROS.com:443/api/x",
+            "HTTPS://elopros.com",
+        ] {
+            assert!(same_origin(yes, o), "{yes}");
+        }
+        for no in [
+            "https://elopros.com.evil.tld/d.json",
+            "https://elopros.com@evil.tld/d.json",
+            "https://user@elopros.com/d.json",
+            "http://elopros.com/d.json",
+            "https://elopros.com:8443/d.json",
+            "https://evil.tld/https://elopros.com",
+            "elopros.com/d.json",
+            "",
+        ] {
+            assert!(!same_origin(no, o), "{no}");
+        }
+    }
+
+    /// Resolves every name to one address — a DNS answer the title controls,
+    /// such as `169.254.169.254.nip.io`, without asking DNS.
+    #[derive(Debug)]
+    struct Answers(std::net::SocketAddr);
+
+    impl Resolver for Answers {
+        fn resolve(
+            &self,
+            _: &ureq::http::Uri,
+            _: &ureq::config::Config,
+            _: NextTimeout,
+        ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+            let mut v = self.empty();
+            v.push(self.0);
+            Ok(v)
+        }
+    }
+
+    /// Did anything connect to `l` within a second?
+    fn knocked(l: std::net::TcpListener) -> std::thread::JoinHandle<bool> {
+        l.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let until = std::time::Instant::now() + Duration::from_secs(1);
+            while std::time::Instant::now() < until {
+                if l.accept().is_ok() {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            false
+        })
+    }
+
+    const LIST: &str = "https://elopros.com/api/launcher/servers/gates";
+
+    /// l-net-client-ssrf#1: `status_url_to_poll` reads names, and a public
+    /// name can resolve to the player's own network. A status poll checks
+    /// the addresses it is about to connect to.
+    #[test]
+    fn a_name_that_resolves_here_is_not_polled() {
+        let inside = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = inside.local_addr().unwrap();
+        let url = format!("http://shard.example:{}/status.json", at.port());
+        let direct = |names: PublicOnly| Net {
+            status_direct: ureq::Agent::with_parts(
+                ureq::Agent::config_builder().timeout_global(Some(STATUS_TIMEOUT))
+                    .proxy(None).build(),
+                DefaultConnector::default(),
+                names,
+            ),
+            no_proxy: vec!["shard.example".into()],
+            ..Net::new()
+        };
+
+        let k = knocked(inside.try_clone().unwrap());
+        let got = direct(PublicOnly(Arc::new(Answers(at)))).status(&url, LIST);
+        assert!(!k.join().unwrap(), "the poll reached {at} through a name");
+        assert!(got.value.is_none());
+        assert!(got.why.contains("this machine or its network"), "{}", got.why);
+
+        // The same name, polled for a developer's own list, goes.
+        let mut net = direct(PublicOnly(Arc::new(Answers(at))));
+        net.quick_direct = ureq::Agent::with_parts(
+            ureq::Agent::config_builder().timeout_global(Some(STATUS_TIMEOUT)).proxy(None).build(),
+            DefaultConnector::default(),
+            Answers(at),
+        );
+        let k = knocked(inside);
+        let _ = net.status(&url, "http://127.0.0.1:3600/api/launcher/servers/gates");
+        assert!(k.join().unwrap(), "the stub resolver is what the poll connects through");
+    }
+
+    /// l-net-client-ssrf#1, round 4: an HTTP(S) proxy resolves the name a
+    /// second time (`CONNECT name:port`), and a proxy on the player's machine
+    /// or network then reaches whatever the name answers it. So a status poll
+    /// never goes through the proxy: a local answer is refused here, and a
+    /// public one is connected to directly.
+    #[test]
+    fn a_status_poll_never_goes_through_a_proxy() {
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let via = |answer: &str| Net {
+            quick_proxied: ureq::Agent::config_builder()
+                .timeout_global(Some(Duration::from_millis(500)))
+                .proxy(Some(ureq::Proxy::new(&format!("http://{}", proxy.local_addr().unwrap()))
+                    .unwrap()))
+                .build()
+                .new_agent(),
+            status_direct: ureq::Agent::with_parts(
+                ureq::Agent::config_builder().timeout_global(Some(Duration::from_millis(500)))
+                    .proxy(None).build(),
+                DefaultConnector::default(),
+                PublicOnly(Arc::new(Answers(answer.parse().unwrap()))),
+            ),
+            no_proxy: vec![],
+            ..Net::new()
+        };
+        let url = "http://shard.example/status.json";
+
+        let k = knocked(proxy.try_clone().unwrap());
+        let got = via("169.254.169.254:80").status(url, LIST);
+        assert!(!k.join().unwrap(), "a name resolving to 169.254.169.254 went to the proxy");
+        assert!(got.why.contains("this machine or its network"), "{}", got.why);
+
+        let k = knocked(proxy.try_clone().unwrap());
+        let _ = via("203.0.113.9:80").status(url, LIST);
+        assert!(!k.join().unwrap(), "a public name was handed to the proxy to resolve again");
+    }
+
+    /// The same rebinding name as below, for a player with an HTTP proxy on
+    /// their own machine: neither the proxy nor the loopback service hears it.
+    #[test]
+    fn a_proxied_player_cannot_be_rebound_through_their_proxy() {
+        let inside = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = inside.local_addr().unwrap().port();
+        let dns = Arc::new(Rebinds {
+            first: format!("203.0.113.9:{port}").parse().unwrap(),
+            then: inside.local_addr().unwrap(),
+            asked: Default::default(),
+        });
+        let quick = || ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_millis(500)));
+        let net = Net {
+            quick_proxied: quick()
+                .proxy(Some(ureq::Proxy::new(&format!("http://{}", proxy.local_addr().unwrap()))
+                    .unwrap()))
+                .build()
+                .new_agent(),
+            status_direct: ureq::Agent::with_parts(quick().proxy(None).build(),
+                                                   DefaultConnector::default(),
+                                                   PublicOnly(dns.clone())),
+            no_proxy: vec![],
+            ..Net::new()
+        };
+
+        let (k_in, k_proxy) = (knocked(inside), knocked(proxy));
+        let got = net.status(&format!("http://shard.example:{port}/status.json"), LIST);
+        assert!(!k_proxy.join().unwrap(), "the poll was handed to the proxy");
+        assert!(!k_in.join().unwrap(), "a rebinding name reached 127.0.0.1:{port}");
+        assert!(got.value.is_none());
+        assert_eq!(dns.asked.load(std::sync::atomic::Ordering::SeqCst), 1,
+                   "the name was resolved again after it was checked");
+    }
+
+    /// Answers `first` to the first lookup and `then` to every later one — a
+    /// title's DNS rebinding a name between a check and a connect.
+    #[derive(Debug)]
+    struct Rebinds {
+        first: std::net::SocketAddr,
+        then: std::net::SocketAddr,
+        asked: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Resolver for Rebinds {
+        fn resolve(
+            &self,
+            _: &ureq::http::Uri,
+            _: &ureq::config::Config,
+            _: NextTimeout,
+        ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+            let n = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut v = self.empty();
+            v.push(if n == 0 { self.first } else { self.then });
+            Ok(v)
+        }
+    }
+
+    /// l-net-client-ssrf#1, round 3: with no proxy configured, the player's
+    /// machine is what resolves and connects, so the name is resolved ONCE
+    /// and the address checked is the address connected to. A name that
+    /// answers public to a check and loopback to a second lookup never
+    /// reaches loopback.
+    #[test]
+    fn an_unproxied_poll_cannot_be_rebound_between_check_and_connect() {
+        let inside = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = inside.local_addr().unwrap().port();
+        let dns = Arc::new(Rebinds {
+            first: format!("203.0.113.9:{port}").parse().unwrap(),
+            then: inside.local_addr().unwrap(),
+            asked: Default::default(),
+        });
+        let quick = || ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_millis(500)))
+            .proxy(None)
+            .build();
+        let net = Net {
+            // What `Net::new` builds when no proxy is in the environment,
+            // resolving through the same (stub) DNS as the check.
+            quick_proxied: ureq::Agent::with_parts(quick(), DefaultConnector::default(),
+                                                   SharedDns(dns.clone())),
+            status_direct: ureq::Agent::with_parts(quick(), DefaultConnector::default(),
+                                                   PublicOnly(dns.clone())),
+            no_proxy: vec![],
+            ..Net::new()
+        };
+
+        let k = knocked(inside);
+        let got = net.status(&format!("http://shard.example:{port}/status.json"), LIST);
+        assert!(!k.join().unwrap(), "a rebinding name reached 127.0.0.1:{port}");
+        assert!(got.value.is_none());
+        assert_eq!(dns.asked.load(std::sync::atomic::Ordering::SeqCst), 1,
+                   "the name was resolved again after it was checked");
+    }
+
+    /// An `Arc`'d resolver handed to a second agent, as DNS is shared by
+    /// every agent on a real machine.
+    #[derive(Debug)]
+    struct SharedDns(Arc<Rebinds>);
+
+    impl Resolver for SharedDns {
+        fn resolve(
+            &self,
+            uri: &ureq::http::Uri,
+            config: &ureq::config::Config,
+            timeout: NextTimeout,
+        ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+            self.0.resolve(uri, config, timeout)
+        }
+    }
+
+    #[test]
+    fn a_redirect_resolves_against_the_url_that_answered() {
+        let at = "https://elopros.com/api/launcher/depot/gates/1";
+        assert_eq!(redirect_target(at, "https://cdn.example/x").unwrap(), "https://cdn.example/x");
+        assert_eq!(redirect_target(at, "//cdn.example/x").unwrap(), "https://cdn.example/x");
+        assert_eq!(redirect_target(at, "/api/y").unwrap(), "https://elopros.com/api/y");
+        assert_eq!(redirect_target(at, "2").unwrap(),
+                   "https://elopros.com/api/launcher/depot/gates/2");
     }
 }

@@ -63,7 +63,8 @@ pub fn safe_relpath(raw: &str) -> Result<String> {
 /// The parent is resolved rather than the target because the target is what we
 /// are about to create. Resolution is lenient about components that do not
 /// exist yet (Python's `os.path.realpath` is), so this is a symlink check and
-/// never an existence check.
+/// never an existence check. The target itself is resolved too: a leaf that is
+/// already a symlink out of the tree is refused, not followed.
 pub fn resolve_into(root: &Path, rel: &str) -> Result<PathBuf> {
     let safe = safe_relpath(rel)?;
     let target = root.join(&safe);
@@ -72,10 +73,12 @@ pub fn resolve_into(root: &Path, rel: &str) -> Result<PathBuf> {
         .parent()
         .map(realpath_lenient)
         .unwrap_or_else(|| base.clone());
-    if parent != base && !parent.starts_with(&base) {
-        return Err(DepotError::new(format!(
-            "path {rel:?} resolves outside the build directory"
-        )));
+    for got in [parent, realpath_lenient(&target)] {
+        if got != base && !got.starts_with(&base) {
+            return Err(DepotError::new(format!(
+                "path {rel:?} resolves outside the build directory"
+            )));
+        }
     }
     Ok(target)
 }

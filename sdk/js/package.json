@@ -1,0 +1,46 @@
+{
+  "name": "@elopros/sdk",
+  "version": "0.1.0",
+  "description": "The Elo Pros platform SDK: friends and buddies, tickets, items, faces, leaderboards and payout files over the platform API, the signed texts rebuilt locally, and the browser web SDK (elo-1.js).",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./elo-1.js": "./elo-1.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "elo-1.js",
+    "examples/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "gamedev",
+    "ethereum",
+    "sdk",
+    "multiplayer",
+    "elopros"
+  ],
+  "homepage": "https://elopros.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AnthonE/elo-pros-launcher.git",
+    "directory": "sdk/js"
+  },
+  "license": "MIT",
+  "sideEffects": [
+    "./elo-1.js"
+  ]
+}

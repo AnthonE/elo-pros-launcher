@@ -47,6 +47,39 @@ use std::path::{Path, PathBuf};
 
 pub const KEY_NAME: &str = "voice.nsec";
 
+/// The text a wallet signs ONCE to derive its chat key — byte-for-byte
+/// `meter/hive.py` `derivation_message(wallet)` (wallet-scoped). The origin
+/// hands the same text out (`GET /api/hive/link`), and a client that compares
+/// the two refuses a text that differs rather than deriving a key the site
+/// would not.
+pub fn derivation_message(wallet: &str) -> String {
+    format!(
+        "scry hive voice v1\nwallet: {}\nthis signature IS my hive voice key.\n\
+         sign it only to derive your scry hive identity — never on any other site.",
+        wallet.trim().to_lowercase()
+    )
+}
+
+/// What a chat key signs (a NIP-01 event's content) to say it speaks for
+/// `wallet` — byte-for-byte `meter/hive.py` `link_content`. Compared against
+/// the origin's copy before anything is signed, like [`derivation_message`].
+pub fn link_content(wallet: &str) -> String {
+    format!(
+        "elo chat key\nwallet: {}\nthis key speaks for this wallet in Elo Pros chat.",
+        wallet.trim().to_lowercase()
+    )
+}
+
+/// Where this machine's chat key lives: `ELO_VOICE_DIR`, else `voice/` under
+/// the client's state root. Defined here and only here, so `elo chat` and the
+/// window's Chat pane speak with the same key.
+pub fn default_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("ELO_VOICE_DIR") {
+        return PathBuf::from(p);
+    }
+    elo_depot::dirs::state_root().join("voice")
+}
+
 /// A secret key that can speak. Never `Debug`-printed, never serialized.
 pub struct Voice {
     signing: SigningKey,
@@ -74,6 +107,30 @@ impl Voice {
             // retrying is correct — clamping would bias the key.
         }
         Err(HiveError::new("could not draw a valid key from the entropy pool"))
+    }
+
+    /// The wallet's own chat key, from its EIP-191 signature over
+    /// [`derivation_message`] — **the same key the website makes from the same
+    /// wallet** (`meter/hive.py` `derive_seckey`, `js/schnorr.js`
+    /// `deriveFromSignature`): `sha256(r‖s) mod n`, with `0x01` appended and
+    /// rehashed in the (astronomically unlikely) zero case. `v` is dropped
+    /// because wallets disagree on how to write it; `r‖s` is RFC 6979
+    /// deterministic and low-s, so one wallet gives one key on every client.
+    pub fn from_wallet_signature(signature_hex: &str) -> Result<Voice> {
+        use k256::elliptic_curve::ops::Reduce;
+        let raw = unhex(signature_hex.trim().trim_start_matches("0x"))?;
+        if raw.len() < 64 {
+            return Err(HiveError::new("a wallet signature is 65 bytes (r‖s‖v)"));
+        }
+        let mut rs = raw[..64].to_vec();
+        loop {
+            let digest = Sha256::digest(&rs);
+            let d = <k256::Scalar as Reduce<k256::U256>>::reduce_bytes(&digest);
+            if !bool::from(d.is_zero()) {
+                return Voice::from_secret_bytes(&d.to_bytes());
+            }
+            rs.push(1);
+        }
     }
 
     pub fn from_secret_bytes(bytes: &[u8]) -> Result<Voice> {
@@ -139,12 +196,15 @@ impl Voice {
     }
 
     /// Write to `dir/voice.nsec` at 0600, in a 0700 directory.
+    ///
+    /// Through the vault's private writer: 0600 from the first byte, and a
+    /// link at the path is replaced rather than followed.
     pub fn save(&self, dir: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(dir)?;
         harden(dir, 0o700)?;
         let path = dir.join(KEY_NAME);
-        std::fs::write(&path, self.to_nsec() + "\n")?;
-        harden(&path, 0o600)?;
+        let body = elo_vault::Zeroizing::new(self.to_nsec() + "\n");
+        elo_vault::write_private(&path, body.as_bytes(), false)?;
         Ok(path)
     }
 
@@ -226,7 +286,18 @@ impl Event {
     /// looks redundant and is not: it catches a serialization drift between
     /// `id()` and the wire the moment it happens, rather than as a silent
     /// relay rejection nobody sees.
+    ///
+    /// It is also what every event read off a relay goes through
+    /// (`relay::checked`), so the shape is checked before anything is decoded:
+    /// NIP-01 says lowercase hex, 32 bytes for `id` and `pubkey` and 64 for
+    /// `sig`, and a relay's bytes get no further than that.
     pub fn verify(&self) -> Result<()> {
+        if !is_lower_hex(&self.id, 64)
+            || !is_lower_hex(&self.pubkey, 64)
+            || !is_lower_hex(&self.sig, 128)
+        {
+            return Err(HiveError::new("event id, pubkey or sig is not NIP-01 hex"));
+        }
         let unsigned = UnsignedEvent {
             created_at: self.created_at,
             kind: self.kind,
@@ -259,17 +330,51 @@ pub fn hex(bytes: &[u8]) -> String {
     s
 }
 
+fn is_lower_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Decode hex, either case.
+///
+/// ⚠ **Byte by byte, never a `&str` slice.** What reaches this is often a
+/// relay's: a slice through the middle of a multi-byte char is a panic, and
+/// the release profile is `panic = "abort"`, so one event would end the
+/// launcher. (`from_str_radix` also took a leading `+`, which is not hex.)
 pub fn unhex(s: &str) -> Result<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    fn nibble(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bytes = s.as_bytes();
+    if bytes.len() % 2 != 0 {
         return Err(HiveError::new("hex must have an even number of digits"));
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|_| HiveError::new(format!("not hex: {:?}", &s[i..i + 2])))
+    bytes
+        .chunks_exact(2)
+        .map(|p| match (nibble(p[0]), nibble(p[1])) {
+            (Some(hi), Some(lo)) => Ok(hi << 4 | lo),
+            _ => Err(HiveError::new("not hex")),
         })
         .collect()
+}
+
+/// Encode an event's 32-byte hex `pubkey` as the `npub1…` every surface shows.
+///
+/// An event read off the relay carries hex; the origin's mirror carries npubs.
+/// A feed that merges the two has to speak one of them, and the npub is the
+/// one a person recognises and the one the name cache is keyed by.
+pub fn hex_to_npub(pubkey_hex: &str) -> Result<String> {
+    let bytes = unhex(pubkey_hex)?;
+    if bytes.len() != 32 {
+        return Err(HiveError::new("a pubkey is 32 bytes"));
+    }
+    let hrp = bech32::Hrp::parse_unchecked("npub");
+    bech32::encode::<bech32::Bech32>(hrp, &bytes)
+        .map_err(|e| HiveError::new(format!("could not encode an npub: {e}")))
 }
 
 /// Decode an `npub1…` to its 32-byte hex, for addressing someone.

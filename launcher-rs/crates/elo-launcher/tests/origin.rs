@@ -362,6 +362,19 @@ fn a_depot_packaged_against_the_retired_host_still_installs() {
         out.contains("scry.moreright.xyz") && out.contains("410"),
         "the player is told which dead host was healed, and why:\n{out}"
     );
+
+    // ⚠ And it claims only what was checked. The client compares each file to
+    // the sha256 in the depot this origin served; it never reads a notary, and
+    // the builds that heal are the ones packaged before anything was sealed.
+    // "Notarized" there was a reassurance a substituted depot got for free.
+    assert!(
+        !out.to_lowercase().contains("notari"),
+        "the heal notice must not claim a notary was consulted:\n{out}"
+    );
+    assert!(
+        out.contains("depot this origin served"),
+        "it says what the files were checked against:\n{out}"
+    );
 }
 
 /// The heal is one dead name, not a policy about where bytes may live.

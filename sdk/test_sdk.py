@@ -368,14 +368,26 @@ if sums_path.is_file():
         if line.strip():
             digest, name = line.split(None, 1)
             published[name.strip()] = digest
-    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py"):
-        actual = hashlib.sha256((HERE / rel).read_bytes()).hexdigest()
+    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py", "js/elo-1.js"):
         check(f"SHA256SUMS names {rel}", rel in published)
+    # Every row, not only the ones named above: a listed file whose bytes
+    # moved is a published number that is now false.
+    for rel, digest in sorted(published.items()):
+        path = HERE / rel
+        actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
         check(f"…and matches the bytes we ship for {rel}",
-              published.get(rel) == actual,
-              f"published {published.get(rel)!r} vs actual {actual!r} — "
+              digest == actual,
+              f"published {digest!r} vs actual {actual!r} — "
               f"regenerate: cd sdk && sha256sum rust/elo_overlay.rs "
-              f"python/elo_overlay.py > SHA256SUMS")
+              f"python/elo_overlay.py js/elo-1.js > SHA256SUMS")
+
+# The JavaScript package ships the web SDK a browser game loads from
+# elopros.com/sdk/elo-1.js. A released elo-N.js never changes, so the
+# package's copy and the served one are the same bytes, always.
+served, shipped = REPO / "watchtower" / "sdk" / "elo-1.js", HERE / "js" / "elo-1.js"
+check("sdk/js/elo-1.js is byte-identical to the served watchtower/sdk/elo-1.js",
+      served.is_file() and shipped.is_file() and served.read_bytes() == shipped.read_bytes(),
+      "copy it again: cp watchtower/sdk/elo-1.js sdk/js/elo-1.js")
 
 # A vendoring project runs its own fmt gate over everything in its tree,
 # including this file. It has happened twice that an unformatted SDK reddened
@@ -405,6 +417,24 @@ for line in rs_src.splitlines():
         check("every unix-only import is behind cfg(unix)", guarded, line.strip())
 check("and a windows transport exists at all", "cfg(windows)" in rs_src,
       "a game vendoring this must be able to build for Windows")
+
+# The Windows door is a named pipe whose name every account on the PC can
+# predict, and a pipe answers for whoever created it first. While the launcher
+# is not running, another user can create `elo-launcher-<you>` and serve the
+# game a fake server list or fake identity. So both clients open the pipe at
+# identification level (the server may learn who we are, never act as us) and
+# refuse a pipe whose server process runs as a different user.
+py_src = (HERE / "python" / "elo_overlay.py").read_text()
+rs_win = rs_src[rs_src.find("#[cfg(windows)]\nfn open_stream"):]
+check("rust windows door: opens with identification-level QoS only",
+      ".security_qos_flags(SECURITY_IDENTIFICATION)" in rs_win)
+check("rust windows door: refuses a pipe served by another user",
+      all(f in rs_win for f in ("GetNamedPipeServerProcessId", "OpenProcessToken", "EqualSid")))
+py_pipe = py_src[py_src.find("class _PipeConn"):py_src.find("@dataclass")]
+check("python windows door: opens with identification-level QoS only",
+      "SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION" in py_pipe and "CreateFileW" in py_pipe)
+check("python windows door: refuses a pipe served by another user",
+      all(f in py_pipe for f in ("GetNamedPipeServerProcessId", "OpenProcessToken", "EqualSid")))
 
 
 # ═══ tail ═══════════════════════════════════════════════════════════════════

@@ -39,13 +39,18 @@ fn main() {
     let signer: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&keystore)));
     let log = Rc::new(RefCell::new(Vec::new()));
 
+    // The words the window showed, so the check that follows can be answered
+    // the way a player with a pencil would.
+    let seen = Rc::new(RefCell::new(Vec::new()));
     wiring::wire_account(
         &account_w,
         &signing_w,
         &signer,
         &keystore,
-        wiring::scripted_ask(vec![Some("correct horse".into()), Some("correct horse".into())]),
+        wiring::quiz_answering_ask(Rc::clone(&seen),
+                                   vec![Some("correct horse".into()), Some("correct horse".into())]),
         wiring::recording_tell(Rc::clone(&log)),
+        wiring::recording_show(Rc::clone(&seen)),
     );
 
     let mut make = account_w.make.clone().expect("the make button must exist with no account");
@@ -66,9 +71,21 @@ fn main() {
     };
     check(&mut failures, "the window shows the address the file holds",
           on_screen == on_disk && on_screen.starts_with("0x"));
+    // And the file holds the account the twelve words derive, which is what
+    // makes them a backup rather than a souvenir.
+    let from_words = elo_vault::Phrase::parse(&seen.borrow().join(" "))
+        .and_then(|p| p.account())
+        .map(|a| a.address())
+        .unwrap_or_default();
+    check(&mut failures, "twelve words were shown, and they derive this account",
+          seen.borrow().len() == 12 && from_words == on_disk);
 
     // And the door closes: this window never offers to replace a key.
     check(&mut failures, "make is deactivated afterwards", !make.active());
+    check(&mut failures, "and its place is Edit profile, with no restart",
+          !make.visible() && account_w.edit_profile.as_ref().is_some_and(|e| e.visible()));
+    check(&mut failures, "a made account says it has no profile yet",
+          account_w.profile_name.as_ref().is_some_and(|n| n.label().contains("no profile")));
 
     // ── 2 · The passphrase it wrote is the passphrase it was given ───────────
     check(&mut failures, "the written keystore opens with that passphrase",
@@ -119,11 +136,38 @@ fn main() {
     let aw = windows::account(None, "h");
     let sw = windows::signing("local", "none", None, false);
     let s2: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&ks2)));
+    let never_shown: wiring::ShowWords = Rc::new(|_| false);
+    wiring::wire_account(&aw, &sw, &s2, &ks2,
+                         wiring::scripted_ask(vec![Some("correct horse".into())]),
+                         wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+                         never_shown);
+    aw.make.clone().expect("make").do_callback();
+    check(&mut failures, "cancelling the words writes no keystore", !ks2.exists());
+
+    let aw = windows::account(None, "h");
+    let sw = windows::signing("local", "none", None, false);
+    let s2: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&ks2)));
     wiring::wire_account(&aw, &sw, &s2, &ks2,
                          wiring::scripted_ask(vec![None]),
-                         wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))));
+                         wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+                         wiring::recording_show(Rc::new(RefCell::new(Vec::new()))));
     aw.make.clone().expect("make").do_callback();
-    check(&mut failures, "cancelling the dialog writes no keystore", !ks2.exists());
+    check(&mut failures, "cancelling the check writes no keystore", !ks2.exists());
+
+    // Words that were not the words: refused, and nothing on disk.
+    let aw = windows::account(None, "h");
+    let sw = windows::signing("local", "none", None, false);
+    let s2: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&ks2)));
+    let told = Rc::new(RefCell::new(Vec::new()));
+    wiring::wire_account(&aw, &sw, &s2, &ks2,
+                         wiring::scripted_ask(vec![Some("zoo zoo zoo".into()),
+                                                   Some("correct horse".into()),
+                                                   Some("correct horse".into())]),
+                         wiring::recording_tell(Rc::clone(&told)),
+                         wiring::recording_show(Rc::new(RefCell::new(Vec::new()))));
+    aw.make.clone().expect("make").do_callback();
+    check(&mut failures, "the wrong words write no keystore, and say so",
+          !ks2.exists() && matches!(told.borrow().first(), Some((Told::Refused, m)) if m.contains("not the words")));
 
     // ── 6 · unlocking in the window is visible to the GAME DOOR ─────────────
     //
@@ -377,6 +421,138 @@ fn main() {
               fake.installs.get() == 1 && fake.plays.get() == 2);
     }
 
+    // ── 10 · the wallet: read, review, passphrase, sent ─────────────────────
+    //
+    // The real Wallet controls against a chain that answers like Robinhood
+    // Chain and records what it is handed. The account is LOCKED throughout:
+    // a send asks its own passphrase whatever the session holds.
+    {
+        let sent: Arc<Mutex<Vec<String>>> = Arc::default();
+        let desk = |sent: &Arc<Mutex<Vec<String>>>| {
+            let sent = Arc::clone(sent);
+            wiring::WalletDesk {
+                chain: Arc::new(move || Box::new(ClickChain { sent: Arc::clone(&sent) })),
+                listed: Arc::new(|| Err("offline".into())),
+                recipients: dir.join("recipients.json"),
+                open: Rc::new(|_| {}),
+            }
+        };
+        let pump = |done: &dyn Fn() -> bool| {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !done() && std::time::Instant::now() < until {
+                let _ = app::wait_for(0.05);
+            }
+        };
+        let locked = || -> wiring::Shared { Arc::new(Mutex::new(elo_vault::LocalSigner::at(&keystore))) };
+        let told = Rc::new(RefCell::new(Vec::new()));
+        let reviewed: Rc<RefCell<Vec<String>>> = Rc::default();
+        let offered: Rc<RefCell<Vec<String>>> = Rc::default();
+        let review: wiring::Review = {
+            let r = Rc::clone(&reviewed);
+            Rc::new(move |lines, _notes| {
+                r.borrow_mut().push(lines[0].1.clone());
+                true
+            })
+        };
+        let then: wiring::Then = {
+            let o = Rc::clone(&offered);
+            Rc::new(move |body, _| {
+                o.borrow_mut().push(body.to_string());
+                false
+            })
+        };
+
+        let ww = windows::wallet(Some(&on_disk));
+        let read = wiring::wire_wallet(&ww, &locked(), desk(&sent),
+                                       wiring::scripted_ask(vec![Some("correct horse".into())]),
+                                       wiring::recording_tell(Rc::clone(&told)),
+                                       Rc::clone(&review), Rc::clone(&then));
+        read();
+        let text = || ww.balances.buffer().map(|b| b.text()).unwrap_or_default();
+        pump(&|| !text().is_empty());
+        check(&mut failures, "the wallet reads the chain and paints the balance",
+              text().contains("1 ETH"));
+
+        ww.amount.clone().set_value("0.25");
+        ww.to.clone().set_value("0xF0109fC8DF283027b6285cc889F5aA624EaC1F55");
+        ww.review.clone().do_callback();
+        pump(&|| !offered.borrow().is_empty() || !told.borrow().is_empty());
+        let raws = sent.lock().unwrap().clone();
+        check(&mut failures, "Review shows what will be signed, read from the transaction",
+              reviewed.borrow().first().map(String::as_str) == Some("0.25 ETH"));
+        check(&mut failures, "a locked account sends with the passphrase asked for it",
+              raws.len() == 1 && raws[0].starts_with("0x02"));
+        check(&mut failures, "the player is told it went, with its hash",
+              offered.borrow().first().is_some_and(|m| m.starts_with("Sent 0.25 ETH") && m.contains("0x")));
+        check(&mut failures, "the recipient is remembered, and the form is cleared",
+              elo_net::wallet::known_recipients(&dir.join("recipients.json")).len() == 1
+                  && ww.amount.value().is_empty());
+
+        // A wrong passphrase: refused, and nothing reaches the chain.
+        let told2 = Rc::new(RefCell::new(Vec::new()));
+        let ww2 = windows::wallet(Some(&on_disk));
+        let read2 = wiring::wire_wallet(&ww2, &locked(), desk(&sent),
+                                        wiring::scripted_ask(vec![Some("wrong horse".into())]),
+                                        wiring::recording_tell(Rc::clone(&told2)),
+                                        Rc::clone(&review), Rc::clone(&then));
+        read2();
+        pump(&|| ww2.balances.buffer().is_some_and(|b| !b.text().is_empty()));
+        ww2.amount.clone().set_value("0.1");
+        ww2.to.clone().set_value("0xF0109fC8DF283027b6285cc889F5aA624EaC1F55");
+        ww2.review.clone().do_callback();
+        pump(&|| !told2.borrow().is_empty());
+        check(&mut failures, "a wrong passphrase sends nothing, and says so",
+              sent.lock().unwrap().len() == 1
+                  && matches!(told2.borrow().first(), Some((Told::Refused, m)) if m.contains("wrong passphrase")));
+
+        // Cancel on the review: no passphrase is asked and nothing is sent.
+        let asked = Rc::new(std::cell::Cell::new(0));
+        let counting: wiring::Ask = {
+            let a = Rc::clone(&asked);
+            Rc::new(move |_, _| {
+                a.set(a.get() + 1);
+                Some(wiring::Secret::new("correct horse".into()))
+            })
+        };
+        let declined = Rc::new(std::cell::Cell::new(false));
+        let cancel: wiring::Review = {
+            let d = Rc::clone(&declined);
+            Rc::new(move |_, _| {
+                d.set(true);
+                false
+            })
+        };
+        let ww3 = windows::wallet(Some(&on_disk));
+        let read3 = wiring::wire_wallet(&ww3, &locked(), desk(&sent), counting,
+                                        wiring::recording_tell(Rc::new(RefCell::new(Vec::new()))),
+                                        cancel, Rc::clone(&then));
+        read3();
+        pump(&|| ww3.balances.buffer().is_some_and(|b| !b.text().is_empty()));
+        ww3.amount.clone().set_value("0.1");
+        ww3.to.clone().set_value("0xF0109fC8DF283027b6285cc889F5aA624EaC1F55");
+        ww3.review.clone().do_callback();
+        pump(&|| declined.get());
+        check(&mut failures, "Cancel on the review asks no passphrase and sends nothing",
+              declined.get() && asked.get() == 0 && sent.lock().unwrap().len() == 1);
+
+        // A mistyped address never reaches the review.
+        let told4 = Rc::new(RefCell::new(Vec::new()));
+        let ww4 = windows::wallet(Some(&on_disk));
+        let read4 = wiring::wire_wallet(&ww4, &locked(), desk(&sent), wiring::scripted_ask(vec![]),
+                                        wiring::recording_tell(Rc::clone(&told4)),
+                                        Rc::clone(&review), Rc::clone(&then));
+        read4();
+        pump(&|| ww4.balances.buffer().is_some_and(|b| !b.text().is_empty()));
+        ww4.amount.clone().set_value("0.1");
+        ww4.to.clone().set_value("0xf0109fC8DF283027b6285cc889F5aA624EaC1F55");
+        let before = reviewed.borrow().len();
+        ww4.review.clone().do_callback();
+        pump(&|| !told4.borrow().is_empty());
+        check(&mut failures, "a checksum typo is refused before the review",
+              reviewed.borrow().len() == before
+                  && matches!(told4.borrow().first(), Some((Told::Refused, m)) if m.contains("checksum")));
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
     if failures == 0 {
         println!("\nclick: every control does what it says");
@@ -416,6 +592,32 @@ impl wiring::Storefront for FakeFront {
     }
     fn page_url(&self, _: &str) -> String {
         String::new()
+    }
+}
+
+/// A chain that answers like Robinhood Chain and keeps what it is sent.
+struct ClickChain {
+    sent: Arc<Mutex<Vec<String>>>,
+}
+
+impl elo_net::chain::Rpc for ClickChain {
+    fn call(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        use serde_json::json;
+        Ok(match method {
+            "eth_chainId" => json!("0x1237"),
+            "eth_getBalance" => json!("0xde0b6b3a7640000"),
+            "eth_getTransactionCount" => json!("0x0"),
+            "eth_getBlockByNumber" => json!({"baseFeePerGas": "0x989680"}),
+            "eth_maxPriorityFeePerGas" => json!("0x0"),
+            "eth_estimateGas" => json!("0x5208"),
+            "eth_getCode" => json!("0x"),
+            "eth_sendRawTransaction" => {
+                let raw = params[0].as_str().unwrap_or_default().to_string();
+                self.sent.lock().map_err(|_| "poisoned")?.push(raw);
+                json!("0x00")
+            }
+            other => return Err(format!("no answer for {other}")),
+        })
     }
 }
 

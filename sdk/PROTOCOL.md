@@ -231,6 +231,13 @@ request — so a title cannot prove as another title. A signature over this
 message authorises nothing; it says *the holder of this address was here, for
 this domain, on this challenge*.
 
+**No prompt is for your own servers.** The launcher signs unasked only when
+`server` is a host your shard list (`servers.url`) names, or the host that
+serves that list. Any other domain is shown to the player first, verbatim — a
+sign-in to a site you do not run is a login there as the player's wallet, and
+the domain is the one field a game chooses. Publish your shards' hosts in the
+list and your players never see this prompt.
+
 #### A browser wallet signs under the page's name
 
 When the player's launcher is paired with a browser wallet (MetaMask, or the
@@ -399,7 +406,11 @@ What it provides instead, and each of these is real:
    with a daily count — instead of "paste your private key here", which is
    unrecoverable once a player has been taught it.
 2. **Consent is per game, per family, counted, and dies with the launcher.**
-   There is no "always allow" and none is written to disk.
+   There is no "always allow" and none is written to disk. For `elo play` an
+   allowance covers the `action:` the prompt showed, not every play text, and
+   the platform's own acts (`chatkey`, `profile`, `vote`, `npub`, `friends`,
+   `drops`, the work board's `claim` and `submit`, and the rest of the
+   broker's `ONE_AT_A_TIME`) are asked for one signature at a time.
 3. **The real wall is the signer behind it.** With `signer: arca`, every
    request is re-derived by a process running as somebody else, against its
    own ledger, with its own refusals.

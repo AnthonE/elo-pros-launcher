@@ -26,8 +26,9 @@
 //!    must never teach, and which is unrecoverable once taught. The strongest
 //!    ask available to a hostile game is now *a message the signer will sign*:
 //!    a bounded, journaled, recognised family with a count.
-//! 2. **Consent is per game, per family, counted, and dies with the process.**
-//!    There is no "always allow" and none is written to disk.
+//! 2. **Consent is per game, per family and action, counted, and dies with
+//!    the process.** There is no "always allow" and none is written to disk.
+//!    A refusal holds across the game's connections; a grant does not.
 //! 3. **The real boundary is the signer behind it.** Point [`Signer`] at an
 //!    arca and every request is re-derived by a process running as someone
 //!    else, with its own ledger and its own refusals.
@@ -38,8 +39,9 @@ pub mod transport;
 
 use protocol::{Refusal, VERBS};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
+use std::sync::{Arc, Mutex};
 
 /// What the broker does not own and will not invent.
 ///
@@ -113,6 +115,19 @@ pub trait Host: Send {
         None
     }
 
+    /// Is `server` (a `prove` domain, its port already dropped) one this
+    /// title publishes as its own — a host in its shard list?
+    ///
+    /// A sign-in to such a server needs no prompt: launching the title was the
+    /// decision. **Any other domain asks the player**, because a SIWE
+    /// signature for `app.thirdparty.example` logs the player's wallet in
+    /// there, and the domain is the one field a hostile game would choose.
+    /// The default publishes nothing, so a host that has not thought about it
+    /// asks every time.
+    fn serves(&mut self, _game: &str, _server: &str) -> bool {
+        false
+    }
+
     /// A name and a face for one address — Steam's `GetPlayerSummaries`.
     ///
     /// Reads `/api/who`, the origin's own join across sworn name, npub, vow and
@@ -157,26 +172,97 @@ pub enum What {
 /// written to disk is a grant that survives the player forgetting they made
 /// it, and a signing permission nobody remembers granting is the shape of
 /// every bad outcome this file exists to avoid.
+///
+/// **Grants live with the connection; refusals live with the door.** A grant
+/// shared across connections would let any process that says the same `hello`
+/// ride it, so it stays here. A refusal is the other way round: kept per
+/// connection, a game hangs up, reconnects and asks again, and a Refuse that
+/// never sticks is how a player is worn down into Allow 100. So refusals are a
+/// [`Refusals`] the door shares between every connection it serves.
 #[derive(Default)]
 pub struct Consent {
     grants: HashMap<(String, String), u32>,
-    denied: std::collections::HashSet<(String, String)>,
+    refusals: SharedRefusals,
+}
+
+/// The player's refusals for the life of the launcher, shared by every
+/// connection the door serves (`transport::serve_forever_counted`).
+#[derive(Default)]
+pub struct Refusals {
+    denied: HashSet<(String, String)>,
+    by_game: HashMap<String, u32>,
+    /// Prompts a game has open right now, on any connection. They count
+    /// against [`REFUSALS_PER_GAME`] until answered, because the lock is let
+    /// go across a prompt: without this, N connections asking at once all
+    /// pass the gate before the first refusal lands, and N windows queue.
+    asking: HashMap<String, u32>,
+    pending: HashSet<(String, String)>,
+}
+
+pub type SharedRefusals = Arc<Mutex<Refusals>>;
+
+/// How many prompts one game may have refused before it cannot open another.
+/// Without it a game walks the families — `elo a`, `elo b`, … — and every one
+/// is a fresh modal window.
+pub const REFUSALS_PER_GAME: u32 = 3;
+
+/// `elo play` actions that bind or move a public identity, vote, or link an
+/// account (`meter/playauth.py` `WALLET_ONLY`, plus the actions that do the
+/// same job under another name), `buddy`, whose `gift` moves the player's
+/// credit to a wallet the detail names, and every other act a meter route verifies
+/// for the platform rather than a game: the work board (`claim`, `submit`),
+/// GatesBench, buddy links, witness pledges and readings. A grant never covers
+/// the next one: each is shown, each time, whatever count was clicked.
+/// `meter/test_playauth_platform.py` fails on a meter action missing here.
+pub const ONE_AT_A_TIME: [&str; 19] = [
+    "npub", "listing", "report", "face", "herald", "profile", "chatkey", "vote", "drops",
+    "friends", "grant", "revoke", "swear", "claim", "submit", "bench", "buddy", "pledge",
+    "reading",
+];
+
+/// What a consent grant is keyed on: the family, and for a text whose second
+/// line is `action: …` (`elo play`), the action too. A player who allowed a
+/// duel allowed duels — not every message whose first line reads the same.
+pub fn consent_kind(family: &str, text: &str) -> String {
+    match text.lines().nth(1).and_then(|l| l.strip_prefix("action: ")).map(str::trim) {
+        Some(action) if !action.is_empty() => format!("{family} {action}"),
+        _ => family.to_string(),
+    }
+}
+
+/// Does a grant for this kind of message run out after one signature?
+fn one_at_a_time(kind: &str) -> bool {
+    kind.split_once(' ').is_some_and(|(_, action)| ONE_AT_A_TIME.contains(&action))
 }
 
 impl Consent {
-    /// Spend one signature of this family, asking the player if there is no
-    /// live grant. A denial is remembered for the session so a game cannot
-    /// re-prompt in a loop — which is the whole reason `denied` is separate
-    /// from a zero grant.
-    pub fn spend(&mut self, host: &mut dyn Host, game: &str, family: &str, text: &str,
+    /// A consent table whose refusals are the door's, not this connection's.
+    pub fn sharing(refusals: SharedRefusals) -> Consent {
+        Consent { grants: HashMap::new(), refusals }
+    }
+
+    /// Spend one signature of this kind, asking the player if there is no
+    /// live grant. A denial is remembered for the life of the launcher so a
+    /// game cannot re-prompt in a loop — which is the whole reason `denied` is
+    /// separate from a zero grant.
+    pub fn spend(&mut self, host: &mut dyn Host, game: &str, kind: &str, text: &str,
                  why: &str)
         -> Result<(), Refusal>
     {
-        let key = (game.to_string(), family.to_string());
-        if self.denied.contains(&key) {
-            return Err(Refusal::by_player(format!(
-                "you refused {family:?} for {game} this session"
-            )));
+        let key = (game.to_string(), kind.to_string());
+        {
+            let r = self.refusals.lock().map_err(|_| Refusal::new("consent is busy"))?;
+            if r.denied.contains(&key) {
+                return Err(Refusal::by_player(format!(
+                    "you refused {kind:?} for {game} this session"
+                )));
+            }
+            if r.by_game.get(game).copied().unwrap_or(0) >= REFUSALS_PER_GAME {
+                return Err(Refusal::by_player(format!(
+                    "you refused {game} {REFUSALS_PER_GAME} times this session, so it \
+                     may not ask again until the launcher restarts"
+                )));
+            }
         }
         if let Some(left) = self.grants.get_mut(&key) {
             if *left > 0 {
@@ -184,15 +270,42 @@ impl Consent {
                 return Ok(());
             }
         }
-        match host.ask_consent(game, family, text, why) {
+        {
+            // Reserve the prompt under the same lock that counts refusals, so
+            // what is open plus what was refused never passes the limit.
+            let mut r = self.refusals.lock().map_err(|_| Refusal::new("consent is busy"))?;
+            let open = r.asking.get(game).copied().unwrap_or(0);
+            if r.pending.contains(&key)
+                || r.by_game.get(game).copied().unwrap_or(0) + open >= REFUSALS_PER_GAME
+            {
+                return Err(Refusal::new(format!(
+                    "{game} is already waiting on the player — answer that first"
+                )));
+            }
+            r.pending.insert(key.clone());
+            *r.asking.entry(game.to_string()).or_insert(0) += 1;
+        }
+        // The lock is not held across the prompt: a person can take minutes,
+        // and every other connection's refusal check would wait behind them.
+        let answer = host.ask_consent(game, kind, text, why);
+        let mut r = self.refusals.lock().map_err(|_| Refusal::new("consent is busy"))?;
+        r.pending.remove(&key);
+        if let Some(open) = r.asking.get_mut(game) {
+            *open = open.saturating_sub(1);
+        }
+        match answer {
             Some(n) if n > 0 => {
-                self.grants.insert(key, n - 1);
+                drop(r);
+                if !one_at_a_time(kind) {
+                    self.grants.insert(key, n - 1);
+                }
                 Ok(())
             }
             _ => {
-                self.denied.insert(key);
+                r.denied.insert(key);
+                *r.by_game.entry(game.to_string()).or_insert(0) += 1;
                 Err(Refusal::by_player(format!(
-                    "you refused to let {game} sign a {family:?} message"
+                    "you refused to let {game} sign a {kind:?} message"
                 )))
             }
         }
@@ -216,6 +329,13 @@ impl Session {
         Session::default()
     }
 
+    /// A session whose refusals are the door's — what every connection the
+    /// launcher serves gets, so a refusal outlives the connection it was
+    /// made on.
+    pub fn sharing(refusals: SharedRefusals) -> Session {
+        Session { game: None, consent: Consent::sharing(refusals) }
+    }
+
     /// The game that said hello, if one has.
     pub fn game(&self) -> Option<&str> {
         self.game.as_deref()
@@ -232,6 +352,16 @@ impl Session {
 
         if op == "hello" {
             return match protocol::check_hello(req) {
+                // One name per connection. A second hello under another name
+                // would start that name's consent from nothing, mid-stream.
+                Ok(game) if self.game.as_ref().is_some_and(|g| *g != game) => Refusal::new(
+                    format!(
+                        "this connection already said hello as {:?} — a game's name \
+                         is fixed for the connection",
+                        self.game.as_deref().unwrap_or("")
+                    ),
+                )
+                .to_json(),
                 Ok(game) => {
                     self.game = Some(game);
                     protocol::hello_reply(&host.host_url(), &host.signer_name())
@@ -265,7 +395,13 @@ impl Session {
                     Ok(f) => f,
                     Err(r) => return r.to_json(),
                 };
-                if let Err(r) = self.consent.spend(host, &game, &family, text, why) {
+                // Before the prompt: a byte the prompt cannot draw is a byte
+                // the player would approve without seeing.
+                if let Err(r) = protocol::check_signable(text) {
+                    return r.to_json();
+                }
+                let kind = consent_kind(&family, text);
+                if let Err(r) = self.consent.spend(host, &game, &kind, text, why) {
                     return r.to_json();
                 }
                 match host.sign(text, why) {
@@ -281,13 +417,17 @@ impl Session {
             }
             // ── prove — identity, and nothing else ───────────────────────────
             //
-            // **No consent check, and that is deliberate.** Every other signing
-            // path in this file spends a consent grant because the game chose
-            // the words. Here the launcher writes them: the game contributes a
-            // nonce and a server, both refused unless they are inert, and the
-            // sentence is `protocol::prove_message`. There is no prompt because
-            // there is no decision — the player already made it by launching
-            // this game.
+            // **No consent check for the title's own servers, and that is
+            // deliberate.** Every other signing path in this file spends a
+            // consent grant because the game chose the words. Here the launcher
+            // writes them: the game contributes a nonce and a server, both
+            // refused unless they are inert, and the sentence is
+            // `protocol::prove_message`. There is no prompt because there is no
+            // decision — the player already made it by launching this game.
+            //
+            // The server is the one word the game picks, though, and a SIWE
+            // message for a site the title does not run is a login there. So a
+            // domain the title does not publish (`Host::serves`) asks first.
             //
             // A signature over this message authorises nothing. It says "the
             // holder of this address was here, for this server, on this
@@ -353,9 +493,29 @@ impl Session {
                         if let Err(r) = protocol::check_domain(&page) {
                             return r.to_json();
                         }
+                        // A paired browser wallet signs this one, and the
+                        // wallet shows its holder the sign-in itself.
                         protocol::prove_message_for(&page, server, &address, &game, nonce, &issued_at)
                     }
-                    None => protocol::prove_message(server, &address, &game, nonce, &issued_at),
+                    None => {
+                        let message =
+                            protocol::prove_message(server, &address, &game, nonce, &issued_at);
+                        // **A sign-in anywhere but the title's own servers asks.**
+                        // The game names the domain, and a SIWE signature for a
+                        // site the title does not run is a login there as this
+                        // wallet. The prompt shows the message verbatim, and its
+                        // first line names the site.
+                        let site = server.split(':').next().unwrap_or(server).to_ascii_lowercase();
+                        if !host.serves(&game, &site) {
+                            let kind = format!("sign-in to {site}");
+                            if let Err(r) = self.consent.spend(host, &game, &kind, &message,
+                                                               "sign in with this wallet")
+                            {
+                                return r.to_json();
+                            }
+                        }
+                        message
+                    }
                 };
                 match host.prove(&message) {
                     Ok(mut v) => {
@@ -526,7 +686,17 @@ pub fn serve_conn<S>(stream: S, host: &mut dyn Host) -> std::io::Result<()>
 where
     S: std::io::Read + Write,
 {
-    let mut session = Session::new();
+    serve_conn_sharing(stream, host, SharedRefusals::default())
+}
+
+/// [`serve_conn`], with the player's refusals held by the door rather than by
+/// this connection — what `transport::serve_forever_counted` serves with.
+pub fn serve_conn_sharing<S>(stream: S, host: &mut dyn Host, refusals: SharedRefusals)
+    -> std::io::Result<()>
+where
+    S: std::io::Read + Write,
+{
+    let mut session = Session::sharing(refusals);
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     loop {

@@ -51,11 +51,28 @@ pub struct Install {
     pub launch_env: BTreeMap<String, String>,
     pub total_bytes: i64,
     pub path: PathBuf,
+    /// Where the manifest that installed this build came from. Empty for a
+    /// receipt written before the launcher recorded it.
+    pub origin: String,
 }
 
 pub fn build_dir(games_root: &Path, slug: &str, build: &str) -> Result<PathBuf> {
     // slug and build are path components too, and a depot names both.
     crate::path::safe_relpath(&format!("{slug}/{build}"))?;
+    // One directory per name, on every disk. The manifest's slug rule, and the
+    // origin's build rule (`meter/launcher.py` read_depot) plus the two names
+    // Windows trims: `gates.` and `1 ` are `gates` and `1` on NTFS, so either
+    // would land on another build's directory.
+    if slug.is_empty() || !slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err(DepotError::new(format!("bad depot slug: {slug:?}")));
+    }
+    if build.is_empty()
+        || build.starts_with('.')
+        || build.ends_with('.')
+        || !build.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return Err(DepotError::new(format!("bad depot build: {build:?}")));
+    }
     Ok(games_root.join(slug).join(build))
 }
 
@@ -269,6 +286,7 @@ fn receipt_json(depot: &Depot) -> Result<Value> {
         },
         "total_bytes": depot.total_bytes,
         "notary": depot.notary,
+        "origin": depot.origin,
     }))
 }
 
@@ -463,6 +481,7 @@ fn parse_install(receipt: &Value, path: &Path) -> Option<Install> {
             .and_then(|v| v.as_i64())
             .unwrap_or(0),
         path: path.to_path_buf(),
+        origin: receipt.get("origin").and_then(|v| v.as_str()).unwrap_or("").into(),
     })
 }
 

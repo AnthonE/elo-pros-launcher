@@ -36,6 +36,12 @@ path = "src/bin/elo-gui.rs"
 fltk = { workspace = true }
 elo-broker = { path = "../elo-broker" }
 elo-depot = { path = "../elo-depot" }
+# Chat. Already in the tree (the CLI links it), so this is an edge and not a
+# package — `supply_chain.rs` counts packages, and the count does not move.
+elo-hive = { path = "../elo-hive" }
+# The profile picture's hash, which the signed change names. Already in the
+# tree (elo-hive, elo-depot), so an edge and not a package.
+sha2 = { workspace = true }
 # The Store reads the origin's catalog with the same client the CLI uses, so
 # `reachable` means the same thing in the window as it does on the command
 # line. The window itself still does no I/O — the binary fetches and hands it

@@ -171,6 +171,11 @@ fn perform(
     if let Some(map) = submit_body.as_object_mut() {
         map.insert("wallet".into(), json!(address));
         map.insert("signature".into(), json!(signature));
+        // the index the text was signed at, so an unrelated act landing
+        // between prepare and submit does not void the signature
+        if let Some(index) = prepared.get("index").and_then(Value::as_u64) {
+            map.insert("index".into(), json!(index));
+        }
     }
     let done = told(net.post_json_told(submit_url, &submit_body), "the act")?;
     say_warnings(&done);
@@ -373,9 +378,14 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             let (address, signature) =
                 sign(a, host, message, &format!("upload art for {slug}"))?;
             let slot = a.flag("--slot").unwrap_or("");
+            let index = prepared
+                .get("index")
+                .and_then(Value::as_u64)
+                .map(|i| format!("&index={i}"))
+                .unwrap_or_default();
             let url = format!(
                 "{host}/api/store/dev/upload?game={slug}&wallet={address}&signature={signature}\
-                 &slot={slot}&name={}",
+                 &slot={slot}{index}&name={}",
                 urlish(path.file_name().and_then(|s| s.to_str()).unwrap_or("art"))
             );
             let done = told(

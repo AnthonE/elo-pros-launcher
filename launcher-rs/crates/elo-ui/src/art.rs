@@ -79,8 +79,29 @@ impl Icon {
     /// `None` for anything this cannot name — which is the honest answer for a
     /// 404 page, an HTML error body, or a format nobody wired. The caller draws
     /// the placeholder and the row is unharmed.
+    ///
+    /// ⚠ **A raster is refused on its declared SIZE, before any decoder.**
+    /// libpng and libjpeg read width and height from the header and FLTK
+    /// allocates `w * h * d` at once, in `int`, under a `max_size` guard that
+    /// defaults to `SIZE_MAX`. A 470 KB PNG declaring 11k x 11k is half a
+    /// gigabyte; a 142-byte JPEG declaring 40000 x 40000 overflows the `int`
+    /// and the decoder writes past the buffer. A header with no size this can
+    /// read is refused too, because nothing then bounds it. A PNG of any shape
+    /// but 8-bit RGB/RGBA, not interlaced, is refused as well (`plain_png`).
     pub fn decode(bytes: Vec<u8>) -> Option<Icon> {
         let kind = sniff(&bytes)?;
+        let size = match kind {
+            Kind::Png => png_size(&bytes),
+            Kind::Jpeg => jpeg_size(&bytes),
+            Kind::Svg => Some((1, 1)),
+        };
+        let (w, h) = size?;
+        if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
+            return None;
+        }
+        if kind == Kind::Png && !plain_png(&bytes) {
+            return None;
+        }
         Some(Icon { bytes, kind })
     }
 
@@ -127,6 +148,23 @@ impl Icon {
         }
     }
 
+    /// The decoded image at `size`, for a caller that draws it itself — the
+    /// chat feed paints faces into its own gutter rather than into a frame.
+    ///
+    /// Same thread rule as [`Icon::draw_into`]: call it where the drawing
+    /// happens, and keep the result rather than decoding per paint.
+    pub fn picture(&self, size: i32) -> Option<Picture> {
+        let mut p = match self.kind {
+            Kind::Svg => Picture::Svg(
+                image::SvgImage::from_data(&String::from_utf8_lossy(&self.bytes)).ok()?,
+            ),
+            Kind::Png => Picture::Png(image::PngImage::from_data(&self.bytes).ok()?),
+            Kind::Jpeg => Picture::Jpeg(image::JpegImage::from_data(&self.bytes).ok()?),
+        };
+        p.scale(size);
+        Some(p)
+    }
+
     /// What this is, for a log line. Never shown to a player.
     pub fn kind_name(&self) -> &'static str {
         match self.kind {
@@ -135,6 +173,90 @@ impl Icon {
             Kind::Jpeg => "jpeg",
         }
     }
+}
+
+/// A decoded picture, held to be painted again and again.
+///
+/// One enum rather than a shared image type for the reason `draw_into` gives:
+/// `SharedImage::from_image` would reinterpret a vector as pixels.
+pub enum Picture {
+    Svg(image::SvgImage),
+    Png(image::PngImage),
+    Jpeg(image::JpegImage),
+}
+
+impl Picture {
+    fn scale(&mut self, size: i32) {
+        match self {
+            Picture::Svg(i) => i.scale(size, size, true, true),
+            Picture::Png(i) => i.scale(size, size, true, true),
+            Picture::Jpeg(i) => i.scale(size, size, true, true),
+        }
+    }
+
+    pub fn draw(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        match self {
+            Picture::Svg(i) => i.draw(x, y, w, h),
+            Picture::Png(i) => i.draw(x, y, w, h),
+            Picture::Jpeg(i) => i.draw(x, y, w, h),
+        }
+    }
+}
+
+/// The largest side a raster may declare, in px. The widest art slot is the
+/// 3840 px hero (`meter/storekeeper.py` `ART_SLOTS`), and the meter refuses an
+/// upload past this same number; at it, the worst decode is 4096² x 4 bytes.
+pub const MAX_SIDE: u32 = 4096;
+
+/// `(width, height)` from a PNG's IHDR, which the format puts first.
+fn png_size(b: &[u8]) -> Option<(u32, u32)> {
+    if b.len() < 24 || &b[12..16] != b"IHDR" {
+        return None;
+    }
+    let be = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+    Some((be(16), be(20)))
+}
+
+/// `(width, height)` from a JPEG's first frame header, walking the segments
+/// before it. Any SOF marker counts — baseline, progressive, lossless,
+/// arithmetic — since each is one libjpeg would size a buffer from.
+fn jpeg_size(b: &[u8]) -> Option<(u32, u32)> {
+    let mut i = 2;
+    while i + 4 <= b.len() {
+        if b[i] != 0xff {
+            return None;
+        }
+        let m = b[i + 1];
+        match m {
+            // Fill bytes before a marker.
+            0xff => {
+                i += 1;
+                continue;
+            }
+            // Markers that carry no length.
+            0x01 | 0xd0..=0xd7 => {
+                i += 2;
+                continue;
+            }
+            // Scan data or the end before any frame header: no size here.
+            0xd9 | 0xda => return None,
+            _ => {}
+        }
+        let len = u16::from_be_bytes([b[i + 2], b[i + 3]]) as usize;
+        if len < 2 {
+            return None;
+        }
+        if matches!(m, 0xc0..=0xcf) && !matches!(m, 0xc4 | 0xc8 | 0xcc) {
+            if i + 9 > b.len() {
+                return None;
+            }
+            let h = u16::from_be_bytes([b[i + 5], b[i + 6]]) as u32;
+            let w = u16::from_be_bytes([b[i + 7], b[i + 8]]) as u32;
+            return Some((w, h));
+        }
+        i += 2 + len;
+    }
+    None
 }
 
 /// The format, off the first bytes. Nothing here trusts a filename.
@@ -159,6 +281,30 @@ fn sniff(bytes: &[u8]) -> Option<Kind> {
         || head.starts_with("<!DOCTYPE svg")
         || head.starts_with("<!-- "))
     .then_some(Kind::Svg)
+}
+
+/// Whether a PNG is the one shape handed to libpng: 8-bit RGB or RGBA, not
+/// interlaced — the shape `meter/faces.py` already holds a face to.
+///
+/// ⚠ **This is a wall in front of a C decoder we cannot patch.** `fltk-sys`
+/// vendors libpng 1.6.44 and statically links it; on arm64 its NEON palette
+/// expansion reads and writes out of bounds on a crafted paletted PNG
+/// (CVE-2026-33636, fixed upstream in 1.6.56), and the same release carries
+/// other read-path advisories in interlace and bit-depth handling. Listing art
+/// is a community developer's bytes, so the paths are refused here, before
+/// libpng runs: a palette, a grey image, an interlace or a 16-bit depth is a
+/// lettered placeholder. Art is never load-bearing, so the cost is a picture.
+///
+/// IHDR must be the first chunk (the PNG spec, and libpng enforces it), so the
+/// shape read here is the shape libpng would act on.
+fn plain_png(bytes: &[u8]) -> bool {
+    // signature(8) · length(4) · "IHDR"(4) · width(4) · height(4) ·
+    // depth · colour · compression · filter · interlace
+    if bytes.len() < 29 || bytes[8..12] != [0, 0, 0, 13] || &bytes[12..16] != b"IHDR" {
+        return false;
+    }
+    let (depth, colour, interlace) = (bytes[24], bytes[25], bytes[28]);
+    depth == 8 && (colour == 2 || colour == 6) && interlace == 0
 }
 
 /// The square drawn for a title, with its art or without it.
@@ -226,9 +372,79 @@ mod tests {
     /// right parser — and, more importantly, never reaches the wrong one.
     #[test]
     fn the_kind_comes_from_the_bytes_and_not_from_a_name() {
-        let png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+        let png_bytes = png_head(64, 64);
         let i = Icon::decode(png_bytes).expect("png magic is a png");
         assert_eq!(i.kind_name(), "png", "a .svg url holding PNG bytes is a PNG");
+    }
+
+    /// An 8-bit RGBA PNG's signature and IHDR at `w` x `h`.
+    fn png_head(w: u32, h: u32) -> Vec<u8> {
+        png_ihdr(w, h, 8, 6, 0)
+    }
+
+    /// A PNG's signature and IHDR, enough for `decode` to read size and shape.
+    fn png_ihdr(w: u32, h: u32, depth: u8, colour: u8, interlace: u8) -> Vec<u8> {
+        let mut b = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+        b.extend_from_slice(&w.to_be_bytes());
+        b.extend_from_slice(&h.to_be_bytes());
+        b.extend_from_slice(&[depth, colour, 0, 0, interlace]);
+        b.extend_from_slice(&[0, 0, 0, 0]); // crc: libpng's to check, not ours
+        b
+    }
+
+    /// SOI, an APP0 to walk past, then a baseline or progressive frame header.
+    fn jpeg_head(sof: u8, w: u16, h: u16) -> Vec<u8> {
+        let mut b = vec![0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10];
+        b.extend_from_slice(b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00");
+        b.extend_from_slice(&[0xff, sof, 0x00, 0x11, 0x08]);
+        b.extend_from_slice(&h.to_be_bytes());
+        b.extend_from_slice(&w.to_be_bytes());
+        b.extend_from_slice(&[0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01]);
+        b
+    }
+
+    /// **The C decoders allocate at the size the HEADER declares**, before a
+    /// byte of pixel data, and FLTK's own guard (`Fl_RGB_Image::max_size`) is
+    /// `SIZE_MAX`. A 470 KB PNG declaring 11k x 11k committed 484 MB; a
+    /// 142-byte JPEG declaring 40000 x 40000 overflows FLTK's `int` size math
+    /// into a heap overrun. So the size is read here and a picture larger
+    /// than any art slot never reaches a decoder.
+    #[test]
+    fn an_image_declaring_a_huge_size_is_refused_before_any_decoder() {
+        assert!(Icon::decode(png_head(11_000, 11_000)).is_none(), "png bomb");
+        assert!(Icon::decode(png_head(64, 100_000)).is_none(), "one long side is enough");
+        assert!(Icon::decode(png_head(0, 64)).is_none(), "an empty picture is not one");
+        assert!(Icon::decode(jpeg_head(0xc0, 40_000, 40_000)).is_none(), "baseline jpeg bomb");
+        assert!(Icon::decode(jpeg_head(0xc2, 40_000, 40_000)).is_none(), "progressive jpeg bomb");
+        // A header with no size in it cannot be bounded, so it is not drawn.
+        assert!(Icon::decode(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec()).is_none());
+        assert!(Icon::decode(vec![0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0, 0]).is_none());
+        // Every real slot still draws: a 1000 x 1000 square, a capsule, a hero.
+        assert!(Icon::decode(png_head(1000, 1000)).is_some());
+        assert!(Icon::decode(jpeg_head(0xc0, 616, 353)).is_some());
+        assert!(Icon::decode(jpeg_head(0xc2, 3840, 1240)).is_some());
+    }
+
+    /// **Only the PNG shape a face is held to reaches the bundled libpng.**
+    /// fltk-sys vendors libpng 1.6.44, whose NEON palette expansion writes out
+    /// of bounds on a crafted paletted image (CVE-2026-33636), and listing art
+    /// is a community developer's bytes. A palette, an interlace or a 16-bit
+    /// depth never reaches the decoder: the row draws its letter instead.
+    #[test]
+    fn a_png_libpng_would_expand_is_a_placeholder_not_a_decode() {
+        let png_shape = |depth, colour, interlace| png_ihdr(64, 64, depth, colour, interlace);
+        assert!(Icon::decode(png_shape(8, 2, 0)).is_some(), "8-bit RGB draws");
+        assert!(Icon::decode(png_shape(8, 6, 0)).is_some(), "8-bit RGBA draws");
+        assert!(Icon::decode(png_shape(8, 3, 0)).is_none(), "a palette is refused");
+        assert!(Icon::decode(png_shape(4, 3, 0)).is_none(), "a low-depth palette is refused");
+        assert!(Icon::decode(png_shape(8, 0, 0)).is_none(), "grey is refused");
+        assert!(Icon::decode(png_shape(8, 2, 1)).is_none(), "interlaced is refused");
+        assert!(Icon::decode(png_shape(16, 6, 0)).is_none(), "16-bit is refused");
+        // A header that does not begin with IHDR is not a PNG anyone made.
+        let mut odd = png_shape(8, 2, 0);
+        odd[12..16].copy_from_slice(b"PLTE");
+        assert!(Icon::decode(odd).is_none());
+        assert!(Icon::decode(b"\x89PNG\r\n\x1a\n\x00\x00".to_vec()).is_none(), "too short to read");
     }
 
     /// A slug is origin-supplied. `&slug[..1]` on any of these panics, and a

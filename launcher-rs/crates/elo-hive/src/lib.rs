@@ -42,8 +42,10 @@
 //! paint fake output above itself. So every string that came off the relay
 //! goes through [`safe_line`] before it is printed. See `render.rs`.
 
+pub mod chat;
 pub mod clock;
 pub mod error;
+pub mod link;
 pub mod relay;
 pub mod render;
 pub mod voice;
@@ -54,25 +56,53 @@ pub use voice::{Event, UnsignedEvent, Voice};
 pub use who::{Identity, NameKind};
 
 use elo_net::{Fetched, Net};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 /// One of the relay's open rooms.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct Channel {
     pub id: String,
     #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub about: String,
+    /// The REQ filter that reads this room, as the origin composes it — the
+    /// same one `chat.html` subscribes with, so a direct read and the mirror's
+    /// read are the same question (`meter/hive.py` `room_sub`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub: Option<Value>,
+    /// The shape a note to this room takes: `{kind, tags}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl Channel {
+    /// The filter to subscribe with. The origin's own when it posted one,
+    /// else the shape `meter/hive.py` builds — kind 9 and buzz's 40002 on the
+    /// room's `#h` — so a room read from the cache still reads the same way.
+    pub fn filter(&self, limit: usize) -> Value {
+        let mut f = self
+            .sub
+            .clone()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({"kinds": [9, 40002], "#h": [self.id]}));
+        f["limit"] = json!(limit.clamp(1, 200));
+        f
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
 pub struct Channels {
     /// Has the house posted a relay at all? False is a real state, not a fault.
     #[serde(default)]
     pub posted: bool,
     #[serde(default)]
     pub relay: Option<String>,
+    /// More relays carrying the same rooms, when the origin posts them. Tried
+    /// in order after `relay` if it does not answer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relays: Vec<String>,
     #[serde(default)]
     pub channels: Vec<Channel>,
     /// The room a walk-in lands in (`#general`), or `"town"` for the old
@@ -82,6 +112,35 @@ pub struct Channels {
 }
 
 impl Channels {
+    /// Every relay worth trying, in order: the posted one, the extras the
+    /// origin lists, then `ELO_CHAT_RELAYS` (comma-separated) from this
+    /// machine. Only `wss://`, no repeats.
+    ///
+    /// The list is what lets chat outlive one host: a room is a signed stream,
+    /// so any relay holding it can serve it, and the client should not need a
+    /// new build to try a second one.
+    pub fn relays(&self) -> Vec<String> {
+        let extra = std::env::var("ELO_CHAT_RELAYS").unwrap_or_default();
+        let mut out: Vec<String> = Vec::new();
+        let all = self
+            .relay
+            .iter()
+            .cloned()
+            .chain(self.relays.iter().cloned())
+            .chain(extra.split(',').map(str::to_string));
+        for r in all {
+            let r = r.trim().trim_end_matches('/').to_string();
+            if r.starts_with("wss://") && !out.contains(&r) {
+                out.push(r);
+            }
+        }
+        out
+    }
+
+    pub fn by_id(&self, id: &str) -> Option<&Channel> {
+        self.channels.iter().find(|c| c.id == id)
+    }
+
     /// Which room a verb means. `--room` takes a UUID or a room's name (with or
     /// without `#`, any case); no `--room` means the landing room. `Ok(None)`
     /// is the old town wire, which only an origin without rooms still names.
@@ -107,7 +166,7 @@ impl Channels {
 /// profile name — self-declared, never a record. The API says so in its own
 /// `names` field and the distinction is kept here rather than flattened,
 /// because collapsing them would let anyone print themselves a sworn handle.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
 pub struct Message {
     pub id: String,
     #[serde(default)]
@@ -126,6 +185,12 @@ pub struct Message {
     pub display: Option<String>,
     #[serde(default)]
     pub house: bool,
+    /// The vow behind a sworn key, and the wallet that vow belongs to — sent
+    /// for sworn keys only, so a guest never arrives wearing an account.
+    #[serde(default)]
+    pub vow_id: Option<String>,
+    #[serde(default)]
+    pub wallet: Option<String>,
 }
 
 // ⚠ `Message::speaker()` USED to live here and is deliberately gone. It was a
@@ -252,10 +317,13 @@ mod resolve_tests {
     use super::*;
 
     fn rooms() -> Channels {
-        let c = |id: &str, name: &str| Channel { id: id.into(), name: name.into(), about: String::new() };
+        let c = |id: &str, name: &str| Channel {
+            id: id.into(), name: name.into(), about: String::new(), sub: None, post: None,
+        };
         Channels {
             posted: true,
             relay: Some("wss://r".into()),
+            relays: Vec::new(),
             channels: vec![c("g-1", "general"), c("c-2", "crypto")],
             default: Some("g-1".into()),
         }
@@ -278,6 +346,24 @@ mod resolve_tests {
     fn an_unknown_room_names_the_real_ones() {
         let e = rooms().resolve(Some("lobby")).unwrap_err();
         assert!(e.contains("#general") && e.contains("#crypto"), "{e}");
+    }
+
+    #[test]
+    fn the_relay_list_is_ordered_deduped_and_only_wss() {
+        let c = Channels {
+            relay: Some("wss://one.example/".into()),
+            relays: vec![
+                "wss://two.example".into(),
+                "wss://one.example".into(),
+                "ws://plaintext.example".into(),
+                "  ".into(),
+            ],
+            ..rooms()
+        };
+        let got = c.relays();
+        // `ELO_CHAT_RELAYS` may add more after these on a given machine.
+        assert_eq!(&got[..2], ["wss://one.example", "wss://two.example"]);
+        assert!(got.iter().all(|r| r.starts_with("wss://")), "{got:?}");
     }
 
     #[test]

@@ -279,3 +279,27 @@ fn every_direct_dependency_is_pinned_exactly() {
     }
     assert!(checked >= 5, "only found {checked} direct dependencies to check");
 }
+
+const DENY: &str = include_str!("../../../deny.toml");
+
+/// **The advisory gate sees the whole tree, not only what we named.** Most of
+/// this tree is transitive, and `unmaintained = "workspace"` let an abandoned
+/// crate under fltk pass `cargo deny check` in silence. Every waiver is by id
+/// and says what lifts it, so a waiver is a tracked decision, not a mute.
+#[test]
+fn the_advisory_gate_covers_transitive_crates() {
+    let scope = DENY
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("unmaintained"))
+        .expect("deny.toml sets an unmaintained scope");
+    assert_eq!(scope, "unmaintained = \"all\"", "transitive crates must be checked too");
+    let waivers: Vec<&str> =
+        DENY.lines().map(str::trim).filter(|l| l.starts_with("{ id = ")).collect();
+    for w in &waivers {
+        assert!(
+            w.contains("RUSTSEC-") && w.contains("reason = "),
+            "a waiver names its advisory and why: {w}"
+        );
+    }
+}

@@ -16,7 +16,7 @@
 //! different sentences; telling a player their file is corrupt when they simply
 //! mistyped is how someone deletes the only copy of their key.
 
-use crate::{hex, unhex};
+use crate::{hex, unhex, Zeroizing};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use serde_json::{json, Value};
 use sha3::{Digest, Keccak256};
@@ -116,7 +116,7 @@ fn uuid_v4() -> Result<String, String> {
 /// keystore with a cipher or KDF this does not implement is an error, never a
 /// best effort. Guessing here would produce 32 bytes that are not the key, and
 /// the first symptom would be a signature nobody can verify.
-pub fn decrypt(doc: &Value, passphrase: &str) -> Result<[u8; 32], String> {
+pub fn decrypt(doc: &Value, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
     if doc.get("version").and_then(Value::as_i64) != Some(3) {
         return Err(format!(
             "this reads Web3 Secret Storage v3; the file says version {}",
@@ -170,12 +170,14 @@ pub fn decrypt(doc: &Value, passphrase: &str) -> Result<[u8; 32], String> {
             ciphertext.len()
         ));
     }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&ciphertext);
     if iv.len() != 16 {
         return Err(format!("the iv is {} bytes; aes-128-ctr wants 16", iv.len()));
     }
-    Aes128Ctr::new(dk[..16].into(), iv.as_slice().into()).apply_keystream(&mut out);
+    // Wiped on drop, like `dk`: "locking is forgetting" holds only if no
+    // plain copy of the key outlives the `Account` it became.
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&ciphertext);
+    Aes128Ctr::new(dk[..16].into(), iv.as_slice().into()).apply_keystream(&mut *out);
     Ok(out)
 }
 
@@ -187,11 +189,18 @@ fn mac_of(half: &[u8], ciphertext: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
-fn derive(passphrase: &str, salt: &[u8], log_n: u8, r: u32, p: u32) -> Result<[u8; 32], String> {
+/// The derived key decrypts the secret, so it is wiped on drop too.
+fn derive(
+    passphrase: &str,
+    salt: &[u8],
+    log_n: u8,
+    r: u32,
+    p: u32,
+) -> Result<Zeroizing<[u8; DKLEN]>, String> {
     let params = scrypt::Params::new(log_n, r, p, DKLEN)
         .map_err(|e| format!("bad scrypt parameters: {e}"))?;
-    let mut dk = [0u8; DKLEN];
-    scrypt::scrypt(passphrase.as_bytes(), salt, &params, &mut dk)
+    let mut dk = Zeroizing::new([0u8; DKLEN]);
+    scrypt::scrypt(passphrase.as_bytes(), salt, &params, &mut *dk)
         .map_err(|e| format!("scrypt failed: {e}"))?;
     Ok(dk)
 }

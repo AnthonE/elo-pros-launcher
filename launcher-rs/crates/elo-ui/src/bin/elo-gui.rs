@@ -83,6 +83,21 @@ fn paired() -> Option<elo_net::pairing::Pairing> {
     elo_net::pairing::load(&elo_vault::pairing_path())
 }
 
+/// The wallet this launcher answers as: an unlocked account, then a live
+/// browser pairing, then a locked account — the order `Launcher::sign`
+/// reaches them in. One function, so the door and the Friends window cannot
+/// name two different players.
+fn known_address(signer: &wiring::Shared) -> Option<String> {
+    let (local, unlocked) = signer
+        .lock()
+        .map(|s| (s.address(), s.is_unlocked()))
+        .unwrap_or((None, false));
+    if unlocked && local.is_some() {
+        return local;
+    }
+    paired().map(|p| p.address).or(local)
+}
+
 impl Host for Launcher {
     fn address(&self) -> Option<String> {
         // The real one now. Reading it needs no passphrase — `LocalSigner::at`
@@ -97,15 +112,7 @@ impl Host for Launcher {
         // already falling through to the browser, so a game could be told one
         // address and handed a signature from another. A player who chose
         // their browser wallet at the lock screen is that wallet here.
-        let (local, unlocked) = self
-            .signer
-            .lock()
-            .map(|s| (s.address(), s.is_unlocked()))
-            .unwrap_or((None, false));
-        if unlocked && local.is_some() {
-            return local;
-        }
-        paired().map(|p| p.address).or(local)
+        known_address(&self.signer)
     }
 
     fn signer_name(&self) -> String {
@@ -218,6 +225,8 @@ impl Host for Launcher {
     /// The identity proof. **No consent prompt here** — the launcher wrote
     /// this message (`protocol::prove_message`), the game only handed over a
     /// nonce and a server name, and a signature over it authorises nothing.
+    /// A server the title does not publish was already put to the player by
+    /// the broker before this is called (`serves` below).
     ///
     /// An unlocked account on this machine signs at once. Otherwise a paired
     /// browser wallet signs, when the server is on the pairing's own site: the
@@ -348,16 +357,25 @@ impl Host for Launcher {
         }
     }
 
+    /// A sign-in to one of the title's own servers — a host in the shard list
+    /// it publishes — signs with no prompt. Anything else, or a list that
+    /// cannot be read, answers `false`, and the broker asks the player.
+    fn serves(&mut self, game: &str, server: &str) -> bool {
+        let Some(url) = published_servers_url(&self.net, &self.host, game) else {
+            return false;
+        };
+        match self.net.shards(&url).value {
+            Some(rows) => elo_depot::shardlist::serves(&rows, &url, server),
+            None => false,
+        }
+    }
+
     fn open(&mut self, url: &str) -> Result<(), Refusal> {
         // https-only was already checked by the protocol layer. Opening a
         // browser is the one thing this does to the player's machine, so it
-        // goes through the platform's own handler and never a shell string.
-        let r = if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
-        } else {
-            std::process::Command::new("xdg-open").arg(url).spawn()
-        };
-        r.map(|_| ()).map_err(|e| Refusal::new(format!("could not open a browser: {e}")))
+        // goes through the platform's own handler and never a shell string —
+        // `cmd /C start` was one, and read `&` in a url as a second command.
+        elo_depot::launch::open_page(url).map_err(|e| Refusal::new(e.to_string()))
     }
 }
 
@@ -489,9 +507,16 @@ fn attach_parent_console() {}
 
 fn main() {
     attach_parent_console();
+    // Before any key can be in memory: no core file, no same-user attach
+    // (`elo_vault::harden`).
+    for e in elo_vault::harden_process() {
+        eprintln!("elo-gui: {e}");
+    }
     let host = std::env::var("ELO_HOST")
         .unwrap_or_else(|_| "https://elopros.com".into());
     let root = games_root();
+    // Streamer mode before any window is drawn: the windows read the switch.
+    elo_depot::streamer::load(&elo_depot::dirs::state_root());
 
     // The account first, because the door needs it: a game may ask this
     // launcher to prove who is playing, and that is served on the door's
@@ -546,6 +571,30 @@ fn main() {
     // one spot (`wiring::centre`).
     let drift = wiring::centre(&mut menu.window);
 
+    // The streamer switch. Saved at once, so the next game started gets it;
+    // windows already drawn keep what they drew, and the line beside it says so.
+    {
+        let mut line = menu.streamer_line.clone();
+        menu.streamer.set_callback(move |b| {
+            let want = b.is_checked();
+            match elo_depot::streamer::save(&elo_depot::dirs::state_root(), want) {
+                Ok(()) => {
+                    line.set_label(windows::streamer_note(want, true));
+                    line.set_label_color(if want { elo_ui::theme::GOLD } else { elo_ui::theme::MUTED });
+                }
+                Err(e) => {
+                    b.set_checked(!want);
+                    line.set_label(&format!("could not save it: {e}"));
+                    line.set_label_color(elo_ui::theme::RED);
+                }
+            }
+            line.redraw_label();
+            if let Some(mut p) = line.parent() {
+                p.redraw();
+            }
+        });
+    }
+
     // ⚠ **Escape must not quit the launcher.** FLTK ends a window on Escape by
     // calling its callback (`Fl.cxx`: *"make Escape key close windows"*), and
     // for the main menu that is the whole program: the game door closes, every
@@ -564,6 +613,18 @@ fn main() {
         }
     });
     menu.window.show();
+    // Paint it NOW. Everything below reads the origin — the shelf, the shard
+    // list, the version card — before `a.run()` starts the event loop, so
+    // without this the menu stayed an empty frame until the last read came
+    // back: up to a minute per read with the origin down, which a player reads
+    // as a launcher that did not start. A few turns of the loop is enough for
+    // the first expose.
+    app::flush();
+    for _ in 0..5 {
+        if !app::wait_for(0.02).unwrap_or(false) {
+            break;
+        }
+    }
 
     // ── the one place a restart is genuinely the fix ────────────────────────
     //
@@ -636,7 +697,7 @@ fn main() {
         _ => None,
     };
     let servers_w = windows::servers(SERVERS_SLUG, &shards);
-    wire_servers(&servers_w, SERVERS_SLUG, &root, list_url.as_deref());
+    wire_servers(&servers_w, SERVERS_SLUG, &host, &root, list_url.as_deref());
 
     let account_w = {
         let s = signer.lock().expect("signer lock");
@@ -651,7 +712,7 @@ fn main() {
     // and by `examples/click.rs`; a callback defined in this binary would be
     // the one path in the client nothing could reach.
     wiring::wire_account(&account_w, &signing_w, &signer, &keystore,
-                         wiring::real_ask(), wiring::real_tell());
+                         wiring::real_ask(), wiring::real_tell(), wiring::real_show_words());
     wiring::wire_signing(&signing_w, &signer, wiring::real_ask(), wiring::real_tell());
     // The website pairing (`docs/client/SIGN-IN.md`): the code field in
     // Account. Always asks the passphrase — an unlocked launcher must not let
@@ -665,6 +726,12 @@ fn main() {
     // Note it takes no `signer`: that is the point, and the button is offered
     // whether or not this machine has an account.
     wiring::wire_pair(&account_w, &host, wiring::real_tell());
+    // Your profile: the face and name in the account well, read off the UI
+    // thread, and **Edit profile…** — one signature by this account.
+    wiring::wire_profile(&account_w, &signer, &host, wiring::real_ask(), wiring::real_tell());
+    if let Some(addr) = signer.lock().ok().and_then(|s| s.address()) {
+        wiring::show_profile(&account_w, &host, &addr);
+    }
     if let Some(p) = paired() {
         wiring::show_pairing(&account_w, &p.address);
     }
@@ -721,9 +788,30 @@ fn main() {
         shelf: std::cell::RefCell::new(Vec::new()),
         store: std::cell::RefCell::new(None),
         games: std::cell::RefCell::new(None),
+        friends: std::cell::RefCell::new(None),
+        signer: Arc::clone(&signer),
+        changing: std::cell::Cell::new(false),
     });
     refresh_store(&ui, false);
     refresh_games(&ui, false);
+
+    // The wallet: balances read off the chain each time it opens, and a send
+    // that is checked, shown, and then asks the passphrase (`wiring::wire_wallet`).
+    let wallet_w = {
+        let s = signer.lock().expect("signer lock");
+        windows::wallet(s.address().as_deref())
+    };
+    let open_url: Rc<dyn Fn(&str)> = {
+        let f = Rc::clone(&front);
+        Rc::new(move |u| {
+            if let Err(e) = f.open(u) {
+                eprintln!("elo-gui: {e}");
+            }
+        })
+    };
+    let read_wallet = wiring::wire_wallet(&wallet_w, &signer, wiring::WalletDesk::real(&host, open_url),
+                                          wiring::real_ask(), wiring::real_tell(),
+                                          wiring::real_review(), wiring::real_then());
 
     let windows_by_label: Vec<(&str, fltk::window::Window)> = vec![
         ("Servers", servers_w.window.clone()),
@@ -731,10 +819,22 @@ fn main() {
         ("Signing", signing_w.window.clone()),
         ("About", windows::about()),
     ];
+    // Chat is built now and connects only when opened: a player who never
+    // presses Chat never touches the relay (`wiring::wire_chat`). The chat key
+    // and the cache are `elo-hive`'s paths, the same ones `elo chat` uses.
+    let chat_w = windows::chat();
+    let open_chat = wiring::wire_chat(&chat_w, &host, elo_hive::voice::default_dir(),
+                                      elo_hive::chat::default_cache_dir(),
+                                      Some(wiring::ChatLink {
+                                          signer: Arc::clone(&signer),
+                                          ask: wiring::real_ask(),
+                                          confirm: wiring::real_confirm(),
+                                          tell: wiring::real_tell(),
+                                      }));
     // Carried by the same amount the menu was, so the cascade they were built
     // with survives the move. Done before any of them is shown — see
     // `wiring::centre`.
-    for (_, w) in windows_by_label.iter() {
+    for w in windows_by_label.iter().map(|(_, w)| w).chain([&chat_w.window, &wallet_w.window]) {
         let mut w = w.clone();
         w.set_pos(w.x() + drift.0, w.y() + drift.1);
     }
@@ -765,6 +865,22 @@ fn main() {
                         w.show();
                     }
                 }),
+                "Chat" => {
+                    let open = Rc::clone(&open_chat);
+                    child.set_callback(move |_| open());
+                }
+                "Wallet" => {
+                    let (w, read) = (wallet_w.window.clone(), Rc::clone(&read_wallet));
+                    child.set_callback(move |_| {
+                        let mut w = w.clone();
+                        w.show();
+                        read();
+                    });
+                }
+                // Read every time it is opened, not once at startup: where a
+                // friend is playing is a measurement, and an hour-old one
+                // shown as current is the cached balance wall 3 refuses.
+                "Friends" => child.set_callback(move |_| defer(&ui_c, refresh_friends)),
                 _ => {}
             }
         }
@@ -924,8 +1040,8 @@ fn read_shards(host: &str, slug: &str) -> windows::Shards {
     // `shardlist.rs`. A shard that does not answer keeps whatever the row
     // said, which is usually nothing, and draws `?`.
     for r in rows.iter_mut() {
-        let Some(su) = r.status_url.clone() else { continue };
-        if let Some(s) = net.status(&su).value {
+        let Some(su) = r.status_url_to_poll(&url).map(str::to_string) else { continue };
+        if let Some(s) = net.status(&su, &url).value {
             r.apply_status(&s);
         }
     }
@@ -951,12 +1067,14 @@ fn read_shards(host: &str, slug: &str) -> windows::Shards {
 fn wire_servers(
     w: &windows::ServersWindow,
     slug: &str,
+    host: &str,
     games_root: &std::path::Path,
     list_url: Option<&str>,
 ) {
     for row in &w.rows {
         let addr = row.addr.clone();
         let slug = slug.to_string();
+        let host = host.to_string();
         let root = games_root.to_path_buf();
         let list_url = list_url.map(str::to_string);
         let mut join = row.join.clone();
@@ -964,7 +1082,8 @@ fn wire_servers(
             // The most recently INSTALLED build, by directory mtime. Not by
             // name: a build id ends in a hex sha and hex does not sort, which
             // is how a row reading "up to date" launched a four-day-old client.
-            let Some(i) = elo_depot::newest_of(&root, &slug) else {
+            // And one the host installed: a slug is anyone's to write.
+            let Some(i) = elo_depot::newest_from(&root, &slug, &host) else {
                 b.set_label("Not installed");
                 b.deactivate();
                 return;
@@ -1031,6 +1150,15 @@ struct Ui {
     shelf: std::cell::RefCell<Vec<windows::Shelf>>,
     store: std::cell::RefCell<Option<windows::StoreWindow>>,
     games: std::cell::RefCell<Option<windows::GamesWindow>>,
+    /// Built on first open and rebuilt on every open after: presence moves,
+    /// so the window is read when it is asked for rather than at startup.
+    friends: std::cell::RefCell<Option<windows::FriendsWindow>>,
+    /// Whose list Friends reads — see [`known_address`].
+    signer: wiring::Shared,
+    /// A friends change is in flight. One at a time: a second press while the
+    /// first waits on a passphrase or a browser would sign over a list the
+    /// first is about to change.
+    changing: std::cell::Cell<bool>,
 }
 
 /// Rebuild a window on the next event-loop tick.
@@ -1159,6 +1287,307 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
     }
 }
 
+/// Read the friends list and put up a Friends window over whatever was there.
+///
+/// The same shape as [`refresh_games`]: built off a read, placed where the
+/// old one stood, and swapped in on a timer rather than inside a callback.
+fn refresh_friends(ui: &Rc<Ui>, show: bool) {
+    let wallet = known_address(&ui.signer).filter(|w| elo_net::friends::is_wallet(w));
+    let state = read_friends(&ui.host, wallet.as_deref());
+    println!(
+        "elo-gui: friends {}",
+        match &state {
+            windows::Friends::Listed { view } => format!("{} listed", view.friends.len()),
+            windows::Friends::Unreadable { why, .. } => {
+                format!("unreadable ({why}) — the window will say so")
+            }
+            windows::Friends::NoWallet => "— no wallet on this machine".into(),
+        }
+    );
+    put_friends(ui, &state, show, None);
+}
+
+/// Put up a Friends window drawn from `state` over whatever was there, with
+/// `said` on its status line. A change that landed comes back with the list
+/// after it, and is drawn from that — no second read.
+///
+/// ⚠ Never from inside one of the old window's own callbacks: it drops that
+/// window (see [`defer`]). Its callers are timers.
+fn put_friends(ui: &Rc<Ui>, state: &windows::Friends, show: bool,
+               said: Option<(&str, fltk::enums::Color)>) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut friends_w = windows::friends(state, now);
+    place(
+        &mut friends_w.window,
+        ui.friends.borrow().as_ref().map(|f| (f.window.x(), f.window.y())),
+        ui.drift,
+    );
+    wire_friends(ui, &friends_w);
+    if let Some((line, ink)) = said {
+        say(&mut friends_w.status, line, ink);
+    }
+    if ui.changing.get() {
+        // A change is still out: this window waits on it like the last one.
+        hold_friend_acts(&friends_w, false);
+    }
+
+    let mut refresh = friends_w.refresh.clone();
+    let ui_c = Rc::clone(ui);
+    refresh.set_callback(move |b| {
+        b.set_label("Reading…");
+        b.deactivate();
+        defer(&ui_c, refresh_friends);
+    });
+
+    let mut window = friends_w.window.clone();
+    let previous = ui.friends.replace(Some(friends_w));
+    if let Some(old) = previous {
+        let mut w = old.window.clone();
+        let was_up = w.shown();
+        w.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
+}
+
+/// One line on a Friends window's status — the origin's words or ours, drawn
+/// as untrusted text either way.
+fn say(status: &mut fltk::frame::Frame, line: &str, ink: fltk::enums::Color) {
+    let safe = elo_ui::chrome::defuse(&elo_hive::render::safe_line(line));
+    status.set_label(&safe);
+    status.set_tooltip(&safe);
+    status.set_label_color(ink);
+    if let Some(mut w) = status.window() {
+        w.redraw();
+    }
+}
+
+/// Every change a Friends window offers, on or off together.
+fn hold_friend_acts(w: &windows::FriendsWindow, on: bool) {
+    let mut buttons: Vec<fltk::button::Button> = w.acts.iter().map(|a| a.button.clone()).collect();
+    buttons.push(w.add.clone());
+    for mut b in buttons {
+        if on { b.activate() } else { b.deactivate() }
+    }
+}
+
+/// A wallet's friends list, in the window's three states.
+///
+/// On the SHORT deadline: the player pressed a button on the UI thread and is
+/// watching it, so a dead origin costs four seconds and says so, never sixty.
+fn read_friends(host: &str, wallet: Option<&str>) -> windows::Friends {
+    let Some(wallet) = wallet else {
+        return windows::Friends::NoWallet;
+    };
+    let net = elo_net::Net::new();
+    let got = elo_net::friends::read_quick(&net, host, wallet);
+    match got.value {
+        Some(view) => windows::Friends::Listed { view },
+        None => windows::Friends::Unreadable {
+            url: elo_net::friends::url(host, wallet),
+            why: got.why,
+            reachable: got.reachable,
+        },
+    }
+}
+
+/// Give the Friends window's controls their behaviour.
+///
+/// **Join follows the friend's link the way the Servers window's Join does**:
+/// the newest installed build, `{server}` from the link, `{servers}` from the
+/// title's own manifest, one `launch::resolve`. It does not install — a player
+/// without the game is told so on the button, and installing stays the
+/// Store's verb.
+///
+/// **Every change is one signature** (`wiring::change_friend`), made off the
+/// UI thread so a browser approval cannot freeze the launcher; the passphrase
+/// prompt, which has to be a window on this thread, is carried back here.
+fn wire_friends(ui: &Rc<Ui>, w: &windows::FriendsWindow) {
+    for row in &w.rows {
+        let link = row.link.clone();
+        let root = ui.root.clone();
+        let host = ui.host.clone();
+        let mut join = row.join.clone();
+        join.set_callback(move |b| {
+            // Parsed again here, where it becomes an argv, rather than trusted
+            // because the list parser accepted it once.
+            let j = match elo_depot::deeplink::parse(&link) {
+                Ok(j) => j,
+                Err(e) => {
+                    eprintln!("elo-gui: could not follow a friend's link: {e}");
+                    b.set_label("Failed");
+                    b.deactivate();
+                    return;
+                }
+            };
+            let Some(i) = elo_depot::newest_from(&root, &j.slug, &host) else {
+                b.set_label("Not installed");
+                b.deactivate();
+                return;
+            };
+            let net = elo_net::Net::new();
+            let mut values = elo_depot::launch::title_values(
+                published_servers_url(&net, &host, &j.slug).as_deref(),
+            );
+            values.insert("server".to_string(), j.addr.clone());
+            match elo_depot::launch::resolve(&i, &values, &std::collections::BTreeMap::new())
+                .and_then(|l| elo_depot::launch::spawn(&l))
+            {
+                Ok(pid) => println!("elo-gui: joined {} on {} (pid {pid})", j.slug, j.addr),
+                Err(e) => {
+                    eprintln!("elo-gui: could not join {}: {e}", j.addr);
+                    b.set_label("Failed");
+                    b.deactivate();
+                }
+            }
+        });
+
+        let link = row.link.clone();
+        let mut copy = row.copy.clone();
+        copy.set_callback(move |b| {
+            fltk::app::copy(&link);
+            b.set_label("Copied");
+        });
+    }
+
+    for act in &w.acts {
+        let (ui, list) = (Rc::clone(ui), w.wallet.clone());
+        let (op, wallet, called) = (act.op, act.wallet.clone(), act.called.clone());
+        let mut b = act.button.clone();
+        b.set_callback(move |_| start_friend_change(&ui, list.as_deref(), op, &wallet, &called));
+    }
+    let ask = {
+        let (ui, list, input) = (Rc::clone(ui), w.wallet.clone(), w.add_input.clone());
+        move || {
+            let typed = input.value().trim().to_string();
+            let called = if elo_net::friends::is_wallet(&typed) {
+                elo_net::friends::short(&typed)
+            } else {
+                typed.clone()
+            };
+            start_friend_change(&ui, list.as_deref(), "ask", &typed, &called);
+        }
+    };
+    let mut add = w.add.clone();
+    let on_add = ask.clone();
+    add.set_callback(move |_| on_add());
+    // Enter in the box is the same act as pressing Ask.
+    let mut input = w.add_input.clone();
+    input.set_trigger(fltk::enums::CallbackTrigger::EnterKeyAlways);
+    input.set_callback(move |_| ask());
+}
+
+/// What the thread making a change sends back: a prompt to put up here, or
+/// what the change came to.
+enum FromChange {
+    Ask(String, String, std::sync::mpsc::Sender<Option<wiring::Secret>>),
+    Done(Result<wiring::Changed, String>),
+}
+
+/// Start one friends change: `op` about `who`, as the wallet the window lists.
+fn start_friend_change(ui: &Rc<Ui>, list: Option<&str>, op: &'static str, who: &str,
+                       called: &str) {
+    use elo_net::friends::short;
+    let status = |line: &str, ink| {
+        if let Some(w) = ui.friends.borrow().as_ref() {
+            say(&mut w.status.clone(), line, ink);
+        }
+    };
+    if ui.changing.get() {
+        status("one change at a time — the last one is still waiting", elo_ui::theme::GOLD);
+        return;
+    }
+    let mut via = wiring::FriendSigner::pick(&ui.signer, paired());
+    // The window is one wallet's list. A change is made as the wallet that
+    // signs, so a list read for another — a pairing that lapsed since, an
+    // account unlocked since — is refused here rather than signed past.
+    if let (Some(list), Some(me)) = (list, via.address()) {
+        if list != me {
+            status(&format!("this list is {}'s and this machine now signs as {} — \
+                             press Refresh first", short(list), short(&me)),
+                   elo_ui::theme::GOLD);
+            return;
+        }
+    }
+    ui.changing.set(true);
+    if let Some(w) = ui.friends.borrow().as_ref() {
+        hold_friend_acts(w, false);
+    }
+    status(match &via {
+        wiring::FriendSigner::Paired(_) => "preparing — then approve it in your browser",
+        _ => "preparing…",
+    }, elo_ui::theme::MUTED);
+
+    let (tx, rx) = std::sync::mpsc::channel::<FromChange>();
+    {
+        let (host, who) = (ui.host.clone(), who.to_string());
+        std::thread::spawn(move || {
+            let prompt = tx.clone();
+            let ask = move |heading: &str, text: &str| -> Option<wiring::Secret> {
+                let (back, answer) = std::sync::mpsc::channel();
+                prompt.send(FromChange::Ask(heading.into(), text.into(), back)).ok()?;
+                answer.recv().ok().flatten()
+            };
+            let got = wiring::change_friend(&mut via, &host, op, &who, &ask,
+                                            &elo_ui::friendsop::RealFriendsHttp);
+            let _ = tx.send(FromChange::Done(got));
+        });
+    }
+    poll_friend_change(Rc::clone(ui), Rc::new(rx), op, who.to_string(), called.to_string());
+}
+
+/// Wait on a change from the UI thread: put up its prompt when it asks, and
+/// draw what it came to on whichever Friends window is up by then.
+fn poll_friend_change(ui: Rc<Ui>, rx: Rc<std::sync::mpsc::Receiver<FromChange>>,
+                      op: &'static str, who: String, called: String) {
+    app::add_timeout3(0.2, move |_| {
+        let got = match rx.try_recv() {
+            Ok(FromChange::Ask(heading, text, back)) => {
+                let _ = back.send(wiring::ask_in_window(&heading, &text));
+                None
+            }
+            Ok(FromChange::Done(got)) => Some(got),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Some(Err("the change stopped without an answer — Refresh shows where the \
+                          list stands".into()))
+            }
+        };
+        let Some(got) = got else {
+            poll_friend_change(Rc::clone(&ui), Rc::clone(&rx), op, who.clone(), called.clone());
+            return;
+        };
+        ui.changing.set(false);
+        let tell = |line: &str, ink| {
+            if let Some(w) = ui.friends.borrow().as_ref() {
+                hold_friend_acts(w, true);
+                say(&mut w.status.clone(), line, ink);
+            }
+        };
+        match got {
+            Ok(wiring::Changed::Done(view)) => {
+                let line = elo_ui::friendsop::done_line(op, &called, &view, &who);
+                println!("elo-gui: friends — {line}");
+                put_friends(&ui, &windows::Friends::Listed { view }, false,
+                            Some((&line, elo_ui::theme::INK)));
+            }
+            Ok(wiring::Changed::HandedOff(url)) => match ui.front.open(&url) {
+                Ok(()) => tell(&format!("no signer on this machine — finish it in your \
+                                         browser at {url}"), elo_ui::theme::MUTED),
+                Err(e) => tell(&format!("{e} — finish it at {url}"), elo_ui::theme::GOLD),
+            },
+            Err(e) => tell(&e, elo_ui::theme::GOLD),
+        }
+    });
+}
+
 /// The real storefront — what the Store's and Games' buttons actually do.
 ///
 /// **Every verb here is the CLI's verb**, reached through the same
@@ -1278,7 +1707,9 @@ impl wiring::Storefront for Front {
         // never raised.
         let mut swept = 0usize;
         let mut kept_back = Vec::new();
-        for old in elo_depot::superseded(&self.root, slug, &depot.build) {
+        // By the depot's slug, which `check` has bound to the manifest's: the
+        // title that was installed is the one whose old builds go.
+        for old in elo_depot::superseded(&self.root, &depot.slug, &depot.build) {
             match elo_depot::uninstall(&old.path) {
                 Ok(()) => swept += 1,
                 Err(e) => kept_back.push(format!("{} ({e})", old.build)),
@@ -1292,7 +1723,7 @@ impl wiring::Storefront for Front {
             Some(was) => format!(
                 "\n\nnote: this build names its files on {}, which is retired. They \
                  were downloaded from {} instead, and every file was still checked \
-                 against the sha256 in the notarized depot.",
+                 against the sha256 in the depot this origin served.",
                 elo_depot::origin_of(was),
                 elo_depot::origin_of(&depot.root)
             ),
@@ -1363,7 +1794,10 @@ impl wiring::Storefront for Front {
         }
         // The most recently INSTALLED build, by directory mtime — see
         // `newest_of`. A build id ends in a hex sha, so name order is noise.
-        let Some(i) = elo_depot::newest_of(&self.root, slug) else {
+        // Only a build this host installed (`newest_from`): every manifest
+        // this window reads is the host's, and a `gates` installed from
+        // another url is not its Gates.
+        let Some(i) = elo_depot::newest_from(&self.root, slug, &self.host) else {
             return Err(format!("{slug} is not installed — install it from the Store."));
         };
         // `{servers}` is the TITLE's and comes from its manifest, exactly as
@@ -1395,14 +1829,7 @@ impl wiring::Storefront for Front {
     }
 
     fn open(&self, url: &str) -> Result<(), String> {
-        let r = if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd")
-                .args(["/C", "start", "", url])
-                .spawn()
-        } else {
-            std::process::Command::new("xdg-open").arg(url).spawn()
-        };
-        r.map(|_| ()).map_err(|e| format!("could not open a browser: {e}"))
+        elo_depot::launch::open_page(url).map_err(|e| e.to_string())
     }
 
     fn page_url(&self, slug: &str) -> String {
@@ -1555,9 +1982,11 @@ fn read_library(host: &str, root: &std::path::Path, shelf: &[windows::Shelf]) ->
         .iter()
         .filter(|i| {
             // `installs` is name-ordered, so filtering to "the first of each
-            // slug" would keep an arbitrary build. Keep the one `newest_of`
+            // slug" would keep an arbitrary build. Keep the one `newest_from`
             // would run, so the row and the Play button agree.
-            elo_depot::newest_of(root, &i.slug).map(|n| n.build == i.build).unwrap_or(false)
+            elo_depot::newest_from(root, &i.slug, host)
+                .map(|n| n.build == i.build)
+                .unwrap_or(false)
                 && seen.insert(i.slug.clone())
         })
         .map(|i| {
@@ -1666,6 +2095,21 @@ mod tests {
     use super::*;
     use elo_ui::consent::Doorbell;
 
+    /// **No core dump of the launcher, and no same-user ptrace into it.** An
+    /// unlocked account is a key in this process's memory; a crash's core
+    /// file is a copy of that memory left on disk.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_launcher_leaves_no_core_dump() {
+        unsafe extern "C" {
+            fn prctl(option: core::ffi::c_int, ...) -> core::ffi::c_int;
+        }
+        const PR_GET_DUMPABLE: core::ffi::c_int = 3;
+        assert!(elo_vault::harden_process().is_empty());
+        // SAFETY: a read of this process's own flag; no pointer is passed.
+        assert_eq!(unsafe { prctl(PR_GET_DUMPABLE) }, 0);
+    }
+
     /// **No launch site in this file may pass a bare empty values map.**
     ///
     /// This is a source scan and it is deliberate, because the defect it pins
@@ -1707,6 +2151,23 @@ mod tests {
             );
         }
         assert!(sites >= 2, "the scan found no launch sites — it has stopped checking anything");
+    }
+
+    /// **The heal notice claims only what was checked.** The window compares
+    /// each file to the sha256 in the depot the origin served and never reads
+    /// a notary — and the builds that heal were packaged before any digest was
+    /// sealed — so telling a player their files matched "the notarized depot"
+    /// was a reassurance a substituted depot got for free. Same law as the
+    /// CLI's (`tests/origin.rs`), held here by a scan because the notice is
+    /// built inside the install thread.
+    #[test]
+    fn the_heal_notice_does_not_claim_a_notary() {
+        let whole = include_str!("elo-gui.rs");
+        let src = whole.split("#[cfg(test)]").next().expect("the file has a body");
+        let at = src.find("which is retired. They").expect("the heal notice is still here");
+        let notice = &src[at..src.len().min(at + 400)];
+        assert!(!notice.contains(concat!("notar", "ized")), "{notice}");
+        assert!(notice.contains("the depot this origin served"), "{notice}");
     }
 
     /// A launcher pointed at a keystore that does not exist — the state a
@@ -1843,6 +2304,7 @@ mod tests {
 
     #[test]
     fn an_unanswered_doorbell_refuses() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let l = accountless();
         let bell = l.consent.clone();
         let asked = std::thread::spawn(move || {
@@ -1861,6 +2323,7 @@ mod tests {
     /// display happens where it is drawn, not here.
     #[test]
     fn the_ask_carries_the_games_own_words_to_the_player() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let mut l = accountless();
         let bell = l.consent.clone();
         let door = std::thread::spawn(move || {
