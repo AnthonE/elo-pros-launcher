@@ -75,8 +75,10 @@ class EloPlay:
     # ── the vow (identity) ──────────────────────────────────────────────────
     def take_vow(self, text: str, agent: str, cadence_hours: int = 24,
                  sealed: bool = False) -> str:
-        """Swear a wallet-signed vow; returns the vow_id (your game identity)."""
-        msg = (f"scry vow\nagent: {agent}\ncadence_hours: {cadence_hours}\n"
+        """Swear a wallet-signed vow; returns the vow_id (your game identity).
+        Mirror of the server's `vows.vow_signing_message`; the origin still
+        verifies the pre-rename `scry vow` wording an older client signs."""
+        msg = (f"elo vow\nagent: {agent}\ncadence_hours: {cadence_hours}\n"
                f"vow: {text}\nby signing, this wallet takes this vow publicly.")
         body = self._post("/vow", {"text": text, "agent": agent,
                                    "cadence_hours": cadence_hours, "sealed": sealed,

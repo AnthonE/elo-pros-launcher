@@ -339,7 +339,7 @@ fn live_face_of_a_known_wallet_is_an_image_on_our_origin() {
 
 /// **One wallet, one chat key, on every client.** The vector is the server's
 /// own reference (`meter/hive.py` `derive_seckey` over an `eth_account`
-/// signature, made 2026-10-21 with the meter's venv): the same wallet key,
+/// signature, remade 2026-10-22 for the elo text with the meter's venv): the same wallet key,
 /// the same text, the same npub. If this fails, the launcher and the website
 /// would give one wallet two identities.
 #[test]
@@ -348,15 +348,15 @@ fn a_wallets_chat_key_is_the_one_the_website_derives() {
     let text = elo_hive::voice::derivation_message(wallet);
     assert_eq!(
         text,
-        "scry hive voice v1\nwallet: 0x3e20ab25eb721dd4b691516238df14f0f5d3f7a3\n\
+        "elo hive voice v1\nwallet: 0x3e20ab25eb721dd4b691516238df14f0f5d3f7a3\n\
          this signature IS my hive voice key.\n\
-         sign it only to derive your scry hive identity — never on any other site."
+         sign it only to derive your Elo Pros chat identity — never on any other site."
     );
     // eth_account's signature for the key 0x7a…7a over that text.
-    let sig = "85194638f30fce1ede1041f70e85a9cc94841f813babc1e92468dd5ee25cece8\
-               48675754662b9a2c319cfc6f2af920106a74547c8920dd5928cc5078578a25d51b";
+    let sig = "026c0b8e8e1f842384bc6534bc630cc469f741217567e32e8f946148d6b0bd72\
+               4395acee54fdf9a353d797d3ce98124bb46352e48dc31636271b0e75aba8283a1c";
     let v = Voice::from_wallet_signature(sig).unwrap();
-    assert_eq!(v.npub(), "npub1k7dy53fkr25pupyjxqn64aytu8v792v96l9p2f7gl3edk424ljrsnqjp92");
+    assert_eq!(v.npub(), "npub1pavc42tfwxnyvparu5ljky2k3papvnewmstvnx59tz2cddm4avsskvfs3n");
     // A `0x` prefix and a different `v` byte change nothing: only r‖s counts.
     let other_v = format!("0x{}1c", &sig[..128]);
     assert_eq!(Voice::from_wallet_signature(&other_v).unwrap().npub(), v.npub());

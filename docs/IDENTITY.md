@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-16
+updated: 2026-10-22
 about: "who a person is on Elo Pros and what their picture is — the wallet is the identity, a vow is a name you may add, and the face resolves seat → hive picture → mark → tile"
 ---
 
@@ -115,10 +115,14 @@ vow (`playauth.legacy_play_message`, verification only — nothing hands it out)
 It is a transition, not a second dialect.
 
 **The first line carried the old project name until 2026-08-21** (it now
-reads `elo play`), and that wording is still verified the same way (`playauth.play_message_legacy`, verification only). A
+reads `elo play`), and that wording is still verified the same way (`playauth.scry_era_play_message`, verification only). A
 signed string is a re-sign and never a find-and-replace: the client renames in
 one commit, an INSTALLED client renames when its owner downloads a new one, so
 the origin has to accept both until nobody runs a pre-0.5.0 build.
+Every other family the origin hands out (`vow`, `review`, `store`, `dev`,
+`entitle`, `familiar`, `pact`, `covenant`, `holder proof`) moved to `elo` on
+2026-10-22 the same way: the `scry` wording of each is still verified,
+permanently, because a signed record is re-checked from the public copy.
 
 ## 4 · Nothing is vow-gated any more
 

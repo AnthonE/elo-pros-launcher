@@ -245,6 +245,16 @@ class EloClient:
         """Mirror of the server's auth-message text — rebuild it offline when
         you already know the current index. Prefer .familiar_auth_message(...)
         (a stale index means a 409 and a re-sign)."""
+        return (f"elo familiar\naction: {action}\nfamiliar: {familiar_id}\n"
+                f"owner: {owner_wallet.lower()}\nindex: {index}")
+
+    @staticmethod
+    def scry_era_familiar_message(action: str, familiar_id: str, owner_wallet: str,
+                                  index: int) -> str:
+        """The same text under the pre-2026-10-22 `scry familiar` first line.
+        A meter that has not updated still hands this one out, and the origin
+        still verifies it; this client signs it only when the server asks for
+        exactly these bytes, and never builds it to send unasked."""
         return (f"scry familiar\naction: {action}\nfamiliar: {familiar_id}\n"
                 f"owner: {owner_wallet.lower()}\nindex: {index}")
 
@@ -281,8 +291,13 @@ class EloClient:
             index = auth.get("index")
             if not isinstance(index, int) or isinstance(index, bool) or index < 0:
                 raise EloError(f"/familiar/{familiar_id}/auth-message: bad index {index!r} — not signing")
-            want = self.familiar_message(action, familiar_id, self._address(private_key), index)
-            if auth.get("sign_this") != want:
+            owner = self._address(private_key)
+            # Either wording of the one familiar text, both rebuilt here: a
+            # meter that has not updated still hands out `scry familiar`.
+            rebuilt = (self.familiar_message(action, familiar_id, owner, index),
+                       self.scry_era_familiar_message(action, familiar_id, owner, index))
+            want = auth.get("sign_this")
+            if want not in rebuilt:
                 raise EloError(f"/familiar/{familiar_id}/auth-message: the server asked us to sign "
                                 f"text that is not the familiar message — not signing")
             signature = self._personal_sign(private_key, want)

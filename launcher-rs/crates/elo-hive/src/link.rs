@@ -350,7 +350,7 @@ mod tests {
         let shown = RefCell::new(Vec::new());
         let mut sign = |r: &Request| {
             shown.borrow_mut().push(r.text.to_string());
-            Ok(if r.text.starts_with("scry hive voice") { DERIVED.into() } else { "0xsig".into() })
+            Ok(if r.text.starts_with("elo hive voice") { DERIVED.into() } else { "0xsig".into() })
         };
         let done = link(&desk, "https://x", WALLET, &d, &mut sign).unwrap();
         assert_eq!(done.npub, NPUB);
@@ -373,7 +373,7 @@ mod tests {
         let mut asked = 0;
         let mut sign = |r: &Request| {
             asked += 1;
-            assert!(r.text.starts_with("scry hive voice"), "signed a text the origin changed");
+            assert!(r.text.starts_with("elo hive voice"), "signed a text the origin changed");
             Ok(DERIVED.to_string())
         };
         let e = link(&desk, "https://x", WALLET, &d, &mut sign).unwrap_err();
@@ -388,7 +388,7 @@ mod tests {
         let d = dir("cancel");
         let desk = Desk::new();
         let mut sign = |r: &Request| {
-            if r.text.starts_with("scry hive voice") { Ok(DERIVED.into()) }
+            if r.text.starts_with("elo hive voice") { Ok(DERIVED.into()) }
             else { Err("Cancelled — nothing was signed.".into()) }
         };
         let e = link(&desk, "https://x", WALLET, &d, &mut sign).unwrap_err();

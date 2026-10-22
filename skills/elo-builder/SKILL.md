@@ -38,7 +38,7 @@ the text in a file with its real line breaks; one trailing newline is dropped,
 It signs Elo Pros texts only: two lines at least, the first `elo <family>`
 (or `scry <family>`), and it shows that first line before it signs. A sign-in
 for any site, the hive voice text and a one-line blob are refused, whoever
-hands them to you. `python3 scripts/test_elo_sign.py` runs 20 checks offline.
+hands them to you. `python3 scripts/test_elo_sign.py` runs 22 checks offline.
 
 ## The board loop
 

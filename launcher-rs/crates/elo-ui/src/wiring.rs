@@ -3275,7 +3275,7 @@ mod tests {
         let ask: Ask = Rc::new(|_, _| panic!("prompted over a text that would make a different key"));
         let dir = std::env::temp_dir();
         let e = link_chat_key(&signer, "https://x", &dir, &ask, &never_confirm(),
-                              &link_desk(Some("scry hive voice v2 — something else"))).unwrap_err();
+                              &link_desk(Some("elo hive voice v2 — something else"))).unwrap_err();
         assert!(e.contains("different key text"), "{e}");
         let e = link_chat_key(&signer, "https://x", &dir, &ask, &never_confirm(),
                               &link_desk(None)).unwrap_err();
@@ -3369,10 +3369,10 @@ mod tests {
         let wallet = acct.address().to_lowercase();
         assert_eq!(wallet, "0x3e20ab25eb721dd4b691516238df14f0f5d3f7a3");
         let sig = acct.sign_message(&elo_hive::voice::derivation_message(&wallet)).unwrap();
-        assert_eq!(sig, "0x85194638f30fce1ede1041f70e85a9cc94841f813babc1e92468dd5ee25cece8\
-                         48675754662b9a2c319cfc6f2af920106a74547c8920dd5928cc5078578a25d51b");
+        assert_eq!(sig, "0x026c0b8e8e1f842384bc6534bc630cc469f741217567e32e8f946148d6b0bd72\
+                         4395acee54fdf9a353d797d3ce98124bb46352e48dc31636271b0e75aba8283a1c");
         let v = elo_hive::voice::Voice::from_wallet_signature(&sig).unwrap();
-        assert_eq!(v.npub(), "npub1k7dy53fkr25pupyjxqn64aytu8v792v96l9p2f7gl3edk424ljrsnqjp92");
+        assert_eq!(v.npub(), "npub1pavc42tfwxnyvparu5ljky2k3papvnewmstvnx59tz2cddm4avsskvfs3n");
     }
 
     #[test]

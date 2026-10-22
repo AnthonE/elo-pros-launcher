@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-17
+updated: 2026-10-22
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
@@ -226,8 +226,9 @@ Gates' browser build already signs and its shards accept. Every other sign-in
 is refused, including this website's own, and `meter/test_browser_signer.py`
 pins both directions against the text `protocol.rs` composes. The family wall
 gained one thing: it accepts `scry <family>` beside `elo <family>`, because
-`tickets.entitle_message` still writes `scry entitle` — refusing it would have
-refused the first act this seam was built to carry.
+an installed client or a released game still writes the pre-rename wording,
+which the origin verifies for every family. The entitle text itself reads
+`elo entitle` since 2026-10-22 (`tickets.entitle_message`).
 
 **Custody, restated for this direction:** the browser's key is MetaMask's and
 was never ours. The launcher holds `pairing.json` — a code, a poll secret, an

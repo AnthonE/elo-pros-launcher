@@ -54,8 +54,8 @@ pub const KEY_NAME: &str = "voice.nsec";
 /// would not.
 pub fn derivation_message(wallet: &str) -> String {
     format!(
-        "scry hive voice v1\nwallet: {}\nthis signature IS my hive voice key.\n\
-         sign it only to derive your scry hive identity — never on any other site.",
+        "elo hive voice v1\nwallet: {}\nthis signature IS my hive voice key.\n\
+         sign it only to derive your Elo Pros chat identity — never on any other site.",
         wallet.trim().to_lowercase()
     )
 }

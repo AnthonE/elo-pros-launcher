@@ -359,8 +359,8 @@ many words.
 
 **Four walls, each enforced at the origin rather than asked for:** messages
 only (nothing here can move a coin); first line `elo <family>` — and `scry
-<family>` too, because `tickets.entitle_message` still writes `scry entitle`
-and dropping it would refuse the one signable this seam was built for; **one
+<family>` too, because an installed client or a released game still writes
+the pre-rename wording, and the origin verifies it for every family; **one
 sign-in only**, a game server's on this site (below), which is what keeps a
 login phish off the door; and a returned signature must recover to the paired
 address.

@@ -76,6 +76,18 @@ try:
     sig = posts[-1]["signature"]
     ok(Account.recover_message(encode_defunct(text=want), signature=sig) == acct.address,
        "the signature posted is the owner's over the rebuilt familiar text")
+    ok(want.startswith("elo familiar\n"), "the familiar text's first line is `elo familiar`")
+
+    print("[owner signing: a meter still on the old wording is still served]")
+    old = EloClient.scry_era_familiar_message("tick", FID, acct.address, 3)
+    ok(old == (f"scry familiar\naction: tick\nfamiliar: {FID}\n"
+               f"owner: {acct.address.lower()}\nindex: 3"),
+       "the scry-era familiar text is the old bytes exactly")
+    fake_meter(old)
+    c.tick(FID, private_key=acct.key.hex())
+    sig = posts[-1]["signature"]
+    ok(Account.recover_message(encode_defunct(text=old), signature=sig) == acct.address,
+       "a meter handing out `scry familiar` gets the owner's signature over those bytes")
 finally:
     client_mod.requests.get, client_mod.requests.post = _get, _post
 

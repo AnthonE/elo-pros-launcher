@@ -78,6 +78,9 @@ try:
     refused(f"scry hive voice v1\nwallet: {ADDR}\nthis signature IS my hive voice key.\n"
             "sign it only to derive your scry hive identity — never on any other site.",
             "the hive voice derivation text")
+    refused(f"elo hive voice v1\nwallet: {ADDR}\nthis signature IS my hive voice key.\n"
+            "sign it only to derive your Elo Pros chat identity — never on any other site.",
+            "the hive voice derivation text, under its elo first line")
     refused(f"elopros.com wants you to sign in with your Ethereum account:\n{ADDR}\n\n"
             "Sign in\n\nURI: https://elopros.com\nVersion: 1\nChain ID: 4663\n"
             "Nonce: abcdef12\nIssued At: 2026-10-22T00:00:00Z",
