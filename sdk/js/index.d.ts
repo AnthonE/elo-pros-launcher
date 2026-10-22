@@ -7,7 +7,7 @@ export const DEFAULT_TIMEOUT_MS: number;
 export const FRIENDS_ACTION: "friends";
 export const FACE_ACTION: "profile";
 
-export type FriendsOp = "ask" | "accept" | "decline" | "cancel" | "remove" | "block" | "unblock";
+export type FriendsOp = "ask" | "accept" | "decline" | "cancel" | "remove" | "block" | "unblock" | "invite";
 export const OPS: Readonly<Record<FriendsOp, "to" | "from" | "wallet">>;
 
 export function opKey(op: string): "to" | "from" | "wallet" | null;

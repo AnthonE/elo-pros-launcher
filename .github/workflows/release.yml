@@ -1,6 +1,6 @@
 # Build the macOS client on Apple hardware.
 #
-# ⚠ THIS FILE IS MIRRORED FROM AnthonE/scry-forge (deploy/elo-pros-launcher/release.yml).
+# ⚠ THIS FILE IS MIRRORED FROM the Elo Pros source repo (deploy/elo-pros-launcher/release.yml).
 # Editing it here is overwritten by the next publish.
 #
 # Why this exists at all: Linux and Windows are cross-built on the origin box

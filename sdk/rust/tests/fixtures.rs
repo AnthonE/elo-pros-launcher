@@ -27,7 +27,7 @@ fn friends_texts_rebuild_byte_for_byte() {
         assert_eq!(ops[op], key, "{op} takes {key}");
     }
     let cases = f["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 7);
+    assert_eq!(cases.len(), texts::OPS.len());
     for c in cases {
         let (me, op, other) = (
             c["wallet"].as_str().unwrap(),

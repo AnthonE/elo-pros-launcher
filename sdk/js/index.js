@@ -27,7 +27,7 @@ export const FACE_ACTION = "profile";      /* meter/faces.py */
 
 /* Each friends op and the one argument it takes, a wallet (friends.OPS). */
 export const OPS = Object.freeze({ ask: "to", accept: "from", decline: "from", cancel: "to",
-  remove: "wallet", block: "wallet", unblock: "wallet" });
+  remove: "wallet", block: "wallet", unblock: "wallet", invite: "to" });
 
 const WALLET = /^0x[0-9a-fA-F]{40}$/;
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -231,7 +231,7 @@ export class Client {
   }
 
   /** One signed friends change: `op` is ask, accept, decline, cancel, remove,
-      block or unblock, on the wallet `other`, signed as `me`. `sign(text)`
+      block, unblock or invite, on the wallet `other`, signed as `me`. `sign(text)`
       returns (or resolves to) the 0x… signature. It is called at most once,
       and never for a text this SDK did not rebuild from the change itself.
       Throws ActError ("bad_input", "mismatch"); resolves to a Look. */

@@ -36,6 +36,7 @@ elo friends — who you play with, and where they are
   elo friends remove <who>         end a friendship
   elo friends block <who>          remove them and refuse their asks
   elo friends unblock <who>
+  elo friends invite <who>         ask a friend to join the game you're in
   elo friends join <who>           join the server a friend is playing on
 
   --wallet ADDR    whose list to read (default: ELO_WALLET, then this
@@ -54,7 +55,7 @@ pub enum Done {
 /// The words typed, and the op each one sends. `add` is the terminal's word
 /// for the wire's `ask`; the arg each op takes is `elo_net::friends::OPS`, the
 /// table the Friends window signs from too.
-pub const WORDS: [(&str, &str); 7] = [
+pub const WORDS: [(&str, &str); 8] = [
     ("add", "ask"),
     ("accept", "accept"),
     ("decline", "decline"),
@@ -62,6 +63,7 @@ pub const WORDS: [(&str, &str); 7] = [
     ("remove", "remove"),
     ("block", "block"),
     ("unblock", "unblock"),
+    ("invite", "invite"),
 ];
 
 /// `(op, arg)` for a typed word, or `None` when it is not a change.
@@ -373,6 +375,7 @@ pub fn done_line(word: &str, called: &str, now_friends: bool) -> String {
         "remove" => format!("{called} is off your list"),
         "block" => format!("blocked {called}"),
         "unblock" => format!("unblocked {called}"),
+        "invite" => format!("invited {called} to your game"),
         _ => "done".into(),
     }
 }

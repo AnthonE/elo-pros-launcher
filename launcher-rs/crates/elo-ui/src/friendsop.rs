@@ -133,6 +133,7 @@ pub fn heading(op: &str) -> &'static str {
         "remove" => "Remove a friend",
         "block" => "Block a wallet",
         "unblock" => "Unblock a wallet",
+        "invite" => "Invite a friend to your game",
         _ => "Change your friends",
     }
 }
@@ -157,6 +158,7 @@ pub fn done_line(op: &str, called: &str, view: &View, other: &str) -> String {
         "remove" => format!("{called} is off your list"),
         "block" => format!("blocked {called}"),
         "unblock" => format!("unblocked {called}"),
+        "invite" => format!("invited {called} to your game"),
         _ => "done".into(),
     }
 }

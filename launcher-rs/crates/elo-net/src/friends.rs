@@ -417,7 +417,7 @@ pub fn view_json(view: &View, now: i64, clean: fn(&str) -> String) -> Value {
 
 /// The changes a wallet signs: the op sent, and the arg that names the other
 /// wallet — `meter/friends.OPS`, the contract's names in one table.
-pub const OPS: [(&str, &str); 7] = [
+pub const OPS: [(&str, &str); 8] = [
     ("ask", "to"),
     ("accept", "from"),
     ("decline", "from"),
@@ -425,6 +425,7 @@ pub const OPS: [(&str, &str); 7] = [
     ("remove", "wallet"),
     ("block", "wallet"),
     ("unblock", "wallet"),
+    ("invite", "to"),
 ];
 
 /// The arg an op takes, or `None` when it is not a friends change.

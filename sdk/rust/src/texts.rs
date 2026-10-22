@@ -15,7 +15,7 @@ pub const FACE_ACTION: &str = "profile";
 
 /// Each friends op and the one argument it takes, a wallet
 /// (`meter/friends.py` `OPS`).
-pub const OPS: [(&str, &str); 7] = [
+pub const OPS: [(&str, &str); 8] = [
     ("ask", "to"),
     ("accept", "from"),
     ("decline", "from"),
@@ -23,6 +23,7 @@ pub const OPS: [(&str, &str); 7] = [
     ("remove", "wallet"),
     ("block", "wallet"),
     ("unblock", "wallet"),
+    ("invite", "to"),
 ];
 
 /// The argument a friends op takes, or None for an op the server does not know.

@@ -20,7 +20,7 @@ FACE_ACTION = "profile"      # meter/faces.py
 
 # Each friends op and the one argument it takes, a wallet (friends.OPS).
 OPS = {"ask": "to", "accept": "from", "decline": "from", "cancel": "to",
-       "remove": "wallet", "block": "wallet", "unblock": "wallet"}
+       "remove": "wallet", "block": "wallet", "unblock": "wallet", "invite": "to"}
 
 _WALLET = re.compile(r"^0x[0-9a-fA-F]{40}$")
 

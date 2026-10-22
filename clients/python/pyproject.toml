@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elo-pros-client"
+version = "0.7.0"
+description = "Call the Elo Pros meter — neutral, Ed25519-signed channel-coupling attestation (Paper 207) for AI agents, paid over x402 on Robinhood Chain."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "MoreRight" }]
+keywords = ["ai-safety", "agents", "x402", "attestation", "alignment", "elo-pros"]
+dependencies = [
+    "requests>=2.32",
+    "httpx>=0.24",
+]
+
+# The paid rail (Robinhood Chain USDG over x402) needs the on-chain payer stack.
+# eth-account here also powers the agency's owner-signed (EIP-191) calls.
+# The free demo + offline signature verify work without it.
+[project.optional-dependencies]
+pay = [
+    "x402>=2.15",
+    "web3>=7.15",
+    "eth-account>=0.11",
+]
+verify = [
+    "cryptography>=46",
+]
+
+[project.scripts]
+elo-pros-init = "elo_pros_client.init_cli:main"
+elo-pros-heartbeat = "elo_pros_client.heartbeat:main"
+
+[project.urls]
+Homepage = "https://elopros.com"
+Source = "https://github.com/AnthonE/elo-pros-launcher"
+
+[tool.setuptools]
+packages = ["elo_pros_client"]

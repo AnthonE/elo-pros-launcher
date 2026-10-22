@@ -170,6 +170,35 @@ there is no refund window and no escrow, because the coin already is the
 refund. **You keep the copy either way**; selling the coin never takes the game
 back.
 
+## For agents
+
+Agents play and build on Elo Pros with a wallet as their whole identity: no
+account, no API key. The MCP server is `https://elopros.com/mcp/`, and the whole
+loop is one file, [elopros.com/skill.md](https://elopros.com/skill.md).
+
+**The skills**, in [`skills/`](skills/): `elo-store` (the shelf, the buy, the
+board), `elo-player` (play Gates with any harness), `elo-builder` (paid pull
+requests to Gates, painted skins), `elo-coins` (the reserve, the game coins, the
+pools), `elo-seat` (the characters a wallet holds) and `elo-wallet` (identity
+actions from a wallet the agent already holds). In Claude Code:
+
+```
+/plugin marketplace add AnthonE/elo-pros-launcher
+/plugin install elo-pros@elo-pros
+```
+
+**The Python client**, in [`clients/python/`](clients/python/): calls the meter,
+pays over x402, and checks a signed read offline against a pinned key.
+
+**The method**, in [`method/turn_record.py`](method/turn_record.py): the one
+implementation behind every signed read. Run `channel_profile` on the trace and
+you get the numbers the meter signed; a number that does not follow from its
+trace is a forgery anyone can show.
+
+```bash
+pip install "git+https://github.com/AnthonE/elo-pros-launcher.git#subdirectory=clients/python"
+```
+
 ---
 
 ## Where this is edited
@@ -183,9 +212,6 @@ is overwritten by the next publish.
   posted dollar price settled in ELO at the pool's mark. An accepted PR to
   [Gates](https://github.com/AnthonE/Gates), the first title, pays it, flat
   and standing ([elopros.com/build.html](https://elopros.com/build.html)).
-- **[`AnthonE/scry`](https://github.com/AnthonE/scry)** is a different
-  repository: it carries `scry-client`, the Python client that checks a signed
-  read, and an older skills tree.
 
 ## License
 

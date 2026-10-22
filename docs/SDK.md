@@ -9,7 +9,7 @@ about: "how a game gets identity, a profile and a signature without ever holding
 
 > Operator, 2026-08-04: *"Does this have the proper key support? also i didnt
 > think about it but can we ensure the Gates desktop build can have access to
-> that as well i guess? almost like we need a scry sdk?"*
+> that as well i guess? almost like we need [an Elo] sdk?"*
 >
 > **The honest answer to the first question was no**, and the gap was not only
 > in the launcher — it was in shipped code. This page is what closed it. The
@@ -199,14 +199,14 @@ standard path. A game verifies our signatures the way it verifies anyone's.
 
 What was invented was the **message text**, and it landed on the one message a
 **third party** has to verify. `prove` used to emit
-`scry prove\ngame:…\nserver:…\nnonce:…`, which meant a game's backend hand-rolled
+`elo prove\ngame:…\nserver:…\nnonce:…`, which meant a game's backend hand-rolled
 a string concatenation and got it byte-exact or watched signatures fail
 silently. **There is an industry standard for exactly that operation — EIP-4361,
 Sign-In With Ethereum — and this repo had never mentioned it**: zero hits for
 `siwe`, `4361` or the phrase, anywhere.
 
 It now emits a real SIWE message, so a game's whole server side is
-`new SiweMessage(msg).verify({ nonce, domain })` with no scry-specific code.
+`new SiweMessage(msg).verify({ nonce, domain })` with no Elo-specific code.
 Verified against the reference `siwe` library end to end: it parses, it
 verifies, and a wrong nonce or a tampered domain is rejected.
 
@@ -241,7 +241,7 @@ depends on `elo-broker` rather than the reverse — so it is a stated contract
 held by the implementor, plus a test.
 
 **What did NOT change, and deliberately.** The `elo <family>` format for
-`play`, `vow`, `review` and the rest stays (the legacy `scry <family>` text is
+`play`, `vow`, `review` and the rest stays (the pre-rename first line is
 still verified, for installed clients): only *our own* server verifies
 those (`meter/playauth.py`), so the shape costs no integrator anything, and it
 is what the consent prompt renders. EIP-712 typed data is the standard for
@@ -379,7 +379,7 @@ What it provides instead, and each is real:
 The prompt shows the message **verbatim**. A prompt that summarises without
 showing can be lied to by a crafted `detail:` line, so the summary sits above
 the real text and never replaces it. It is a real window as of 2026-08-08
-(`scry_ui::consent` + `windows::consent`); until then this paragraph described
+(`elo_ui::consent` + `windows::consent`); until then this paragraph described
 a prompt that did not exist and `sign` refused for want of it —
 `docs/client/LAUNCHER.md` §10n is how it was built and what it costs.
 

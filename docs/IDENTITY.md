@@ -7,11 +7,11 @@ about: "who a person is on Elo Pros and what their picture is — the wallet is 
 
 # IDENTITY.md — the wallet is the identity
 
-> Operator, 2026-08-12: *"didnt we already work on a way to use ur scry hive
+> Operator, 2026-08-12: *"didnt we already work on a way to use ur [Elo] hive
 > pfp as a pfp? and we have some profile stuff somewhere? something is off."*
 >
 > Something was. The decision was made on 2026-08-07 — *"clearly it needs to
-> tie into the PFP of the profiles people have on scry"* — and the seat was
+> tie into the PFP of the profiles people have on [Elo]"* — and the seat was
 > never joined to a profile. Meanwhile every face on the platform hung off the
 > **vow**, so the person the store exists to serve, someone who bought a game,
 > had no picture and no profile at all. This page is what owns that question
@@ -114,8 +114,8 @@ The pre-2026-08-12 vow-keyed text is **still accepted** for a caller that has a
 vow (`playauth.legacy_play_message`, verification only — nothing hands it out).
 It is a transition, not a second dialect.
 
-**The first line was `scry play` until 2026-08-21** and that wording is still
-verified the same way (`playauth.play_message_legacy`, verification only). A
+**The first line carried the old project name until 2026-08-21** (it now
+reads `elo play`), and that wording is still verified the same way (`playauth.play_message_legacy`, verification only). A
 signed string is a re-sign and never a find-and-replace: the client renames in
 one commit, an INSTALLED client renames when its owner downloads a new one, so
 the origin has to accept both until nobody runs a pre-0.5.0 build.

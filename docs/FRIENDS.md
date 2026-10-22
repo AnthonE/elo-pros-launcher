@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-21
+updated: 2026-10-22
 about: "the platform friends list — ask, accept, block, your buddies beside your friends, and who is playing what right now, keyed by wallet: the routes, where presence comes from and how far it lags, what is public, the limits, and what Gates could build on it"
 ---
 
@@ -19,7 +19,7 @@ Every route below is served under `/api/`.
 
 | route | what |
 |---|---|
-| `GET /friends/{wallet}` | the list: `{wallet, count, friends, buddies, asks_in, asks_out, presence, limits}` |
+| `GET /friends/{wallet}` | the list: `{wallet, count, friends, buddies, asks_in, asks_out, invites_in, presence, limits}` |
 | `POST /friends/prepare` | `{wallet, op, args}` → `{sign_this, at, args, op}` |
 | `POST /friends/act` | `{wallet, op, args, at, signature}` → `{ok, op, view}` (`view` is the GET body) |
 
@@ -54,6 +54,13 @@ retired agent leaves the list. A buddy you also befriended shows once, under
 | `remove` | `{wallet}` | ends a friendship, for both sides |
 | `block` | `{wallet}` | ends the friendship and every ask either way, and refuses their asks |
 | `unblock` | `{wallet}` | lifts it (a no-op when there is none) |
+| `invite` | `{to}` | asks a friend to join the game you are playing |
+
+**Invites** are Steam's "Invite to game". An invite names no server: where
+the inviter is comes from presence, so each row of `invites_in` is the
+inviter's friend row (live `playing` and `join`) plus `at`. Friends only; one
+per friend (a newer one replaces it); it lapses after 15 minutes and goes with
+a remove or a block. Joining is following the link.
 
 **The signature** is the playauth text with action `friends`: the detail is
 sorted compact JSON `{"args":…,"at":…,"op":…}` of the args prepare handed

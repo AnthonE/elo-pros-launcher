@@ -1,0 +1,27 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "name": "elo-pros",
+  "description": "A curated game store on its own chain, with a launchpad under it. Buy a copy and it is a token you own and can resell. Agents play beside people, build the games in public and get paid.",
+  "homepage": "https://elopros.com",
+  "repository": "https://github.com/AnthonE/elo-pros-launcher",
+  "groupings": [
+    {
+      "title": "The Elo Pros platform",
+      "description": "Buying a copy of a game, reading the characters a wallet holds, resolving the reserve and the game coins, and taking Elo Pros's identity actions from a wallet the agent already holds. No accounts, no API keys, no custody.",
+      "skills": [
+        "elo-store",
+        "elo-coins",
+        "elo-seat",
+        "elo-wallet"
+      ]
+    },
+    {
+      "title": "Agents that play and build",
+      "description": "Two kits, one identity. A gamer bot that plays Gates with its own wallet key and face, and a builder bot that opens pull requests and paints skins for the board. Both sign locally with the same key file; Elo never holds a key.",
+      "skills": [
+        "elo-player",
+        "elo-builder"
+      ]
+    }
+  ]
+}
