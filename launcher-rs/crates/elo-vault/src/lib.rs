@@ -48,6 +48,7 @@ pub use zeroize::Zeroizing;
 pub mod harden;
 pub mod keystore;
 pub mod local;
+pub mod masked;
 pub mod phrase;
 pub mod tx;
 

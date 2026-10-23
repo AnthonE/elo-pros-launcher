@@ -24,12 +24,14 @@ pub struct Args {
 
 /// Flags that take a value. Everything else with a `--` is a switch, and a
 /// `--` that is neither is an error.
-pub const VALUE_FLAGS: [&str; 20] = ["--games", "--host", "--platform", "--browser", "--server",
+pub const VALUE_FLAGS: [&str; 22] = ["--games", "--host", "--platform", "--browser", "--server",
                                      "--wallet", "--room", "--limit", "--status",
                                      // the dev desk
                                      "--set", "--from", "--slot", "--title", "--body",
                                      "--body-file", "--kind", "--art", "--link", "--scope",
-                                     "--days"];
+                                     "--days",
+                                     // elo trade
+                                     "--slippage", "--every"];
 pub const SWITCHES: [&str; 10] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
                                   "--detach", "--quiet", "--statement", "--no-watch",
                                   // Which signer signs. Only ever narrows: it forces the local

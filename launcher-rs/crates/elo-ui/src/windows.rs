@@ -186,9 +186,11 @@ fn human_bytes(n: i64) -> String {
 /// it without a display. `built: false` renders deactivated AND says so; a
 /// hidden feature and an unbuilt one look identical to a player, and only one
 /// of those is honest.
-pub const MENU: [(&str, &str, bool); 9] = [
+pub const MENU: [(&str, &str, bool); 11] = [
     ("Games", "what is installed, and what is stale", true),
     ("Store", "the curated shelf", true),
+    ("Pairs", "every market: price and 24h change", true),
+    ("Orders", "limits, stops, trailing, DCA — run while elo is open", true),
     ("Chat", "talk with other players, live", true),
     ("Servers", "browse a title's shards", true),
     ("Friends", "who you play with, and where they are", true),
@@ -924,6 +926,232 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     w.end();
     grows_downward(&mut w, &well, 108 + 46 * 2);
     ServersWindow { window: w, rows: controls }
+}
+
+/// One market, as the origin's `/api/pairs` answered it. Numbers are what
+/// the origin measured; a price it could not read is `None` and draws `—`.
+#[derive(Debug, Clone)]
+pub struct PairLine {
+    pub key: String,
+    pub label: String,
+    pub price: Option<f64>,
+    pub change_24h: Option<f64>,
+    pub venue: String,
+}
+
+/// The Pairs window and the controls on it.
+pub struct PairsWindow {
+    pub window: window::Window,
+    pub refresh: button::Button,
+    /// `(pair key, its Open button)`, in list order.
+    pub rows: Vec<(String, button::Button)>,
+}
+
+/// A price for one line: plain above 1, scientific below, `—` for unread.
+pub fn pair_price(p: Option<f64>) -> String {
+    match p {
+        Some(v) if v.is_finite() && v > 0.0 => if v >= 1.0 { format!("{v:.4}") } else { format!("{v:.3e}") },
+        _ => "—".into(),
+    }
+}
+
+/// Pairs — every market on the store's chain, read when opened.
+///
+/// It fetches nothing itself: the caller hands it the rows `/api/pairs`
+/// returned, or the reason it could not read them, which keeps it buildable
+/// with no display and no origin. A list we could not read says so; it is
+/// never drawn as "no markets".
+pub fn pairs(rows: &[PairLine], reachable: bool, why: &str) -> PairsWindow {
+    let well_h = (rows.len() as i32 * 34 + 24).clamp(120, 480);
+    let mut w = window::Window::new(150, 150, 600, well_h + 116, None);
+    mark(&mut w);
+    w.set_label("elo — pairs");
+    w.set_color(theme::BG);
+    chrome::label(16, 12, 300, 20, "pairs", theme::HEAD, 16);
+    let refresh = chrome::button(600 - 16 - 90, 10, 90, 26, "Refresh", Tone::Plain);
+
+    let mut controls = Vec::new();
+    let well = chrome::shelf(16, 44, 568, well_h);
+    if !reachable {
+        chrome::label(28, 60, 540, 18, "could not read the markets", theme::GOLD, 13);
+        chrome::label_untrusted(28, 84, 540, 16, why, theme::MUTED, 11);
+        chrome::label(28, 104, 540, 16, "this is not `no markets` — nobody knows the prices right now",
+                      theme::DIM, 11);
+    } else if rows.is_empty() {
+        chrome::label(28, 60, 540, 18, "the origin lists no markets", theme::MUTED, 13);
+    } else {
+        chrome::label(28, 52, 200, 14, "pair", theme::DIM, 10);
+        chrome::label(236, 52, 110, 14, "price, in the quote coin", theme::DIM, 10);
+        chrome::label(356, 52, 70, 14, "24h", theme::DIM, 10);
+        let mut y = 70;
+        for r in rows {
+            chrome::label_untrusted(28, y, 200, 18, &r.label, theme::INK, 13);
+            chrome::label_untrusted(28, y + 16, 200, 12, &r.venue, theme::DIM, 10);
+            chrome::label(236, y, 110, 18, &pair_price(r.price), theme::INK, 12);
+            let (ch, ink) = match r.change_24h {
+                Some(c) if c.is_finite() => (format!("{:+.1}%", c * 100.0),
+                                             if c >= 0.0 { theme::INK } else { theme::GOLD }),
+                _ => ("—".into(), theme::DIM),
+            };
+            chrome::label(356, y, 70, 18, &ch, ink, 12);
+            let mut open = chrome::button(584 - BAR - 13 - 80, y, 80, 24, "Trade", Tone::Plain);
+            open.set_tooltip("open this pair's chart and trade box in your browser");
+            controls.push((r.key.clone(), open));
+            y += 34;
+        }
+    }
+    well.end();
+    chrome::label(16, well_h + 52, 560, 16,
+                  "Trade opens the pair in your browser, where your wallet is;",
+                  theme::DIM, 11);
+    chrome::label(16, well_h + 70, 560, 16,
+                  "`elo trade` buys and sells from this machine's account, in a terminal",
+                  theme::DIM, 11);
+    w.end();
+    grows_downward(&mut w, &well, 116 + 34 * 2);
+    PairsWindow { window: w, refresh, rows: controls }
+}
+
+/// The Orders window's controls, handed back for `elo-gui` to wire.
+pub struct OrdersWindow {
+    pub window: window::Window,
+    pub kind: menu::Choice,
+    pub coin: input::Input,
+    pub side: menu::Choice,
+    pub amount: input::Input,
+    pub a: input::Input,
+    pub b: input::Input,
+    pub c: input::Input,
+    pub d: input::Input,
+    pub cap: input::Input,
+    pub hint: frame::Frame,
+    pub place: button::Button,
+    pub run: button::Button,
+    pub status: frame::Frame,
+    pub approve_once: button::CheckButton,
+    pub check: button::CheckButton,
+    pub allow_outside: button::CheckButton,
+    /// `(order id, Remove, Resume when it is paused)`, in list order.
+    pub rows: Vec<(u64, button::Button, Option<button::Button>)>,
+}
+
+/// The kinds, in the order the Choice lists them, with what each field means.
+pub const ORDER_KINDS: [(&str, &str); 8] = [
+    ("limit", "price: buy at it or under"),
+    ("take-profit", "price: sell at it or over"),
+    ("stop", "price: sell at it or under"),
+    ("trailing-stop", "trail %: sell after this drop from the high"),
+    ("trailing-buy", "trail %: buy after this rise from the low"),
+    ("bracket", "take-profit, then stop: sell at either"),
+    ("dca", "every (30m, 4h, 1d) and how many times; cap optional"),
+    ("twap", "over (2h) and in how many parts; cap optional"),
+];
+
+/// Orders — the book on this machine, a form to add to it, and the runner.
+///
+/// It reads nothing itself: the caller hands it the book and the settings it
+/// loaded, so it builds with no display and no origin. Orders fire only while
+/// the runner is on, and the window says so in the button's own words.
+pub fn orders(book: &[elo_net::orders::Order], settings: &elo_net::guard::Settings, running: bool,
+              has_account: bool) -> OrdersWindow {
+    let well_h = (book.len() as i32 * 34 + 24).clamp(80, 300);
+    let win_h = 330 + well_h + 40;
+    let mut w = window::Window::new(170, 140, 640, win_h, None);
+    mark(&mut w);
+    w.set_label("elo — orders");
+    w.set_color(theme::BG);
+    chrome::label(16, 12, 300, 20, "orders", theme::HEAD, 16);
+    let mut run = chrome::button(640 - 16 - 170, 10, 170, 26,
+                                 if running { "Stop orders" } else { "Start orders…" },
+                                 if running { Tone::Plain } else { Tone::Live });
+    run.set_tooltip("orders fire only while this is on; it asks your passphrase once");
+    let status = chrome::label(16, 40, 608, 16,
+        if running { "running: orders fire while elo is open" } else { "stopped: nothing fires until you start it" },
+        if running { theme::INK } else { theme::GOLD }, 11);
+
+    // the form
+    chrome::label(16, 66, 150, 14, "order", theme::MUTED, 11);
+    chrome::label(176, 66, 80, 14, "coin", theme::MUTED, 11);
+    chrome::label(266, 66, 80, 14, "buy/sell", theme::MUTED, 11);
+    chrome::label(356, 66, 268, 14, "amount (ETH to spend, or coins to sell)", theme::MUTED, 11);
+    let mut kind = menu::Choice::new(16, 82, 150, 28, None);
+    for (k, _) in ORDER_KINDS.iter() {
+        kind.add_choice(k);
+    }
+    kind.set_value(0);
+    let mut coin = field(176, 82, 80, 28, true);
+    coin.set_value("ELO");
+    let mut side = menu::Choice::new(266, 82, 80, 28, None);
+    side.add_choice("buy");
+    side.add_choice("sell");
+    side.set_value(0);
+    for c in [&mut kind, &mut side] {
+        c.set_color(theme::BTN);
+        c.set_text_color(theme::BTN_INK);
+        c.set_text_size(13);
+    }
+    let amount = field(356, 82, 268, 28, true);
+    let hint = chrome::label(16, 116, 608, 14, ORDER_KINDS[0].1, theme::MUTED, 11);
+    let a = field(16, 134, 140, 28, true);
+    let b = field(166, 134, 140, 28, true);
+    let c = field(316, 134, 100, 28, true);
+    let d = field(426, 134, 80, 28, true);
+    let cap = field(516, 134, 108, 28, true);
+    chrome::label(16, 164, 608, 14, "price · stop · every/over · times/parts · cap — fill what the line above names",
+                  theme::DIM, 10);
+    let mut place = chrome::button(16, 184, 160, 28, "Place the order", Tone::Plain);
+    place.set_align(enums::Align::Center | enums::Align::Inside);
+
+    // settings
+    let check_box = |x: i32, y: i32, label: &str, on: bool| {
+        let mut cb = button::CheckButton::new(x, y, 200, 22, None);
+        cb.set_label(label);
+        cb.set_label_color(theme::INK);
+        cb.set_label_size(12);
+        cb.set_checked(on);
+        cb
+    };
+    let approve_once = check_box(16, 222, "approve a coin once", settings.approve_once);
+    let check = check_box(226, 222, "check before signing", settings.check);
+    let allow_outside = check_box(436, 222, "allow outside contracts", settings.allow_outside);
+
+    // the book
+    chrome::label(16, 254, 608, 14, "the book on this machine", theme::MUTED, 11);
+    let well = chrome::shelf(16, 272, 608, well_h);
+    let mut rows = Vec::new();
+    if book.is_empty() {
+        chrome::label(28, 286, 560, 16, "no orders yet — the form above places one", theme::DIM, 11);
+    }
+    let mut y = 282;
+    for o in book {
+        let st = &o.state;
+        let state = if st.finished { "done".to_string() }
+            else if let Some(p) = &o.paused { format!("paused: {p}") }
+            else if st.done > 0 { format!("{} done", st.done) }
+            else { "waiting".into() };
+        chrome::label_untrusted(28, y, 400, 16, &format!("#{} {}", o.id, o.describe()), theme::INK, 12);
+        chrome::label_untrusted(28, y + 16, 400, 12, &state, if o.paused.is_some() { theme::GOLD } else { theme::DIM }, 10);
+        let rm_x = 624 - BAR - 13 - 70;
+        let remove = chrome::button(rm_x, y, 70, 24, "Remove", Tone::Plain);
+        let resume = o.paused.as_ref().map(|_| chrome::button(rm_x - 78, y, 70, 24, "Resume", Tone::Plain));
+        rows.push((o.id, remove, resume));
+        y += 34;
+    }
+    well.end();
+    chrome::label(16, 280 + well_h, 608, 14,
+                  "Each order is checked at its own size before it trades, and a failed trade pauses it.",
+                  theme::DIM, 11);
+    chrome::label(16, 296 + well_h, 608, 14,
+                  "Your passphrase stays on this machine, masked in memory while orders run.",
+                  theme::DIM, 11);
+    if !has_account {
+        run.deactivate();
+        let mut s = status.clone();
+        s.set_label("no account on this machine — Account makes one; the site runs orders with your browser wallet");
+    }
+    w.end();
+    OrdersWindow { window: w, kind, coin, side, amount, a, b, c, d, cap, hint, place, run, status,
+                   approve_once, check, allow_outside, rows }
 }
 
 /// What the caller measured about a wallet's friends list.

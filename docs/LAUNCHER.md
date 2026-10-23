@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-22
-about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase."
+updated: 2026-10-23
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -2064,6 +2064,53 @@ keys and addresses, and four signed transactions (`elo-vault/tests/wallet.rs`).
 
 Not built yet: NFTs (the copy, items) in the Wallet, a QR code for receiving,
 and hardware-wallet signing.
+
+### 10s · Trading: `elo trade` and the Pairs window
+
+> Operator, 2026-10-22: *"even the desktop app might have a lot of these
+> features, like a decent trading terminal."*
+
+* **`elo trade`** (`crates/elo-launcher/src/trade.rs`). `pairs`, `quote`,
+  `buy`, `sell` (an amount or `50%` of what the account holds, read off the
+  chain), `swap`, `watch [pair…] [--wallet 0x…]`, all with `--json`. A trade
+  is exactly the steps `/api/prepare/swap/exact_in` returns: each approval is
+  checked against the chain first and skipped when it is already in place
+  (an ERC-20 allowance, or a Permit2 allowance that has not expired), each
+  step is gas-estimated (a step the chain expects to fail is never signed),
+  and each waits for its receipt before the next. The quote and the risk line
+  are shown before the passphrase. A route that needs our unbroadcast router
+  is refused before the passphrase is asked.
+* **Resting orders, on this machine — every type the site has** (operator,
+  2026-10-23: *"limits on every type of order, even the rolling things"*):
+  limit, take-profit, stop, trailing stop, trailing buy, bracket, DCA and TWAP.
+  The rules are `elo-net/src/orders.rs`, held to the same cases as the site's
+  `js/orders-core.js` (`elo-net/tests/order_vectors.json`). `elo trade orders
+  add …` (`elo trade help` lists the words: `dca buy ELO 0.01 every 4h x6`,
+  `twap sell ELO 1000000 over 2h in 8`, `trailing-stop ELO 10% 500000`) writes
+  `orders.json` beside the keystore; v1 books still read. The runner
+  (`orders run`, or Start in the window's **Orders**) prices every order from
+  one `/api/pairs` read, confirms a trigger with a quote at the order's own
+  size, and trades it through the shared engine (`elo-net/src/trading.rs`). An
+  order is marked in flight on disk before its first signature, so a crash
+  leaves it paused, never ready to fire the same slot twice; a trade that
+  fails pauses the order with the chain's reason, and `resume` (or Resume)
+  lets it go again. Orders fire only while the runner runs.
+* **The passphrase while orders run** (`elo-vault/src/masked.rs`) is
+  XOR-split across two separately allocated buffers, `mlock`ed on unix and
+  zeroed on drop, and joined only for the instant of a signature. That beats
+  crash dumps, swap and memory scrapers; malware aimed at this program can
+  still read both halves, which is why `harden.rs` refuses same-user ptrace and
+  core dumps. The window checks the passphrase when Start is pressed, not when
+  an order fires.
+* **What it signs** (`elo-net/src/guard.rs`, `docs/client/SIGNING-ALLOWLIST.md`):
+  a compiled-in list of our ecosystem's contracts; anything else is refused
+  unless `allow_outside` is on. `elo trade settings` (or the window's three
+  boxes) sets `approve_once` (on: a coin's first sale approves it for good),
+  `check` (on) and `allow_outside` (off); `elo trade log` reads
+  `activity.jsonl`, every request and its result, kept on this machine.
+* **Pairs** in the window's menu: every market's price and 24h change, read
+  when opened, with Trade opening that pair on the site. A list the launcher
+  could not read says so and is never drawn as no markets.
 
 ## Reading order
 

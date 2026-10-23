@@ -15,6 +15,7 @@ mod prompt;
 mod relay;
 mod send;
 mod signer;
+mod trade;
 
 // The account's address and signature both come through this trait, so the CLI
 // and the window use one implementation rather than two that agree today.
@@ -79,6 +80,13 @@ elo — the desktop client
   elo wallet [--wallet ADDR]      what this account holds, read off the chain
   elo send <amount> <coin> <to>   send ETH or a coin: checked, shown, then the
                                    passphrase — asked for every send
+  elo trade [pairs]               every market: price and 24h change
+  elo trade quote|buy|sell|swap   quote or trade through the pools, signed here
+  elo trade watch [pair…]         new trades as they happen (--wallet to follow)
+  elo trade orders [add|run]      resting orders kept on this machine: limit,
+                                   stops, trailing, brackets, DCA, TWAP; they
+                                   fire only while `orders run` is running
+  elo trade settings | log        signing settings, and what was signed
   elo account sign <message>      sign with it (EIP-191), for a game or a claim
   elo pair                        sign with the wallet in your BROWSER instead
                                    — prints a code to type at <host>/pair.html
@@ -441,6 +449,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // ── the wallet: balances off the chain, and a send ─────────────────
         "wallet" => send::show(a, &host, json_out),
         "send" => send::send(a, &host, json_out),
+        "trade" => trade::run(a, &host, json_out),
 
         // ── pair: the wallet you already have, in the browser it lives in ───
         //

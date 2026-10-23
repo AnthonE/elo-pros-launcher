@@ -11,9 +11,12 @@
 
 pub mod chain;
 pub mod friends;
+pub mod guard;
+pub mod orders;
 pub mod pairing;
 pub mod proxy;
 pub mod tls;
+pub mod trading;
 pub mod wallet;
 
 use elo_depot::{shardlist, DepotError, Fetcher};

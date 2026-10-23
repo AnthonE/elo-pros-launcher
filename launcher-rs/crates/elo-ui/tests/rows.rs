@@ -11,6 +11,7 @@
 //! before tuning the number*). Pinned here so it stays found.
 
 use elo_ui::theme::Tone;
+use fltk::prelude::*;
 use elo_ui::windows::{Act, Price, Row, Shelf, MENU};
 
 fn row(stale: Option<bool>) -> Row {
@@ -82,7 +83,7 @@ fn every_menu_entry_names_a_window_that_exists() {
          correct — but a window for each now exists, so mark them built or \
          remove them: {unbuilt:?}"
     );
-    assert_eq!(MENU.len(), 9, "the menu changed size — was that deliberate?");
+    assert_eq!(MENU.len(), 11, "the menu changed size — was that deliberate? (Pairs and Orders joined it 2026-10-23)");
     for (name, blurb, _) in MENU.iter() {
         assert!(!blurb.is_empty(), "{name} needs a sentence — the menu is \
                 buttons-with-a-sentence, which is why it needs no nav bar");
@@ -212,4 +213,47 @@ fn the_shelf_names_the_copy_and_not_the_pass() {
     }
     assert!(Act::Buy.label().to_lowercase().contains("copy"),
             "the buy control names what is bought: {}", Act::Buy.label());
+}
+
+/// Pairs: one Trade button per market the origin listed, and a list nobody
+/// could read draws the reason and no buttons — never an empty market.
+#[test]
+fn pairs_draws_one_row_per_market_and_says_when_it_could_not_read() {
+    let rows = vec![
+        elo_ui::windows::PairLine { key: "elo-eth".into(), label: "ELO / ETH".into(), price: Some(1e-8),
+                                    change_24h: Some(-0.17), venue: "uniswap-v4".into() },
+        elo_ui::windows::PairLine { key: "junk-reserve".into(), label: "JUNK / ELO".into(), price: None,
+                                    change_24h: None, venue: "abyss".into() },
+    ];
+    let w = elo_ui::windows::pairs(&rows, true, "");
+    assert_eq!(w.rows.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["elo-eth", "junk-reserve"]);
+    let dark = elo_ui::windows::pairs(&[], false, "timed out");
+    assert!(dark.rows.is_empty());
+    assert_eq!(elo_ui::windows::pair_price(None), "—");
+    assert_eq!(elo_ui::windows::pair_price(Some(0.000000012)), "1.200e-8");
+    orders_draws_the_book_and_cannot_start_without_an_account();
+}
+
+/// Orders: one Remove per order, a Resume only on a paused one, the runner's
+/// button says what pressing it does, and with no account it cannot start.
+/// Called from the Pairs test: FLTK builds windows on one thread only, and the
+/// test harness gives each `#[test]` its own.
+fn orders_draws_the_book_and_cannot_start_without_an_account() {
+    let mk = |id: u64, paused: Option<&str>| {
+        let mut o = elo_net::orders::from_fields(id, "limit", "ELO", "", "0.01", "0.00000001", "", "", "", "").unwrap();
+        o.paused = paused.map(str::to_string);
+        o
+    };
+    let book = vec![mk(1, None), mk(2, Some("insufficient funds"))];
+    let s = elo_net::guard::Settings::default();
+    let w = elo_ui::windows::orders(&book, &s, false, true);
+    assert_eq!(w.rows.len(), 2);
+    assert!(w.rows[0].2.is_none() && w.rows[1].2.is_some(), "Resume only where an order is paused");
+    assert_eq!(w.run.label(), "Start orders…");
+    assert!(w.approve_once.is_checked() && w.check.is_checked() && !w.allow_outside.is_checked());
+    let running = elo_ui::windows::orders(&book, &s, true, true);
+    assert_eq!(running.run.label(), "Stop orders");
+    let none = elo_ui::windows::orders(&[], &s, false, false);
+    assert!(!none.run.active(), "no account, no runner");
+    assert_eq!(elo_ui::windows::ORDER_KINDS.len(), elo_net::orders::KINDS.len());
 }

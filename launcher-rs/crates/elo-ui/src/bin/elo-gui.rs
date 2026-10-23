@@ -789,6 +789,10 @@ fn main() {
         store: std::cell::RefCell::new(None),
         games: std::cell::RefCell::new(None),
         friends: std::cell::RefCell::new(None),
+        pairs: std::cell::RefCell::new(None),
+        orders: std::cell::RefCell::new(None),
+        orders_run: std::cell::RefCell::new(None),
+        orders_said: std::cell::RefCell::new(None),
         signer: Arc::clone(&signer),
         changing: std::cell::Cell::new(false),
     });
@@ -881,6 +885,8 @@ fn main() {
                 // friend is playing is a measurement, and an hour-old one
                 // shown as current is the cached balance wall 3 refuses.
                 "Friends" => child.set_callback(move |_| defer(&ui_c, refresh_friends)),
+                "Pairs" => child.set_callback(move |_| defer(&ui_c, refresh_pairs)),
+                "Orders" => child.set_callback(move |_| defer(&ui_c, refresh_orders)),
                 _ => {}
             }
         }
@@ -1153,6 +1159,14 @@ struct Ui {
     /// Built on first open and rebuilt on every open after: presence moves,
     /// so the window is read when it is asked for rather than at startup.
     friends: std::cell::RefCell<Option<windows::FriendsWindow>>,
+    /// Pairs, read each time it is opened: a price is a measurement.
+    pairs: std::cell::RefCell<Option<windows::PairsWindow>>,
+    /// Orders, rebuilt from the book on disk whenever it changes.
+    orders: std::cell::RefCell<Option<windows::OrdersWindow>>,
+    /// The runner's stop flag while it runs, and what it has said since the
+    /// window last looked.
+    orders_run: std::cell::RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    orders_said: std::cell::RefCell<Option<std::sync::mpsc::Receiver<String>>>,
     /// Whose list Friends reads — see [`known_address`].
     signer: wiring::Shared,
     /// A friends change is in flight. One at a time: a second press while the
@@ -1305,6 +1319,228 @@ fn refresh_friends(ui: &Rc<Ui>, show: bool) {
         }
     );
     put_friends(ui, &state, show, None);
+}
+
+/// Orders: the book on this machine, a form, the settings, and the runner.
+///
+/// The runner is a thread that ticks the book every 15 seconds with the shared
+/// engine (`elo_net::trading::tick`) — the same one `elo trade orders run`
+/// uses — signing with the local keystore through a masked passphrase
+/// (`elo_vault::masked`). It stops when Stop is pressed or elo closes. What it
+/// says comes back on a channel this window polls, never from its thread.
+fn refresh_orders(ui: &Rc<Ui>, show: bool) {
+    use elo_net::{guard, trading};
+    let book = trading::load_orders(&trading::orders_path());
+    let settings = guard::Settings::load(&guard::settings_path());
+    let running = ui.orders_run.borrow().is_some();
+    let has_account = elo_vault::LocalSigner::at(elo_vault::keystore_path()).address().is_some();
+    let mut w = windows::orders(&book, &settings, running, has_account);
+    place(&mut w.window, ui.orders.borrow().as_ref().map(|o| (o.window.x(), o.window.y())), ui.drift);
+
+    {   // the field line follows the kind
+        let mut hint = w.hint.clone();
+        w.kind.clone().set_callback(move |k| {
+            let i = k.value().max(0) as usize;
+            hint.set_label(windows::ORDER_KINDS.get(i).map(|x| x.1).unwrap_or(""));
+        });
+    }
+    {   // place
+        let (kind, coin, side, amount) = (w.kind.clone(), w.coin.clone(), w.side.clone(), w.amount.clone());
+        let (a, b, c, d, cap) = (w.a.clone(), w.b.clone(), w.c.clone(), w.d.clone(), w.cap.clone());
+        let mut status = w.status.clone();
+        let ui_c = Rc::clone(ui);
+        w.place.clone().set_callback(move |_| {
+            let k = windows::ORDER_KINDS.get(kind.value().max(0) as usize).map(|x| x.0).unwrap_or("limit");
+            let path = trading::orders_path();
+            let mut book = trading::load_orders(&path);
+            let id = book.iter().map(|o| o.id).max().unwrap_or(0) + 1;
+            let sd = if side.value() == 1 { "sell" } else { "buy" };
+            match elo_net::orders::from_fields(id, k, &coin.value(), sd, &amount.value(), &a.value(), &b.value(),
+                                               &c.value(), &d.value(), &cap.value()) {
+                Ok(o) => {
+                    book.push(o);
+                    match trading::save_orders(&path, &book) {
+                        Ok(()) => defer(&ui_c, refresh_orders),
+                        Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
+                    }
+                }
+                Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
+            }
+        });
+    }
+    for (id, rm, resume) in &w.rows {
+        let (id, ui_c) = (*id, Rc::clone(ui));
+        rm.clone().set_callback(move |_| {
+            let path = trading::orders_path();
+            let mut book = trading::load_orders(&path);
+            book.retain(|o| o.id != id);
+            let _ = trading::save_orders(&path, &book);
+            defer(&ui_c, refresh_orders);
+        });
+        if let Some(r) = resume {
+            let ui_c = Rc::clone(ui);
+            r.clone().set_callback(move |_| {
+                let path = trading::orders_path();
+                let mut book = trading::load_orders(&path);
+                book.iter_mut().filter(|o| o.id == id).for_each(|o| o.paused = None);
+                let _ = trading::save_orders(&path, &book);
+                defer(&ui_c, refresh_orders);
+            });
+        }
+    }
+    for (name, cb) in [("approve_once", w.approve_once.clone()), ("check", w.check.clone()),
+                       ("allow_outside", w.allow_outside.clone())] {
+        cb.clone().set_callback(move |b| {
+            let p = guard::settings_path();
+            let mut s = guard::Settings::load(&p);
+            if s.set(name, b.is_checked()).is_ok() {
+                let _ = s.save(&p);
+            }
+        });
+    }
+    {   // start / stop
+        let ui_c = Rc::clone(ui);
+        let mut status = w.status.clone();
+        w.run.clone().set_callback(move |_| {
+            if let Some(flag) = ui_c.orders_run.borrow_mut().take() {
+                flag.store(false, std::sync::atomic::Ordering::SeqCst);
+                defer(&ui_c, refresh_orders);
+                return;
+            }
+            let signer = elo_vault::LocalSigner::at(elo_vault::keystore_path());
+            let Some(addr) = signer.address() else { return };
+            let Ok(me) = elo_vault::parse_address(&addr) else { return };
+            let ask = wiring::real_ask();
+            let Some(pass) = ask("Start orders", "Your passphrase, held masked in memory while orders run:") else {
+                return;
+            };
+            // the passphrase is checked now, not when an order fires at 3am
+            let probe = elo_vault::tx::Tx { nonce: 0, max_priority_fee: 0, max_fee: 0, gas: 21000, to: [0u8; 20],
+                                            value: 0, data: vec![] };
+            if let Err(e) = signer.sign_transaction(&pass, &probe) {
+                say(&mut status, &format!("that passphrase does not open this account: {e}"), elo_ui::theme::GOLD);
+                return;
+            }
+            let Ok(masked) = elo_vault::masked::Masked::new(pass) else { return };
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+            let (tx, rx) = std::sync::mpsc::channel::<String>();
+            {
+                let (flag, host) = (Arc::clone(&flag), ui_c.host.clone());
+                std::thread::spawn(move || {
+                    let rpc = elo_net::chain::HttpRpc::new();
+                    let sign = |t: &elo_vault::tx::Tx| masked.with(|p| signer.sign_transaction(p, t));
+                    let path = trading::orders_path();
+                    while flag.load(std::sync::atomic::Ordering::SeqCst) {
+                        let settings = guard::Settings::load(&guard::settings_path());
+                        let tx2 = tx.clone();
+                        for line in trading::tick(&rpc, &host, &path, &me, &settings, &guard::activity_path(), 100,
+                                                  &sign, &move |l: &str| { let _ = tx2.send(l.trim().to_string()); }) {
+                            let _ = tx.send(line);
+                        }
+                        for _ in 0..15 {
+                            if !flag.load(std::sync::atomic::Ordering::SeqCst) { break; }
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                    }
+                });
+            }
+            *ui_c.orders_run.borrow_mut() = Some(flag);
+            *ui_c.orders_said.borrow_mut() = Some(rx);
+            let poll_ui = Rc::clone(&ui_c);
+            app::add_timeout3(1.0, move |h| {
+                if poll_ui.orders_run.borrow().is_none() {
+                    return;
+                }
+                let mut heard = Vec::new();
+                if let Some(rx) = poll_ui.orders_said.borrow().as_ref() {
+                    while let Ok(l) = rx.try_recv() { heard.push(l); }
+                }
+                if !heard.is_empty() {
+                    println!("elo-gui: orders — {}", heard.join(" · "));
+                    refresh_orders(&poll_ui, false);
+                    if let Some(o) = poll_ui.orders.borrow().as_ref() {
+                        let mut s = o.status.clone();
+                        // one line that fits; the whole of it is in the activity log
+                        let last = heard.last().map(String::as_str).unwrap_or("");
+                        let short: String = if last.chars().count() > 96 {
+                            last.chars().take(95).collect::<String>() + "…"
+                        } else { last.to_string() };
+                        say(&mut s, &short, elo_ui::theme::INK);
+                    }
+                }
+                app::repeat_timeout3(1.0, h);
+            });
+            defer(&ui_c, refresh_orders);
+        });
+    }
+
+    let mut window = w.window.clone();
+    if let Some(old) = ui.orders.replace(Some(w)) {
+        let mut ow = old.window.clone();
+        let was_up = ow.shown();
+        ow.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
+}
+
+/// The origin's markets, as `(rows, reachable, why)`.
+fn read_pairs(host: &str) -> (Vec<windows::PairLine>, bool, String) {
+    let got = elo_net::Net::new().get_json(&format!("{host}/api/pairs"));
+    let Some(v) = got.value else { return (Vec::new(), false, got.why) };
+    let num = |x: Option<&serde_json::Value>| x.and_then(|v| v.as_f64());
+    let rows = v.get("pairs").and_then(|p| p.as_array()).map(|r| r.iter().filter_map(|p| {
+        let key = p.get("key")?.as_str()?.to_string();
+        let base = p.get("base").and_then(|b| b.as_str()).unwrap_or("?");
+        let quote = p.get("quote").and_then(|b| b.as_str()).unwrap_or("?");
+        Some(windows::PairLine {
+            label: format!("{base} / {quote}"),
+            price: num(p.get("price")),
+            change_24h: num(p.get("change_24h")),
+            venue: p.get("venue").and_then(|b| b.as_str()).unwrap_or("").to_string(),
+            key,
+        })
+    }).collect()).unwrap_or_default();
+    (rows, true, String::new())
+}
+
+/// Read the markets and put up a Pairs window over whatever was there.
+fn refresh_pairs(ui: &Rc<Ui>, show: bool) {
+    let (rows, reachable, why) = read_pairs(&ui.host);
+    let mut pairs_w = windows::pairs(&rows, reachable, &why);
+    place(&mut pairs_w.window, ui.pairs.borrow().as_ref().map(|p| (p.window.x(), p.window.y())), ui.drift);
+    for (key, b) in &pairs_w.rows {
+        let (mut b, front) = (b.clone(), Rc::clone(&ui.front));
+        let url = format!("{}/terminal.html?pair={key}#markets", ui.host);
+        b.set_callback(move |_| {
+            if let Err(e) = front.open(&url) {
+                eprintln!("elo-gui: {e}");
+            }
+        });
+    }
+    let mut refresh = pairs_w.refresh.clone();
+    let ui_c = Rc::clone(ui);
+    refresh.set_callback(move |b| {
+        b.set_label("Reading…");
+        b.deactivate();
+        defer(&ui_c, refresh_pairs);
+    });
+    let mut window = pairs_w.window.clone();
+    if let Some(old) = ui.pairs.replace(Some(pairs_w)) {
+        let mut w = old.window.clone();
+        let was_up = w.shown();
+        w.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
 }
 
 /// Put up a Friends window drawn from `state` over whatever was there, with
