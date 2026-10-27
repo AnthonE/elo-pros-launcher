@@ -166,8 +166,17 @@ pub fn parse_manifest(raw: &Value) -> Result<Manifest> {
         )));
     }
     let slug = as_str(obj.get("slug")).trim().to_string();
-    if slug.is_empty() || !slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        return Err(DepotError::new(format!("bad slug: {slug:?}")));
+    // Lowercase ASCII, because the slug is a directory name and a disk that
+    // ignores case makes `games/GATES` the same directory as `games/gates`:
+    // a manifest spelled `GATES` would install over the real build. A join
+    // link's slug is lowercased on the way in (`deeplink::check_slug`), so
+    // every spelling a player can type still reaches the one a manifest has.
+    if slug.is_empty()
+        || !slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return Err(DepotError::new(format!(
+            "bad slug: {slug:?} — lowercase letters, digits, - and _ only"
+        )));
     }
     let mut builds = Vec::new();
     for b in obj.get("builds").and_then(|v| v.as_array()).unwrap_or(&vec![]) {

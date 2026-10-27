@@ -194,9 +194,19 @@ fn resolve_amount(rpc: &HttpRpc, host: &str, amount: &str, coin: &str, who: &[u8
         .map_err(DepotError::new)?;
     let held = if addr == [0u8; 20] { chain::balance(rpc, who) } else { chain::token_balance(rpc, &addr, who) }
         .map_err(|e| DepotError::new(format!("could not read your balance, so nothing was sent: {e}")))?;
-    let raw = held / 10_000 * (pct * 100.0).round() as u128;
-    if raw == 0 {
+    // Multiply before dividing: dividing first rounds a small balance to
+    // nothing, and leaves dust behind on 100%.
+    let bps = (pct * 100.0).round() as u128;
+    let raw = if bps >= 10_000 {
+        held
+    } else {
+        held.checked_mul(bps).map_or(held / 10_000 * bps, |x| x / 10_000)
+    };
+    if held == 0 {
         return Err(DepotError::new(format!("this account holds no {coin}")));
+    }
+    if raw == 0 {
+        return Err(DepotError::new(format!("{pct}% of your {coin} rounds to nothing")));
     }
     Ok(elo_net::wallet::format_amount(raw, dec as u8).replace(',', ""))
 }

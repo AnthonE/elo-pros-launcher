@@ -1,0 +1,59 @@
+{
+  "about": "GET /api/guilds/tags and GET /api/guilds/of/{wallet}, built by meter/guilds.py (meter/test_sdk_fixtures.py rebuilds the shapes). `face_guild` is the `guild` field GET /api/face/{wallet} carries: the same badge as a tag read.",
+  "face_guild": {
+    "color": "teal",
+    "name": "Night Owls",
+    "page": "/g/OWL",
+    "role": "member",
+    "shape": "hex",
+    "tag": "OWL"
+  },
+  "of": {
+    "applied": [],
+    "guilds": [
+      {
+        "door": "open",
+        "emblem": {
+          "color": "teal",
+          "shape": "hex"
+        },
+        "founded": 1761000000,
+        "games": [
+          {
+            "slug": "gates",
+            "title": "Gates"
+          }
+        ],
+        "line": "we raid at dusk",
+        "members": 2,
+        "name": "Night Owls",
+        "officers": 1,
+        "page": "/g/OWL",
+        "role": "member",
+        "since": 1761000100,
+        "tag": "OWL"
+      }
+    ],
+    "hidden": false,
+    "invites": [],
+    "limits": {
+      "memberships_max": 5
+    },
+    "wallet": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "worn": "OWL"
+  },
+  "tags": {
+    "how": "each wallet, as its player, maps to the tag it shows (the guild it wore last, else the one it joined first) or null for none",
+    "tags": {
+      "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": {
+        "color": "teal",
+        "name": "Night Owls",
+        "page": "/g/OWL",
+        "role": "member",
+        "shape": "hex",
+        "tag": "OWL"
+      },
+      "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3": null
+    }
+  }
+}

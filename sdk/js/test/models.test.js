@@ -50,8 +50,20 @@ test("leaderboards", () => {
 });
 
 test("who and face parse", () => {
-  assert.equal(answer(fx("who_fixture.json").who).found.agent, "Dummmy");
+  assert.equal(answer(fx("who_fixture.json").who).found.agent, "Moss");
   assert.equal(answer(fx("face.json").set).name, "ash");
+});
+
+test("guild tags, a wallet's guilds, and the face's guild", () => {
+  const g = fx("guilds.json");
+  const tags = answer(g.tags).tags;
+  assert.equal(tags["0x" + "b2".repeat(20)].tag, "OWL");
+  assert.equal(tags["0x" + "c3".repeat(20)], null);
+  const of = answer(g.of);
+  assert.equal(of.worn, "OWL");
+  assert.equal(of.guilds[0].emblem.shape, "hex");
+  assert.equal(answer(fx("face.json").set).guild.tag, "OWL");
+  assert.equal(answer(fx("face.json").unset).guild, null);
 });
 
 test("the three outcomes stay apart", () => {

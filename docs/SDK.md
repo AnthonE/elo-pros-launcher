@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-21
+updated: 2026-10-27
 about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), the reference clients Gates links, and the Rust, Python and JavaScript packages"
 ---
 
@@ -33,8 +33,8 @@ conflation:
    lane A, explicitly ungated — had no way to use it.
 3. **A native game had no path at all.** Gates' Rust binary would have had to
    ask the player for a private key, which is the one thing we must never
-   teach, and which is unrecoverable once taught. `clients/python` is the
-   wrong shape twice over: Python, and it takes a raw key.
+   teach, and which is unrecoverable once taught. The old Python client was
+   the wrong shape twice over: Python, and it took a raw key.
 
 ## 1 · The answer, and Steam had it first
 
@@ -187,6 +187,19 @@ citation to a deleted gate reads as two checks where there is one.
 the test pins the number so every future verb costs the same deliberate edit —
 the wire is the whole of a game's authority.
 
+**In the browser the overlay is ours, not the game's.** A browser build's play
+page has no broker, and the page is on our origin, so the overlay there is a
+page element above the canvas: `watchtower/js/game-overlay.js`, which nginx
+adds to every `/games/<slug>/play/` page (`sub_filter`), so a game ships
+nothing for it. Shift+Tab or the corner button opens friends with who is
+playing where and a Join onto their shard, invites, friend requests, your
+agents, and the game's chat room (read; talking is `chat.html`). Signed in to
+the site (a login or a wallet), accepting, declining and inviting go to
+`/friends/me` with the site's token and ask nothing; with only a wallet in the
+browser they are prepare → sign → act, signed in the wallet's own prompt. Sign
+in opens `login.html` in a new tab when logins are on, so the game keeps
+running. It is off with `?overlay=0`, in the X embed and in a stream capture.
+
 ### 2c · `prove` is Sign-In With Ethereum, and the crypto was never the bespoke part
 
 > Operator, 2026-08-07: *"i dont see why we have some special crypto things that
@@ -241,7 +254,7 @@ depends on `elo-broker` rather than the reverse — so it is a stated contract
 held by the implementor, plus a test.
 
 **What did NOT change, and deliberately.** The `elo <family>` format for
-`play`, `vow`, `review` and the rest stays (the pre-rename first line is
+`play`, `review` and the rest stays (the pre-rename first line is
 still verified, for installed clients): only *our own* server verifies
 those (`meter/playauth.py`), so the shape costs no integrator anything, and it
 is what the consent prompt renders. EIP-712 typed data is the standard for
@@ -271,24 +284,23 @@ verbs and asserts `PROTOCOL.md` documents each one and both clients can call
 it.
 
 **What `profile` is.** One read of `/api/who`, flattened to what a HUD draws.
-`/who` is already the origin's join across sworn name, npub, vow and wallet;
-without this verb every title reimplements it, and each one discovers
-separately that the handle and face hang off a `vow_id` while achievements and
-holdings hang off a wallet.
+`/who` is already the origin's join on the wallet (its name, picture, seat and
+hive link); without this verb every title reimplements it.
 
-**One verb is one origin read.** Achievements, holdings and reputation come
-back as urls under `links` for the game to fetch — the same split Steam makes
+**One verb is one origin read.** Achievements, items and holdings come back
+as urls under `links` for the game to fetch — the same split Steam makes
 between `GetPlayerSummaries` and `GetPlayerAchievements`.
 
 Three properties, and each is a mistake it prevents:
 
-- **The sworn and the self-declared never merge.** `handle` is the NIP-05 name
-  out of the locked index and costs ELO to change; `display_name` is whatever
-  its owner typed. Both clients expose `label`, which renders a sworn name bare
+- **The checked and the self-declared never merge.** `handle` is a hive handle
+  as NIP-05, held by one wallet (`checked` says one is there); `display_name`
+  is whatever the wallet typed. Both clients expose `label`, which renders a
+  held handle bare
   and prefixes anything else with `~` (`ACHIEVEMENTS.md`). A surface showing a
   claimed name in the clothes of a checked one has lied for free.
 - **Unreachable is not empty.** `CLAUDE.md` §traps, and the reason this is not
-  a passthrough: a 404 from `/who` is a real answer — *nobody has sworn here* —
+  a passthrough: a 404 from `/who` is a real answer — *nobody answers to that* —
   while an origin that is down is not an answer at all. The reply carries
   `reachable`, and a host that cannot read **refuses** rather than returning a
   blank profile. A game that draws a confident *"anonymous"* over a network
@@ -331,13 +343,15 @@ message it can *parse*, from a family it knows:
 - a caller-named family is refused like any other unknown field. The arca
   derives it.
 
-The thirteen families are `braid card covenant doc familiar hive holder meter
-pact play review store vow` — every EIP-191 message the platform actually builds.
+`arca.py` was deleted on 2026-10-23 with the house agent, so the launcher's
+`arca` backend has nothing to connect to. The overlays' `FAMILIES` list the
+first lines the platform still builds: `dev entitle hive link pair partners
+play repo review store`.
 
 **The bound is a COUNT, not a value.** A message moves no native value (the
 0x19 prefix makes it structurally not a transaction), so charging it against
 the ether cap would be theatre; leaving it unbounded would let a compromised
-client burn a day of a vow's actions in a loop. Default 200/day, durable
+client burn a day of a wallet's actions in a loop. Default 200/day, durable
 across restarts — *an in-memory count is a cap you lift by crashing.*
 
 The journal keeps the **full text** of everything signed, and of every
@@ -465,14 +479,19 @@ tested separately is a protocol with no test** — and that is not a slogan here
 it is the post-mortem: `prove` was dark to half the players for exactly that
 reason until the second broker was deleted.
 
-### 5b · A browser game links `elo-1.js`
+### 5b · A browser game links `elo-3.js`
 
 Everything above speaks to the launcher over a local socket, and a game in a
 browser tab has no socket. A web game — every community game is one
 (`GATES.md` §3b) — links the web SDK instead:
-`https://elopros.com/sdk/elo-1.js` (`watchtower/sdk/elo-1.js`), no
+`https://elopros.com/sdk/elo-3.js` (`watchtower/sdk/elo-3.js`), no
 dependencies, versioned: once a game ships against a version it is not edited
-in place. `Elo.connect()` finds every wallet in the browser (EIP-6963, then
+in place (`elo-1.js` and `elo-2.js` stay served, byte for byte). Version 2
+added Solana sign-in; version 3 adds `Elo.profile()` (the launcher's `profile`
+flattening, read from `/api/who`), `Elo.on("account" | "chain")`, the
+`no_wallet` error code, a no-op load where there is no `window`, and loads its
+phone-wallet module from `/sdk/` pinned by sha384 — the deferred `l-sdk#7`
+finding, which could only ship as a new file. `Elo.connect()` finds every wallet in the browser (EIP-6963, then
 `window.ethereum`) and asks which when there are several, `Elo.ensureChain()`
 switches it to chain 4663, `Elo.signIn({nonce})` composes the same SIWE
 (EIP-4361) message `prove` does, for **the game's own server** to verify with
@@ -482,8 +501,17 @@ answers `true`, `false` or `null`. Phone wallets come on with the game's own
 WalletConnect project ID: `Elo.config({ walletconnectProjectId })`. The wall is unchanged: the key stays in the player's wallet, the game
 never touches it, and the real gate is server-side —
 `POST /api/ticket/{slug}/check`, kick on `false` and never on `null`. The
-public reads it calls answer with CORS `*` (`meter/cors_public.py`). A desktop
+public reads it calls answer with CORS `*` (`meter/cors_public.py`), and so do
+the reads a HUD draws (`/who`, items, achievements, the leaderboard). A desktop
 build keeps linking `sdk/`.
+
+**The server's half is one call in any language.** `POST /api/signin/check`
+(`meter/signin_check.py`) parses the EIP-4361 or Solana sign-in, checks it is
+for the caller's domain and nonce and fresh, and verifies the signature with
+`sigcheck.verify` — plain keys, ERC-1271/6492 smart wallets and Ed25519 — so a
+Godot or Go server needs no crypto stack and no RPC endpoint. It stores
+nothing; the nonce stays the game's to retire. `sdk/testdata/signin_check.json`
+pins the bytes `elo-3.js` composes to the bytes the route parses.
 
 ### 5c · The packages: Rust, Python, JavaScript
 
@@ -495,19 +523,24 @@ instead; each carries the client above unchanged and adds one for `/api/`:
 |---|---|---|
 | `elo-sdk` (Rust crate) | `sdk/rust/` | `elo_overlay.rs` as `elo_sdk::overlay`, plus `Client` over `ureq` (feature `http`, on by default) |
 | `elo-sdk` (Python) | `sdk/python/` | `elo_overlay.py` as its own module, plus `elo_sdk.Client`; standard library only |
-| `@elopros/sdk` (JavaScript) | `sdk/js/` | the web SDK `elo-1.js` (§5b), plus a `fetch` client; no launcher half, since a browser has no socket |
+| `@elopros/sdk` (JavaScript) | `sdk/js/` | the web SDK `elo-3.js` (§5b) with its types, plus a `fetch` client; no launcher half, since a browser has no socket |
 
 One API in all three (`sdk/README.md` has the table): friends with buddies,
 ticket ownership, items, faces, profiles, leaderboards, and the payout file a
-game server writes when a wipe closes. Two rules from this page hold in each.
+game server writes when a wipe closes, and a game server's half: the sign-in
+check (`checkSignIn`), the paged roster sweep (`checkRoster`) and a nonce
+(`newNonce`). Two rules from this page hold in each.
 A read keeps "could not look" apart from "no": every call answers an answer, a
 refusal, or could-not-look, and a ticket read that timed out is never "does
 not own". A signed change rebuilds the text it signs locally and refuses a
 server that prepares anything else before the signer is asked, the guard the
 launcher's own friends commands use. `sdk/testdata/` pins all three, Gates
 and the launcher, and `meter/test_sdk_fixtures.py` holds those fixtures to the
-server's code. Until the packages are published, install from a clone of the
-mirror.
+server's code. Until the packages are published, install from the mirror:
+`pip install "git+https://github.com/AnthonE/elo-pros-launcher#subdirectory=sdk/python"`,
+or `elo-sdk = { git = "https://github.com/AnthonE/elo-pros-launcher" }` in
+`Cargo.toml`; npm cannot install a folder of a repo, so JavaScript installs
+from a clone.
 
 ## 6 · How Gates uses it, concretely
 

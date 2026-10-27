@@ -96,26 +96,24 @@ impl Host for Headless {
     /// protocol**, which is how a suite starts getting muted.
     fn profile(&mut self, address: &str) -> Result<Value, Refusal> {
         if address.eq_ignore_ascii_case("0x000000000000000000000000000000000000dEaD") {
-            // The 404 shape: we looked, nobody has sworn here. A real answer,
-            // and NOT the same as being unable to look.
+            // The 404 shape: we looked, and nobody answers to this address
+            // here. A real answer, and NOT the same as being unable to look.
             return Ok(json!({"reachable": true, "profile": Value::Null,
-                             "note": "no sworn identity for that address. Playing \
-                                      unsworn is a normal state, and this is a real \
+                             "note": "nothing set for that address. Playing with a bare \
+                                      wallet is a normal state, and this is a real \
                                       answer rather than a failed read."}));
         }
         let who = json!({
             "authoritative": true,
             "matches": 1,
             "found": {
-                "agent": "Dummmy", "kind": "unknown", "vow_id": "1a434221c5333fa7",
+                "agent": "Moss", "kind": "unknown",
                 "wallet": address, "npub": Value::Null, "nip05": Value::Null,
-                "sandbox": false, "avatar": "/vow/1a434221c5333fa7/mark.svg",
+                "avatar": format!("/face/{address}/pic.png"),
                 "face": Value::Null,
-                "conduct": {"vow": "/vow/1a434221c5333fa7"},
-                "reach": {"in_the_hive": false, "tip": "/hive/tip?to=1a434221c5333fa7"},
-                "reputation": {"at": format!("/reputation/{address}")},
+                "reach": {"in_the_hive": false, "tip": format!("/hive/tip?to={address}")},
             },
-            "subject": {"wallet": address, "identities": 2},
+            "subject": {"wallet": address},
         });
         Ok(json!({
             "reachable": true,

@@ -17,6 +17,12 @@
 //! talked into one. `elo_net::wallet::own_warning` names an account that
 //! carries a delegation anyway.
 //!
+//! The one typed-data signature this client makes is a Seaport 1.6 listing
+//! (`crate::seaport`, the operator's call, 2026-10-23): a fixed domain, a
+//! fixed struct hashed here, and a vault check that the order offers one of
+//! this account's items and pays this account first. No caller can name a
+//! type or a domain, so it cannot become a permit.
+//!
 //! # The chain id is a constant
 //!
 //! An RPC endpoint answers `eth_chainId` and could answer wrong. The id signed

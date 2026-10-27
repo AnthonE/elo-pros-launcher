@@ -82,7 +82,10 @@ impl Join {
 /// link rather than an unknown command.
 pub fn is_link(s: &str) -> bool {
     let t = s.trim();
-    t.len() > SCHEME.len() + 3 && t[..SCHEME.len() + 3].eq_ignore_ascii_case(&format!("{SCHEME}://"))
+    // `get`, not a slice: argv is anyone's text, and `elo xé…` put a
+    // character across the cut.
+    t.len() > SCHEME.len() + 3
+        && t.get(..SCHEME.len() + 3).is_some_and(|h| h.eq_ignore_ascii_case(&format!("{SCHEME}://")))
 }
 
 /// Build the canonical link for a title and an address, validating both.
@@ -158,7 +161,9 @@ pub fn parse(link: &str) -> Result<Join> {
     let slug = check_slug(slug)?;
     let addr = percent_decode(addr)?;
     check_addr(&addr)?;
-    Ok(Join { slug, addr })
+    // What was checked is the trimmed address, so that is what is kept: a
+    // `%0A` on the end would otherwise reach the game's `{server}` intact.
+    Ok(Join { slug, addr: addr.trim().to_string() })
 }
 
 /// Validate a title slug and lowercase it.
@@ -311,6 +316,18 @@ mod tests {
         let written = link_for("gates", "game.elopros.com:61234").unwrap();
         assert_eq!(written, j.link());
         assert_eq!(parse(&written).unwrap(), j);
+    }
+
+    #[test]
+    fn padding_never_reaches_the_game_and_odd_text_never_panics() {
+        // `%0A` decodes to a newline the address check trims away; the
+        // address kept must be the one that was checked.
+        let j = parse("elo://join/gates/game.elopros.com:61234%0A").expect("padded");
+        assert_eq!(j.addr, "game.elopros.com:61234");
+        // argv is anyone's text: a character across the scheme's cut is a
+        // "no", not a panic.
+        assert!(!is_link("elo:xé//join"));
+        assert!(!is_link("éééééééé"));
     }
 
     #[test]

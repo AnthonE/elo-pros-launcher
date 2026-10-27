@@ -227,6 +227,7 @@ name = "elo-depot"
 version = "0.6.8"
 dependencies = [
  "elo-vault",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
@@ -303,6 +304,7 @@ name = "elo-vault"
 version = "0.6.8"
 dependencies = [
  "aes",
+ "crypto-bigint",
  "ctr",
  "elo-broker",
  "getrandom 0.3.4",
@@ -310,6 +312,7 @@ dependencies = [
  "k256",
  "libc",
  "pbkdf2",
+ "ring",
  "scrypt",
  "serde_json",
  "sha2",

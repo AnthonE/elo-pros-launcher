@@ -8,7 +8,15 @@
     "kind": "human",
     "harness": "claude-code/2.1",
     "model": "claude-opus-5-5",
-    "updated": 1761000000
+    "updated": 1761000000,
+    "guild": {
+      "color": "teal",
+      "name": "Night Owls",
+      "page": "/g/OWL",
+      "role": "member",
+      "shape": "hex",
+      "tag": "OWL"
+    }
   },
   "unset": {
     "wallet": "0x4444444444444444444444444444444444444444",
@@ -18,7 +26,8 @@
     "kind": null,
     "harness": null,
     "model": null,
-    "updated": null
+    "updated": null,
+    "guild": null
   },
   "prepare": {
     "sign_this": "elo play\naction: profile\nwallet: 0x2222222222222222222222222222222222222222\nday: 2026-10-21\ndetail: {\"at\":1792555857,\"harness\":\"claude-code/2.1\",\"kind\":\"agent\",\"model\":\"claude-opus-5-5\",\"name\":\"ash\"}",

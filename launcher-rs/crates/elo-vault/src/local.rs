@@ -26,6 +26,7 @@
 //! because it is the safe one.
 
 use crate::phrase::Phrase;
+use crate::solana::{SolAccount, Transaction as SolTx};
 use crate::tx::{Signed, Tx};
 use crate::{keystore, Account};
 use elo_broker::protocol::Refusal;
@@ -43,11 +44,18 @@ pub struct LocalSigner {
     path: PathBuf,
     account: Option<Account>,
     address: Option<String>,
+    /// The Solana half's address, read in the clear from its own file
+    /// (`crate::solana_path_for`) — `None` when this account has no Solana
+    /// half yet.
+    sol_address: Option<String>,
     /// When the unlocked key last DID something — set by `unlock`, refreshed
     /// by every `sign`. What the GUI's idle relock reads: an account busy
     /// signing for a three-hour session is never idle, and one forgotten
     /// after a sign-in is relocked on the clock rather than at close.
     last_used: Option<std::time::Instant>,
+    /// Why the keystore, or its Solana half, is there and could not be read.
+    /// `None` when both read cleanly or are simply absent.
+    unreadable: Option<String>,
 }
 
 impl LocalSigner {
@@ -57,14 +65,46 @@ impl LocalSigner {
         let path = path.into();
         // The address is public and lives in the file in the clear, so it can
         // be shown while locked. That is the whole reason the format keeps it.
-        let address = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .and_then(|v| v.get("address").and_then(Value::as_str).map(str::to_string))
+        let (address, unreadable) = match clear_address(&path) {
             // Checksummed, NOT the file's lowercase — see `checksum_address`.
             // One account must render as one string whether it is locked or not.
-            .and_then(|a| crate::checksum_address(&a));
-        LocalSigner { path, account: None, address, last_used: None }
+            Ok(a) => (a.and_then(|a| crate::checksum_address(&a)), None),
+            Err(why) => (None, Some(why)),
+        };
+        let (sol_address, sol_unreadable) = match clear_address(&crate::solana_path_for(&path)) {
+            Ok(a) => (
+                a.and_then(|a| crate::solana::parse_address(&a).ok())
+                    .map(|raw| crate::solana::base58_encode(&raw)),
+                None,
+            ),
+            Err(why) => (None, Some(why)),
+        };
+        LocalSigner {
+            path,
+            account: None,
+            address,
+            sol_address,
+            last_used: None,
+            unreadable: unreadable.or(sol_unreadable),
+        }
+    }
+
+    /// Why a file of this account is on disk and could not be read — a
+    /// permission, a damaged file — or `None`. Said rather than folded into
+    /// "no address", because the two send a player opposite ways: one makes
+    /// a new account, the other recovers the one they have.
+    pub fn unreadable(&self) -> Option<&str> {
+        self.unreadable.as_deref()
+    }
+
+    /// This account's Solana address, shown locked or unlocked.
+    pub fn sol_address(&self) -> Option<String> {
+        self.sol_address.clone()
+    }
+
+    /// Where the Solana half is (or would be) kept.
+    pub fn solana_path(&self) -> PathBuf {
+        crate::solana_path_for(&self.path)
     }
 
     pub fn exists(&self) -> bool {
@@ -127,7 +167,7 @@ impl LocalSigner {
         passphrase: &str,
         phrase: &Phrase,
     ) -> Result<LocalSigner, String> {
-        Self::write_new(path.into(), passphrase, phrase.account()?)
+        Self::write_new(path.into(), passphrase, phrase.account()?, Some(phrase.solana()?))
     }
 
     /// Adopt a key the holder already has, from its 32 raw bytes.
@@ -142,7 +182,78 @@ impl LocalSigner {
         passphrase: &str,
         secret: &[u8],
     ) -> Result<LocalSigner, String> {
-        Self::write_new(path.into(), passphrase, Account::from_secret(secret)?)
+        Self::write_new(path.into(), passphrase, Account::from_secret(secret)?, None)
+    }
+
+    /// Give an account made before Solana — or adopted from a raw key — its
+    /// Solana half.
+    ///
+    /// Two ways in, both checked before anything is written:
+    /// - **the recovery words**, which must derive THIS account's `0x`
+    ///   address, so the Solana address that appears is the one Phantom shows
+    ///   for the same words and never some other account's;
+    /// - **a Solana private key** as Phantom exports it, for a holder whose
+    ///   Solana account lives elsewhere.
+    ///
+    /// The passphrase must open this keystore: the Solana half is encrypted
+    /// under the same one, so one passphrase answers for both chains.
+    /// **Refuses to overwrite** a Solana half that is already there.
+    pub fn add_solana(&mut self, passphrase: &str, words_or_key: &str) -> Result<String, String> {
+        let at = self.solana_path();
+        if at.exists() {
+            if let (None, Some(why)) = (&self.sol_address, &self.unreadable) {
+                return Err(format!("{} is there and cannot be read ({why}) — it may be the \
+                                    only copy of a Solana key, so nothing replaces it",
+                                   at.display()));
+            }
+            return Err(format!("{} already exists — this account already has a Solana address",
+                               at.display()));
+        }
+        let raw = std::fs::read_to_string(&self.path)
+            .map_err(|e| format!("cannot read {}: {e}", self.path.display()))?;
+        let doc: Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("{} is not JSON: {e}", self.path.display()))?;
+        keystore::decrypt(&doc, passphrase)?;
+        let sol = if words_or_key.split_whitespace().count() > 1 {
+            let phrase = Phrase::parse(words_or_key)?;
+            if Some(phrase.account()?.address()) != self.address {
+                return Err("Those words are a different account from this one, so no Solana \
+                            address was added. Check them against what you wrote down.".into());
+            }
+            phrase.solana()?
+        } else {
+            SolAccount::from_typed(words_or_key)?
+        };
+        write_solana(&at, passphrase, &sol, true)?;
+        self.sol_address = Some(sol.address());
+        Ok(sol.address())
+    }
+
+    /// Sign a Solana transaction, with the passphrase asked for THIS one —
+    /// the same rule as [`LocalSigner::sign_transaction`]: decrypted fresh,
+    /// used once, dropped. The key must be the address the file names, and the
+    /// transaction must be asking that address to sign
+    /// ([`crate::solana::Transaction`] refuses otherwise).
+    pub fn sign_solana_transaction(&self, passphrase: &str, tx: &mut SolTx) -> Result<(), String> {
+        let at = self.solana_path();
+        // Only a file that is NOT THERE is "no Solana address". One that is
+        // there and unreadable is a permission or a damaged disk, and telling
+        // that player to add an address sends them off to make a second one.
+        let raw = std::fs::read_to_string(&at).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "this account has no Solana address yet — add one in Account".to_string()
+            } else {
+                format!("cannot read {}: {e}", at.display())
+            }
+        })?;
+        let doc: Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("{} is not JSON: {e}", at.display()))?;
+        let secret = keystore::decrypt(&doc, passphrase)?;
+        let sol = SolAccount::from_secret(secret.as_ref())?;
+        if self.sol_address.as_deref() != Some(sol.address().as_str()) {
+            return Err("this Solana keystore's key is not the address it names — refusing to sign".into());
+        }
+        tx.sign_with(&sol)
     }
 
     /// Sign a transaction, with the passphrase asked for THIS transaction.
@@ -167,6 +278,22 @@ impl LocalSigner {
         account.sign_tx(tx)
     }
 
+    /// Sign a Seaport 1.6 listing (`crate::seaport`), with the passphrase asked
+    /// for THIS listing, like a transaction. The vault refuses any order that is
+    /// not one item offered by this account and paid to it first in ETH.
+    pub fn sign_seaport_listing(&self, passphrase: &str, order: &crate::seaport::Order) -> Result<String, String> {
+        let raw = std::fs::read_to_string(&self.path)
+            .map_err(|e| format!("cannot read {}: {e}", self.path.display()))?;
+        let doc: Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("{} is not JSON: {e}", self.path.display()))?;
+        let secret = keystore::decrypt(&doc, passphrase)?;
+        let account = Account::from_secret(secret.as_ref())?;
+        if self.address.as_deref() != Some(account.address().as_str()) {
+            return Err("this keystore's key is not the address it names — refusing to sign".into());
+        }
+        account.sign_listing(order)
+    }
+
     /// The shared write half. Every door refuses the same things, in the
     /// same order, because a refusal that depends on which verb you typed is a
     /// refusal a caller can route around.
@@ -174,6 +301,7 @@ impl LocalSigner {
         path: PathBuf,
         passphrase: &str,
         account: Account,
+        sol: Option<SolAccount>,
     ) -> Result<LocalSigner, String> {
         let occupied = || {
             format!(
@@ -184,6 +312,20 @@ impl LocalSigner {
         };
         if path.exists() {
             return Err(occupied());
+        }
+        // A Solana half with no keystore beside it is a leftover from an
+        // account whose keystore went — and may be the only copy of that key.
+        //
+        // ⚠ Refused whatever `sol` is. An import writes no Solana half, and
+        // checking only when it would was how a player who moved
+        // `keystore.json` aside (as the overwrite refusal tells them to) and
+        // imported a raw key was shown the OLD account's Solana address as
+        // theirs — read back from this leftover by `LocalSigner::at`.
+        let sol_at = crate::solana_path_for(&path);
+        if sol_at.exists() {
+            return Err(format!(
+                "{} already exists — move it somewhere safe first: it may be the only \
+                 copy of a Solana key", sol_at.display()));
         }
         if passphrase.chars().count() < MIN_PASSPHRASE {
             return Err(format!(
@@ -206,13 +348,58 @@ impl LocalSigner {
                 format!("cannot write {}: {e}", path.display())
             }
         })?;
+        let sol_address = match &sol {
+            Some(s) => {
+                if let Err(e) = write_solana(&sol_at, passphrase, s, true) {
+                    // A failed create leaves nothing. The keystore is this
+                    // call's own — the exclusive create above made it — and
+                    // kept, it is half an account whose words were never
+                    // handed back, blocking the retry as "may be the only
+                    // copy of a key".
+                    let _ = std::fs::remove_file(&path);
+                    return Err(e);
+                }
+                Some(s.address())
+            }
+            None => None,
+        };
         Ok(LocalSigner {
             path,
             account: Some(account),
             address: Some(address),
+            sol_address,
             last_used: Some(std::time::Instant::now()),
+            unreadable: None,
         })
     }
+}
+
+/// Write a Solana half: the V3 shape (scrypt + AES-128-CTR, the same
+/// passphrase), with the base58 address and the derivation path in the clear.
+fn write_solana(at: &std::path::Path, passphrase: &str, sol: &SolAccount, fresh: bool) -> Result<(), String> {
+    let mut doc = keystore::encrypt(&sol.secret(), passphrase, "")?;
+    // `encrypt` writes an Ethereum address lowercased; base58 is case-sensitive,
+    // so the Solana address is set here, as written.
+    doc["address"] = json!(sol.address());
+    doc["chain"] = json!("solana");
+    doc["path"] = json!(crate::solana::PATH_TEXT);
+    let body = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    crate::write_private(at, body.as_bytes(), fresh)
+        .map_err(|e| format!("cannot write {}: {e}", at.display()))
+}
+
+/// The `address` a keystore file names in the clear. `Ok(None)` is a file
+/// that is not there — that, and only that, is absence. Anything else that
+/// stops the read says what it was.
+fn clear_address(at: &std::path::Path) -> Result<Option<String>, String> {
+    let raw = match std::fs::read_to_string(at) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("cannot read {}: {e}", at.display())),
+    };
+    let v: Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("{} is not JSON: {e}", at.display()))?;
+    Ok(v.get("address").and_then(Value::as_str).map(str::to_string))
 }
 
 /// The shortest passphrase a NEW keystore accepts. Unlocking an existing one
@@ -229,7 +416,10 @@ impl Signer for LocalSigner {
         match (&self.address, self.is_unlocked()) {
             (Some(a), true) => format!("{a} · unlocked for this session"),
             (Some(a), false) => format!("{a} · locked — a passphrase unlocks it"),
-            (None, _) => "a keystore is there but names no address".into(),
+            (None, _) => self
+                .unreadable
+                .clone()
+                .unwrap_or_else(|| "a keystore is there but names no address".into()),
         }
     }
 

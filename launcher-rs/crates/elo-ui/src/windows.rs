@@ -186,11 +186,12 @@ fn human_bytes(n: i64) -> String {
 /// it without a display. `built: false` renders deactivated AND says so; a
 /// hidden feature and an unbuilt one look identical to a player, and only one
 /// of those is honest.
-pub const MENU: [(&str, &str, bool); 11] = [
+pub const MENU: [(&str, &str, bool); 12] = [
     ("Games", "what is installed, and what is stale", true),
     ("Store", "the curated shelf", true),
     ("Pairs", "every market: price and 24h change", true),
     ("Orders", "limits, stops, trailing, DCA — run while elo is open", true),
+    ("Skins", "your items: sell, cancel or take an offer on OpenSea", true),
     ("Chat", "talk with other players, live", true),
     ("Servers", "browse a title's shards", true),
     ("Friends", "who you play with, and where they are", true),
@@ -399,7 +400,7 @@ pub fn games(rows: &[Row]) -> GamesWindow {
             act.set_align(enums::Align::Center | enums::Align::Inside);
             let mut verify = chrome::button(verify_x, y + 4, 96, 26, "Verify", Tone::Plain);
             verify.set_align(enums::Align::Center | enums::Align::Inside);
-            verify.set_tooltip("re-hash every file the depot names and check the digest");
+            verify.set_tooltip("re-check every installed file against the published build");
             controls.push(GameControls {
                 slug: row.slug.clone(),
                 build: row.build.clone(),
@@ -412,7 +413,7 @@ pub fn games(rows: &[Row]) -> GamesWindow {
     shelf.end();
 
     chrome::label(16, well_h + 52, 600, 16,
-                  "verify re-hashes every file the depot names, then checks the digest",
+                  "Verify re-checks every installed file against the published build",
                   theme::DIM, 11);
     w.end();
     grows_downward(&mut w, &shelf, 100 + ROW_H * 2);
@@ -496,6 +497,7 @@ pub enum Price {
 /// Every field here is somebody else's text or somebody else's measurement.
 /// Nothing on this struct is computed by the window that draws it, which is
 /// what keeps the Store constructible in a test with no origin.
+#[derive(Clone, Debug)]
 pub struct Shelf {
     pub slug: String,
     pub name: String,
@@ -530,12 +532,19 @@ impl Shelf {
     /// `tests/rows.rs` was written for after a row said *"an update is
     /// published"* over a Play button. A caller reads [`Act`] rather than
     /// re-parsing this string.
+    ///
+    /// A priced title with a build for this machine offers **Install**, not
+    /// Buy: a copy is the licence to the title's servers, not the bytes, and a
+    /// player who already holds one (every player is sent a free one) had no
+    /// way to install from this window at all. A depot that does want a grant
+    /// answers 401, and Install says how to get one; buying stays one press
+    /// away on Page….
     pub fn act(&self) -> Act {
         match (&self.price, self.installed, self.installable) {
             (_, true, _) => Act::Installed,
-            (Price::Posted { .. }, _, _) => Act::Buy,
             (Price::Unknown { .. }, _, _) => Act::Page,
-            (Price::Free, _, true) => Act::Install,
+            (_, _, true) => Act::Install,
+            (Price::Posted { .. }, _, false) => Act::Buy,
             (Price::Free, _, false) => Act::Unpublished,
         }
     }
@@ -585,11 +594,11 @@ impl Act {
     /// lied to them, and a five-word button has no room to prevent it.
     pub fn what_it_does(self) -> &'static str {
         match self {
-            Act::Install => "fetch the build, hash-verify every file, and place it",
-            Act::Buy => "open the buy box in your browser — the wallet is yours, not this client's",
+            Act::Install => "download it, check every file, and add it to Games",
+            Act::Buy => "open the buy box in your browser and pay from your wallet",
             Act::Installed => "already on this disk — start it from Games",
-            Act::Unpublished => "listed, but no build for this platform is published yet",
-            Act::Page => "not enough could be read to offer a price — read the page yourself",
+            Act::Unpublished => "listed, but there is no build for this computer yet",
+            Act::Page => "the price couldn't be read here — see it on the title's page",
         }
     }
 
@@ -667,7 +676,7 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
                   theme::MUTED, 11);
     let mut refresh = chrome::button(556, 14, 128, 26, "Refresh", Tone::Plain);
     refresh.set_align(enums::Align::Center | enums::Align::Inside);
-    refresh.set_tooltip("ask the origin for its catalog again — nothing here needs a restart");
+    refresh.set_tooltip("load the store again");
 
     let mut controls = Vec::new();
     // Scrolls, for the same reason the library does: the number of titles on
@@ -676,17 +685,16 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
     let shelf = chrome::shelf(16, 58, 668, well_h);
     if !reachable {
         // The repo's own trap, at the one place it would cost a player a game.
-        chrome::label(28, 74, 640, 18, "the catalog could not be read", theme::GOLD, 13);
+        chrome::label(28, 74, 640, 18, "couldn't load the store", theme::GOLD, 13);
         chrome::label(28, 96, 640, 16,
-                      "this is not an empty shelf — the origin did not answer, so nothing is known",
+                      "the store didn't answer, so this is not an empty shelf",
                       theme::MUTED, 11);
         chrome::label_untrusted(28, 116, 640, 16, why, theme::DIM, 11);
-        chrome::label(28, 140, 640, 16, "Refresh asks again — nothing here needs a restart",
-                      theme::DIM, 11);
+        chrome::label(28, 140, 640, 16, "press Refresh to try again", theme::DIM, 11);
     } else if rows.is_empty() {
         chrome::label(28, 74, 640, 18, "nothing listed yet", theme::MUTED, 13);
         chrome::label(28, 96, 640, 16,
-                      "the origin answered and its shelf is empty — a real answer, not a failed read",
+                      "the store answered and has no titles on it yet",
                       theme::DIM, 11);
     } else {
         let mut y = 72;
@@ -736,7 +744,7 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
             button.set_tooltip(act.what_it_does());
             let mut page = chrome::button(page_x, y + 8, 84, 28, "Page…", Tone::Plain);
             page.set_align(enums::Align::Center | enums::Align::Inside);
-            page.set_tooltip("open this title's page on the origin, in your browser");
+            page.set_tooltip("open this title's page in your browser");
             controls.push(ShelfControls { slug: row.slug.clone(), act, button, page });
             y += SHELF_H;
         }
@@ -747,7 +755,7 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
                   "a copy is an NFT and all sales are final — the exit is resale, never a refund",
                   theme::DIM, 11);
     chrome::label(16, well_h + 86, 668, 16,
-                  "buying opens your browser: the wallet is yours and this client never holds one",
+                  "to buy a copy, press Page… — you pay from your wallet, in the browser",
                   theme::DIM, 11);
     w.end();
     grows_downward(&mut w, &shelf, 132 + SHELF_H * 2);
@@ -838,12 +846,9 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     match shards {
         Shards::Unpublished => {
             chrome::label(28, 56, 580, 18,
-                          &format!("{slug} publishes no shard list"), theme::MUTED, 13);
+                          &format!("{slug} has no server list yet"), theme::MUTED, 13);
             chrome::label(28, 80, 580, 16,
-                          "this window fills itself the moment a title sets `servers.url`",
-                          theme::DIM, 11);
-            chrome::label(28, 100, 580, 16,
-                          "in its manifest — the list is the game's to serve, not ours to invent",
+                          "when the game publishes one, its servers show up here",
                           theme::DIM, 11);
         }
         // Two sentences, because the two failures have different owners: a
@@ -851,24 +856,23 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
         // never reached is probably this machine's network.
         Shards::Unreadable { url, why, reachable } => {
             chrome::label(28, 56, 580, 18,
-                          if *reachable { "the shard list did not read" }
-                          else { "could not reach the shard list" },
+                          if *reachable { "the server list came back unreadable" }
+                          else { "couldn't reach the server list" },
                           theme::GOLD, 13);
             chrome::label_untrusted(28, 80, 580, 16, url, theme::DIM, 11);
             // The reason comes from an origin we do not control.
             chrome::label_untrusted(28, 100, 580, 16, why, theme::MUTED, 11);
             chrome::label(28, 124, 580, 16,
-                          "this is not `no shards up` — nobody knows what is up right now",
+                          "so this doesn't mean no servers are up — open Servers again to retry",
                           theme::DIM, 11);
         }
         Shards::Listed { url, rows } if rows.is_empty() => {
             chrome::label(28, 56, 580, 18,
-                          &format!("{slug} lists no shards up"), theme::MUTED, 13);
+                          &format!("no {slug} servers are up right now"), theme::MUTED, 13);
             chrome::label(28, 80, 580, 16,
-                          "the list is up and says nobody is running one — a real answer,",
+                          "the list was read, and nobody is running one",
                           theme::DIM, 11);
-            chrome::label(28, 100, 580, 16, "not a failure to read it", theme::DIM, 11);
-            chrome::label_untrusted(28, 124, 580, 16, url, theme::DIM, 11);
+            chrome::label_untrusted(28, 104, 580, 16, url, theme::DIM, 11);
         }
         Shards::Listed { rows, .. } => {
             let mut y = 52;
@@ -894,11 +898,11 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
                 } else {
                     chrome::button(join_x, y + 2, 74, 26, "Join", Tone::Plain)
                 };
-                join.set_tooltip("start the installed build against this address");
+                join.set_tooltip("start your installed copy and connect it to this server");
                 // Always offered, even on a full shard: sending a friend a
                 // link to a server you cannot get into right now is normal.
                 let mut copy = chrome::button(invite_x, y + 2, 74, 26, "Invite", Tone::Plain);
-                copy.set_tooltip("copy this shard's elo:// link to the clipboard");
+                copy.set_tooltip("copy a join link for this server — a friend opens it to join you");
 
                 controls.push(ShardControls {
                     addr: s.addr.clone(),
@@ -918,10 +922,10 @@ pub fn servers(slug: &str, shards: &Shards) -> ServersWindow {
     well.end();
 
     chrome::label(16, well_h + 50, 600, 16,
-                  "joining passes the address into the game's launch args as {server}",
+                  "Join starts your installed copy and connects it to that server",
                   theme::DIM, 11);
     chrome::label(16, well_h + 68, 600, 16,
-                  "counts are polled from each shard — the launcher does not proxy, cache or rank",
+                  "player counts come straight from each server",
                   theme::DIM, 11);
     w.end();
     grows_downward(&mut w, &well, 108 + 46 * 2);
@@ -1154,6 +1158,140 @@ pub fn orders(book: &[elo_net::orders::Order], settings: &elo_net::guard::Settin
                    approve_once, check, allow_outside, rows }
 }
 
+/// One item this account holds, as the Skins window draws it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkinLine {
+    pub id: String,
+    pub name: String,
+    /// `Some((price shown, order hash))` while it is listed
+    pub listed: Option<(String, String)>,
+}
+
+/// What the caller measured for the Skins window: no account, a read that
+/// failed (never drawn as "you hold none"), or the rows.
+pub enum Skins {
+    NoAccount,
+    Unreadable { why: String },
+    Held { rows: Vec<SkinLine>, listings_why: Option<String> },
+}
+
+/// The Skins window's controls, handed back for `elo-gui` to wire.
+pub struct SkinsWindow {
+    pub window: window::Window,
+    pub collection: menu::Choice,
+    pub refresh: button::Button,
+    pub market: button::Button,
+    pub price: input::Input,
+    pub days: menu::Choice,
+    pub status: frame::Frame,
+    pub rows: Vec<SkinRow>,
+}
+
+/// One item's buttons: Sell, Cancel while it is listed (with the listing's
+/// order hash), Best offer and OpenSea.
+pub struct SkinRow {
+    pub id: String,
+    pub sell: button::Button,
+    pub cancel: Option<(String, button::Button)>,
+    pub offer: button::Button,
+    pub open: button::Button,
+}
+
+/// The collections the window can show, `(key, label)`, in Choice order.
+pub const SKIN_COLLECTIONS: [(&str, &str); 3] = [("skins", "Gates skins"), ("pros", "Elo Pros"),
+                                                  ("copies", "Gates copies")];
+/// How long a listing runs, in days, in Choice order.
+pub const LISTING_DAYS: [u32; 5] = [1, 3, 7, 30, 90];
+
+/// Skins — what this account holds in one of our collections, with Sell,
+/// Cancel, Best offer and OpenSea on each. It reads nothing itself.
+pub fn skins(state: &Skins, collection: usize) -> SkinsWindow {
+    let n = match state { Skins::Held { rows, .. } => rows.len() as i32, _ => 0 };
+    let well_h = (n * 40 + 24).clamp(90, 360);
+    let mut w = window::Window::new(180, 150, 640, well_h + 200, None);
+    mark(&mut w);
+    w.set_label("elo — skins");
+    w.set_color(theme::BG);
+    chrome::label(16, 12, 200, 20, "skins", theme::HEAD, 16);
+    let mut col = menu::Choice::new(220, 10, 150, 26, None);
+    for (_, l) in SKIN_COLLECTIONS {
+        col.add_choice(l);
+    }
+    col.set_value(collection.min(SKIN_COLLECTIONS.len() - 1) as i32);
+    let market = chrome::button(640 - 16 - 90 - 8 - 150, 10, 150, 26, "Market in browser", Tone::Plain);
+    let refresh = chrome::button(640 - 16 - 90, 10, 90, 26, "Refresh", Tone::Plain);
+
+    chrome::label(16, 44, 140, 14, "price, in ETH", theme::MUTED, 11);
+    chrome::label(166, 44, 120, 14, "listed for", theme::MUTED, 11);
+    let price = field(16, 60, 140, 28, true);
+    let mut days = menu::Choice::new(166, 60, 120, 28, None);
+    for d in LISTING_DAYS {
+        days.add_choice(&format!("{d} day{}", if d == 1 { "" } else { "s" }));
+    }
+    days.set_value(2);
+    for c in [&mut col, &mut days] {
+        c.set_color(theme::BTN);
+        c.set_text_color(theme::BTN_INK);
+        c.set_text_size(13);
+    }
+    chrome::label(296, 66, 328, 16, "Sell lists the item at this price; you check it first.", theme::DIM, 11);
+    let status = chrome::label(16, 96, 608, 16, "", theme::INK, 11);
+
+    let well = chrome::shelf(16, 118, 608, well_h);
+    let mut rows = Vec::new();
+    match state {
+        Skins::NoAccount => {
+            chrome::label(28, 132, 560, 18, "no account on this machine", theme::GOLD, 13);
+            chrome::label(28, 154, 560, 16, "Account makes one; the site sells with your browser wallet",
+                          theme::DIM, 11);
+        }
+        Skins::Unreadable { why } => {
+            chrome::label(28, 132, 560, 18, "could not read what this account holds", theme::GOLD, 13);
+            chrome::label_untrusted(28, 154, 560, 16, why, theme::MUTED, 11);
+            chrome::label(28, 174, 560, 16, "this is not `you hold none` — nobody looked", theme::DIM, 11);
+        }
+        Skins::Held { rows: lines, listings_why } => {
+            if lines.is_empty() {
+                chrome::label(28, 132, 560, 18, "this account holds none of these", theme::MUTED, 13);
+            }
+            let mut y = 128;
+            for r in lines {
+                let title = if r.name.is_empty() { format!("#{}", r.id) } else { format!("{} #{}", r.name, r.id) };
+                chrome::label_untrusted(28, y, 250, 18, &title, theme::INK, 13);
+                let sub = match &r.listed {
+                    Some((p, _)) => format!("listed at {p} ETH"),
+                    None => String::new(),
+                };
+                chrome::label_untrusted(28, y + 18, 250, 12, &sub, theme::GOLD, 10);
+                let mut x = 624 - BAR - 13 - 76;
+                let open = chrome::button(x, y, 76, 26, "OpenSea", Tone::Plain);
+                x -= 84;
+                let offer = chrome::button(x, y, 80, 26, "Best offer", Tone::Plain);
+                let cancel = r.listed.as_ref().map(|(_, order)| {
+                    x -= 74;
+                    (order.clone(), chrome::button(x, y, 70, 26, "Cancel", Tone::Plain))
+                });
+                x -= 66;
+                let sell = chrome::button(x, y, 62, 26, if r.listed.is_some() { "Relist" } else { "Sell" }, Tone::Live);
+                rows.push(SkinRow { id: r.id.clone(), sell, cancel, offer, open });
+                y += 40;
+            }
+            if let Some(why) = listings_why {
+                let mut s = status.clone();
+                s.set_label(&format!("couldn't read your listings: {why}"));
+                s.set_label_color(theme::GOLD);
+            }
+        }
+    }
+    well.end();
+    chrome::label(16, well_h + 126, 608, 14,
+                  "A listing keeps the item in your wallet, and in game, until it sells.", theme::DIM, 11);
+    chrome::label(16, well_h + 142, 608, 14,
+                  "OpenSea takes its fee; we take none. Your passphrase is asked for each one.", theme::DIM, 11);
+    w.end();
+    SkinsWindow { window: w, collection: col, refresh, market, price, days, status, rows }
+}
+
 /// What the caller measured about a wallet's friends list.
 ///
 /// The same three states as [`Shards`], for the same reason: a list nobody
@@ -1257,7 +1395,8 @@ pub fn friends(state: &Friends, now: i64) -> FriendsWindow {
 
     chrome::label(16, 12, 100, 20, "friends", theme::HEAD, 16);
     if let Friends::Listed { view } = state {
-        chrome::label(120, 14, 280, 18, &short(&view.wallet), theme::DIM, 11);
+        chrome::label(120, 14, 280, 18, &elo_depot::streamer::shown(&short(&view.wallet)),
+                      theme::DIM, 11);
     }
     let mut refresh = chrome::button(576, 10, 128, 24, "Refresh", Tone::Plain);
     refresh.set_align(enums::Align::Center | enums::Align::Inside);
@@ -1284,13 +1423,13 @@ pub fn friends(state: &Friends, now: i64) -> FriendsWindow {
         }
         Friends::Unreadable { url, why, reachable } => {
             chrome::label(28, 56, 660, 18,
-                          if *reachable { "the friends list did not read" }
-                          else { "could not reach the friends list" },
+                          if *reachable { "the friends list came back unreadable" }
+                          else { "couldn't reach the friends list" },
                           theme::GOLD, 13);
             chrome::label_untrusted(28, 80, 660, 16, url, theme::DIM, 11);
             chrome::label_untrusted(28, 100, 660, 16, why, theme::MUTED, 11);
             chrome::label(28, 124, 660, 16,
-                          "this is not an empty list — nobody knows right now",
+                          "so this isn't an empty list — press Refresh to try again",
                           theme::DIM, 11);
         }
         Friends::Listed { .. } if nothing => {
@@ -1418,7 +1557,7 @@ pub fn friends(state: &Friends, now: i64) -> FriendsWindow {
         if !view.presence.reachable {
             notes.push((
                 format!(
-                    "where everyone is could not be read{}",
+                    "couldn't see what your friends are playing{}",
                     view.presence.why.as_deref().map(|w| format!(" — {w}")).unwrap_or_default()
                 ),
                 theme::GOLD,
@@ -1622,7 +1761,7 @@ pub fn account(address: Option<&str>, host: &str) -> AccountWindow {
          note, Some(row), 428)
     };
 
-    chrome::label(16, base, 548, 16, "elo never sees a key.", theme::INK, 12);
+    chrome::label(16, base, 548, 16, "We never see your key.", theme::INK, 12);
     chrome::label(16, base + 20, 548, 14,
                   "An account made here is generated on this machine and transmitted nowhere.",
                   theme::MUTED, 11);
@@ -1830,7 +1969,24 @@ pub struct SigningWindow {
     pub lock: Option<button::Button>,
     /// The status line, refreshed after an unlock rather than rebuilt.
     pub status: frame::Frame,
+    /// The lines that are only true with no account yet — "no account on
+    /// this machine yet", "no address yet" — so making one in Account can
+    /// take them down in place, along with turning Unlock on.
+    pub until_account: Vec<frame::Frame>,
     pub window: window::Window,
+}
+
+/// What a signer kind is, in the words a player would use for it. The kind
+/// itself (`local`, `browser-paired`) is a config value, not a sentence.
+pub fn signer_name(kind: &str) -> &'static str {
+    match kind {
+        "local" => "the account on this machine",
+        "browser" | "browser-paired" => "the wallet in your browser",
+        "arca" => "the arca signing program",
+        "external" => "your own signing command",
+        "none" => "no signer set up",
+        _ => "a signer this window does not name",
+    }
 }
 
 /// `unlockable` is separate from `kind` on purpose: the backend is `local`
@@ -1846,15 +2002,22 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
     chrome::label(16, 12, 400, 20, "signing", theme::HEAD, 16);
 
     let well = chrome::well(16, 40, 588, 150);
-    chrome::label(28, 56, 560, 18, &format!("backend: {kind}"), theme::INK, 14);
+    chrome::label(28, 56, 560, 18, signer_name(kind), theme::INK, 14);
     let status_line = chrome::label(28, 80, 560, 16, status, theme::MUTED, 11);
+    let mut until_account = Vec::new();
+    // The local signer's status already leads with the address; saying it
+    // twice in a three-line well reads as two different accounts.
     match address {
-        Some(a) => chrome::label(28, 106, 560, 16,
-                                 &format!("signs as {}", elo_depot::streamer::shown(a)),
-                                 theme::MUTED, 11),
-        None => chrome::label(28, 106, 560, 16, "no address known for this backend",
-                              theme::DIM, 11),
-    };
+        Some(a) if status.contains(&elo_depot::streamer::shown(a)) => {}
+        Some(a) => {
+            chrome::label(28, 106, 560, 16,
+                          &format!("signs as {}", elo_depot::streamer::shown(a)),
+                          theme::MUTED, 11);
+        }
+        None => {
+            until_account.push(chrome::label(28, 106, 560, 16, "no address yet", theme::DIM, 11));
+        }
+    }
     // Gold, not green: a configured signer is not an armed one, and only an
     // act that moves money earns the reserved fill.
     let tone = if kind == "none" { Tone::Gold } else { Tone::Plain };
@@ -1871,8 +2034,9 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
             // when an account is made, so nobody is asked to restart.
             b.deactivate();
             l.deactivate();
-            chrome::label(28, 132, 270, 16, "no account on this machine yet — make one in Account",
-                          theme::GOLD, 11);
+            until_account.push(chrome::label(28, 132, 270, 16,
+                                             "no account on this machine yet — make one in Account",
+                                             theme::GOLD, 11));
         }
         (Some(b), Some(l))
     } else {
@@ -1883,12 +2047,12 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
     };
     well.end();
 
-    chrome::label(16, 202, 588, 16, "what this program can and cannot do", theme::DIM, 11);
+    chrome::label(16, 202, 588, 16, "how signing works", theme::DIM, 11);
     for (i, line) in [
-        "it never holds a key you did not put on this machine yourself",
-        "a game may ask it for a signature; a game may never operate it",
-        "consent is per game, per family, counted, and dies when this closes",
-        "an unlocked key relocks itself when idle; Lock now forgets it at once",
+        "a game can ask for a signature, and you approve it in a window elo opens",
+        "an approval covers one game and one kind of message, for the count you pick",
+        "every approval ends when elo closes",
+        "an unlocked account locks itself when idle; Lock now locks it at once",
     ]
     .iter()
     .enumerate()
@@ -1896,7 +2060,7 @@ pub fn signing(kind: &str, status: &str, address: Option<&str>, unlockable: bool
         chrome::label(16, 222 + (i as i32 * 18), 588, 14, line, theme::MUTED, 11);
     }
     w.end();
-    SigningWindow { window: w, unlock, lock, status: status_line }
+    SigningWindow { window: w, unlock, lock, status: status_line, until_account }
 }
 
 /// The consent prompt, plus the controls that answer it.
@@ -2005,14 +2169,14 @@ pub fn consent(
     // structural rather than a promise — the 0x19 prefix is what makes such a
     // message unusable as a transaction — so it is safe to state flatly.
     chrome::label(pad, eip_y, 588, 14,
-                  "an EIP-191 message moves no money — signing one can never be a transaction",
+                  "this signs a message, not a transaction — it cannot move money",
                   theme::MUTED, 11);
 
     // Whether a grant would even produce a signature. Said before the buttons,
     // because a player allowing into a locked account should learn it here
     // rather than from a game's error message.
     let (state, ink) = match (signs_as, unlocked) {
-        (Some(a), true) => (format!("signs as {a}"), theme::MUTED),
+        (Some(a), true) => (format!("signs as {}", elo_depot::streamer::shown(a)), theme::MUTED),
         (Some(_), false) => (
             "the account is locked — allowing will not produce a signature until you \
              unlock it in Signing"
@@ -2037,9 +2201,18 @@ pub fn consent(
 
     let mut allow = Vec::new();
     let mut x = 604 - 132;
+    // A kind the broker never grants a count (`elo_broker::one_at_a_time`)
+    // is offered one signature only: "Allow 25" there would be a button that
+    // quietly means "Just this one".
+    let counted = !elo_broker::one_at_a_time(&ask.family);
+    let offers = if counted {
+        &crate::consent::ALLOWANCES[..]
+    } else {
+        &crate::consent::ALLOWANCES[..1]
+    };
     // Right to left, so the widest grant is furthest from Refuse. Reversed on
     // the way in so the returned vector still matches `ALLOWANCES` order.
-    for (label, _) in crate::consent::ALLOWANCES.iter().rev() {
+    for (label, _) in offers.iter().rev() {
         let mut b = chrome::button(x, btn_y, 128, 30, label, Tone::Plain);
         b.set_align(enums::Align::Center | enums::Align::Inside);
         allow.push(b);
@@ -2048,8 +2221,12 @@ pub fn consent(
     allow.reverse();
 
     for (i, line) in [
-        "a grant is counted, and only for this game and this kind of message",
-        "there is no \"always\" — every grant is forgotten when the launcher closes",
+        if counted {
+            "allowing covers only this game and this kind of message, for that many signatures"
+        } else {
+            "this kind of message is asked about every time, so allowing covers this one only"
+        },
+        "nothing is allowed for good — every approval ends when elo closes",
     ]
     .iter()
     .enumerate()
@@ -2188,20 +2365,32 @@ pub fn passphrase(title: &str, prompt: &str) -> AskWindow {
 #[derive(Clone)]
 pub struct WalletWindow {
     pub window: window::Window,
+    /// The account's Robinhood Chain address.
     pub address: frame::Frame,
     pub copy: button::Button,
     pub explorer: button::Button,
+    /// The same account's Solana address, or how to get one.
+    pub sol_address: frame::Frame,
+    pub sol_copy: button::Button,
+    pub sol_explorer: button::Button,
     pub refresh: button::Button,
-    /// One coin per line, monospace, so amounts line up on their decimal.
+    /// One coin per line, monospace, so amounts line up on their decimal;
+    /// a heading per chain.
     pub balances: text::TextDisplay,
     /// The account's own warning (an EIP-7702 delegation), or the reason the
     /// balances could not be read. Empty when there is nothing to say.
     pub warning: frame::Frame,
+    /// Every coin on both chains, each named with its chain.
     pub coin: menu::Choice,
     pub amount: input::Input,
     pub to: input::Input,
     pub review: button::Button,
     pub status: frame::Frame,
+    /// Between this account's two chains: which way, how much.
+    pub route: menu::Choice,
+    pub move_amount: input::Input,
+    pub move_review: button::Button,
+    pub move_status: frame::Frame,
 }
 
 fn field(x: i32, y: i32, w: i32, h: i32, mono: bool) -> input::Input {
@@ -2218,41 +2407,56 @@ fn field(x: i32, y: i32, w: i32, h: i32, mono: bool) -> input::Input {
     f
 }
 
-/// Wallet — the account on this machine, what it holds, and a send.
+/// Wallet — the account on this machine on both of its chains, what it holds
+/// on each, a send, and a move between the two.
+///
+/// One account, two addresses, the way Phantom and MetaMask show one: the
+/// recovery words make a Robinhood Chain address and a Solana address, the
+/// balances list both, a send goes on the chain of the coin picked, and a
+/// move takes SOL, ETH, USDC or USDG to this same account on the other chain.
 ///
 /// With no account, everything that would act is built deactivated and says
 /// where an account comes from: a hidden control and an unbuilt one look the
 /// same, and only one of those is honest.
 pub fn wallet(address: Option<&str>) -> WalletWindow {
-    let mut w = window::Window::new(200, 160, 580, 560, None);
+    let mut w = window::Window::new(200, 120, 580, 728, None);
     mark(&mut w);
     w.set_label("elo — wallet");
     w.set_color(theme::BG);
 
     chrome::label(16, 12, 400, 20, "wallet", theme::HEAD, 16);
-    let well = chrome::well(16, 40, 548, 62);
-    chrome::label(28, 48, 520, 16, &format!("your account on {}", elo_net::chain::NAME),
-                  theme::MUTED, 11);
-    let mut addr = chrome::label(28, 68, 520, 22,
-                                 &address.map(elo_depot::streamer::shown)
-                                     .unwrap_or_else(|| "no account on this machine — Account makes one".into()),
-                                 if address.is_some() { theme::INK } else { theme::MUTED }, 14);
-    if address.is_some() {
-        addr.set_label_font(enums::Font::Courier);
-    }
+    let well = chrome::well(16, 40, 548, 76);
+    let row = |y: i32, chain: &str, text: &str, live: bool| {
+        chrome::label(28, y + 3, 120, 16, chain, theme::MUTED, 11);
+        let mut f = chrome::label(146, y, 308, 22, text, if live { theme::INK } else { theme::MUTED },
+                                  if live { 12 } else { 11 });
+        if live {
+            f.set_label_font(enums::Font::Courier);
+        }
+        let mut c = chrome::button(462, y, 94, 22, "Copy", Tone::Plain);
+        c.set_align(enums::Align::Center | enums::Align::Inside);
+        (f, c)
+    };
+    let (addr, mut copy) = row(48, elo_net::chain::NAME,
+        &address.map(elo_depot::streamer::shown)
+            .unwrap_or_else(|| "no account on this machine — Account makes one".into()),
+        address.is_some());
+    let (sol_address, mut sol_copy) = row(82, elo_vault::solana::NAME,
+        if address.is_some() { "reading…" } else { "" }, false);
+    copy.set_tooltip("to receive on Robinhood Chain: give this address to whoever is sending");
+    sol_copy.set_tooltip("to receive on Solana: give this address to whoever is sending");
     well.end();
 
-    let mut copy = chrome::button(16, 110, 150, 26, "Copy address", Tone::Plain);
-    copy.set_tooltip("to receive: give this address to whoever is sending");
-    let mut explorer = chrome::button(174, 110, 160, 26, "View on explorer", Tone::Plain);
-    let mut refresh = chrome::button(444, 110, 120, 26, "Refresh", Tone::Plain);
-    for b in [&mut copy, &mut explorer, &mut refresh] {
+    let mut explorer = chrome::button(16, 124, 170, 26, "Robinhood explorer", Tone::Plain);
+    let mut sol_explorer = chrome::button(194, 124, 150, 26, "Solana explorer", Tone::Plain);
+    let mut refresh = chrome::button(444, 124, 120, 26, "Refresh", Tone::Plain);
+    for b in [&mut explorer, &mut sol_explorer, &mut refresh] {
         b.set_align(enums::Align::Center | enums::Align::Inside);
     }
 
-    chrome::label(16, 146, 548, 16, "what it holds, read off the chain", theme::MUTED, 11);
-    let bwell = chrome::well(16, 166, 548, 118);
-    let mut balances = text::TextDisplay::new(20, 170, 540, 110, None);
+    chrome::label(16, 158, 548, 16, "what it holds, read off each chain", theme::MUTED, 11);
+    let bwell = chrome::well(16, 178, 548, 150);
+    let mut balances = text::TextDisplay::new(20, 182, 540, 142, None);
     balances.set_buffer(text::TextBuffer::default());
     balances.set_color(theme::WELL);
     balances.set_text_color(theme::INK);
@@ -2260,43 +2464,72 @@ pub fn wallet(address: Option<&str>) -> WalletWindow {
     balances.set_text_size(12);
     balances.set_frame(enums::FrameType::NoBox);
     bwell.end();
-    let mut warning = chrome::label(16, 288, 548, 46, "", theme::GOLD, 11);
+    let mut warning = chrome::label(16, 332, 548, 40, "", theme::GOLD, 11);
     warning.set_align(enums::Align::Left | enums::Align::Top | enums::Align::Inside | enums::Align::Wrap);
 
-    chrome::label(16, 340, 400, 18, "send", theme::HEAD, 14);
-    chrome::label(16, 364, 100, 14, "coin", theme::MUTED, 11);
-    chrome::label(134, 364, 200, 14, "amount", theme::MUTED, 11);
-    let mut coin = menu::Choice::new(16, 380, 110, 28, None);
+    chrome::label(16, 376, 400, 18, "send", theme::HEAD, 14);
+    chrome::label(16, 398, 150, 14, "coin", theme::MUTED, 11);
+    chrome::label(194, 398, 200, 14, "amount", theme::MUTED, 11);
+    let mut coin = menu::Choice::new(16, 414, 170, 28, None);
     coin.set_color(theme::BTN);
     coin.set_text_color(theme::BTN_INK);
     coin.set_text_size(13);
-    let amount = field(134, 380, 200, 28, true);
-    chrome::label(16, 416, 548, 14, "to — paste the address, then check it", theme::MUTED, 11);
-    let to = field(16, 432, 548, 28, true);
+    let amount = field(194, 414, 200, 28, true);
+    chrome::label(16, 450, 548, 14, "to — paste the address, then check it (0x… on Robinhood Chain, \
+                                    base58 on Solana)", theme::MUTED, 11);
+    let to = field(16, 466, 548, 28, true);
     // Plain, not green: this button checks and shows. The green Send is on
     // the review, beside what it will sign (`theme::Tone`).
-    let mut review = chrome::button(16, 472, 160, 30, "Review send…", Tone::Plain);
+    let mut review = chrome::button(16, 504, 160, 30, "Review send…", Tone::Plain);
     review.set_align(enums::Align::Center | enums::Align::Inside);
-    let status = chrome::label(186, 478, 378, 18, "", theme::MUTED, 11);
-    chrome::label(16, 512, 548, 14,
-                  "Every send is shown in full first, then asks your passphrase. Games can never send.",
+    let status = chrome::label(186, 510, 378, 18, "", theme::MUTED, 11);
+
+    chrome::label(16, 548, 548, 18, "move between your chains", theme::HEAD, 14);
+    chrome::label(16, 570, 330, 14, "to your own address on the other chain", theme::MUTED, 11);
+    chrome::label(354, 570, 200, 14, "amount", theme::MUTED, 11);
+    let mut route = menu::Choice::new(16, 586, 330, 28, None);
+    route.set_color(theme::BTN);
+    route.set_text_color(theme::BTN_INK);
+    route.set_text_size(12);
+    for r in elo_net::xmove::ROUTES {
+        // `/` is menu structure; the label is ours, so only the arrow changes
+        route.add_choice(&r.label().replace('/', " "));
+    }
+    route.set_value(0);
+    let move_amount = field(354, 586, 210, 28, true);
+    let mut move_review = chrome::button(16, 624, 160, 30, "Review move…", Tone::Plain);
+    move_review.set_align(enums::Align::Center | enums::Align::Inside);
+    let move_status = chrome::label(186, 630, 378, 18, "", theme::MUTED, 11);
+
+    chrome::label(16, 668, 548, 14,
+                  "Every send and move is shown in full first, then asks your passphrase. Games can never send.",
                   theme::DIM, 11);
-    chrome::label(16, 530, 548, 14,
-                  "Nobody from elo will ever ask for your recovery words or passphrase.",
+    chrome::label(16, 686, 548, 14,
+                  "None of us will ever ask for your recovery words or passphrase.",
+                  theme::DIM, 11);
+    chrome::label(16, 704, 548, 14,
+                  "ELO itself never moves between chains, and no rate between them is implied.",
                   theme::DIM, 11);
 
+    for b in [&mut sol_copy, &mut sol_explorer] {
+        b.deactivate();
+    }
     if address.is_none() {
-        for b in [&mut copy, &mut explorer, &mut refresh, &mut review] {
+        for b in [&mut copy, &mut explorer, &mut refresh, &mut review, &mut move_review] {
             b.deactivate();
         }
-        let (mut c, mut a, mut t) = (coin.clone(), amount.clone(), to.clone());
+        let (mut c, mut a, mut t, mut r, mut m) =
+            (coin.clone(), amount.clone(), to.clone(), route.clone(), move_amount.clone());
         c.deactivate();
         a.deactivate();
         t.deactivate();
+        r.deactivate();
+        m.deactivate();
     }
     w.end();
-    WalletWindow { window: w, address: addr, copy, explorer, refresh, balances, warning,
-                   coin, amount, to, review, status }
+    WalletWindow { window: w, address: addr, copy, explorer, sol_address, sol_copy, sol_explorer, refresh,
+                   balances, warning, coin, amount, to, review, status, route, move_amount, move_review,
+                   move_status }
 }
 
 /// A send's review, and its two answers.
@@ -2311,11 +2544,17 @@ pub struct ReviewWindow {
 /// and anything worth reading first. The only green button in the wallet is
 /// here.
 pub fn send_review(lines: &[(String, String)], notes: &[String]) -> ReviewWindow {
+    review("check this send", lines, notes, "A send cannot be undone. Your passphrase is asked next.", "Send")
+}
+
+/// The same review for any signature that moves or lists something: what will
+/// be signed, read back out of what was prepared, then the one green button.
+pub fn review(heading: &str, lines: &[(String, String)], notes: &[String], footer: &str, go: &str) -> ReviewWindow {
     let mut w = window::Window::new(240, 200, 560, 300, None);
     mark(&mut w);
-    w.set_label("elo — check this send");
+    w.set_label(&format!("elo — {heading}"));
     w.set_color(theme::BG);
-    chrome::label(16, 12, 520, 22, "check this send", theme::HEAD, 16);
+    chrome::label(16, 12, 520, 22, heading, theme::HEAD, 16);
 
     let well_h = lines.len() as i32 * 24 + 14;
     let well = chrome::well(16, 42, 528, well_h);
@@ -2336,13 +2575,11 @@ pub fn send_review(lines: &[(String, String)], notes: &[String]) -> ReviewWindow
         f.set_align(enums::Align::Left | enums::Align::Top | enums::Align::Inside);
         y += h + 6;
     }
-    chrome::label(16, y + 2, 528, 14,
-                  "A send cannot be undone. Your passphrase is asked next.",
-                  theme::MUTED, 11);
+    chrome::label(16, y + 2, 528, 14, footer, theme::MUTED, 11);
     let by = y + 28;
     let mut cancel = chrome::button(16, by, 120, 30, "Cancel", Tone::Plain);
     cancel.set_align(enums::Align::Center | enums::Align::Inside);
-    let mut send = chrome::button(424, by, 120, 30, "Send", Tone::Live);
+    let mut send = chrome::button(424, by, 120, 30, go, Tone::Live);
     send.set_align(enums::Align::Center | enums::Align::Inside);
     w.set_size(560, by + 46);
     w.end();
@@ -2391,7 +2628,7 @@ pub fn recovery_words(words: &[&str]) -> WordsWindow {
                   "Anyone with these words has the account and everything in it.",
                   theme::GOLD, 11);
     chrome::label(16, y + 18, 488, 14,
-                  "elo never sees them and cannot show them again.",
+                  "We never see them, and this app cannot show them again.",
                   theme::MUTED, 11);
     chrome::label(16, y + 36, 488, 14,
                   "No screenshot, no cloud notes, no chat. Nobody real will ever ask for them.",
@@ -2475,12 +2712,29 @@ pub fn notice(kind: Note, title: &str, body: &str, action: Option<&str>) -> Noti
     };
     chrome::label(16, 12, 488, 22, head, head_ink, 15);
 
-    let mut y = 44;
-    for line in &body {
-        // A refusal quotes an origin, a vault or a game, so every line of it
-        // is drawn clipped.
-        chrome::label_untrusted(16, y, 488, 16, line, theme::MUTED, 11);
-        y += 17;
+    // What fits as labels; anything longer scrolls. Labels past the cap were
+    // drawn anyway — under OK and off the bottom of the window — so a long
+    // refusal (a Verify naming many files, an origin's essay) lost its end,
+    // which is usually the line that says what to do.
+    let fits = ((text_h - 8) / 17) as usize;
+    if body.len() <= fits {
+        let mut y = 44;
+        for line in &body {
+            // A refusal quotes an origin, a vault or a game, so every line of
+            // it is drawn clipped.
+            chrome::label_untrusted(16, y, 488, 16, line, theme::MUTED, 11);
+            y += 17;
+        }
+    } else {
+        let mut all = text::TextDisplay::new(16, 44, 488, text_h - 4, None);
+        let mut buf = text::TextBuffer::default();
+        // A NUL would end the buffer early (see `consent::Ask::shown`).
+        buf.set_text(&body.join("\n").replace('\0', "·"));
+        all.set_buffer(buf);
+        all.set_color(theme::BG);
+        all.set_text_color(theme::MUTED);
+        all.set_text_size(11);
+        all.set_frame(enums::FrameType::NoBox);
     }
 
     // Width from the label: "Play Gates now" and "Restart elo now" are not the

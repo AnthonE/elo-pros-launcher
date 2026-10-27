@@ -74,8 +74,9 @@ pub trait Host: Send {
     fn host_url(&self) -> String;
 
     /// Ask the player. Returns how many signatures of this family the game may
-    /// take, or `None` for refused. **The broker never assumes an answer** —
-    /// there is no default-allow path through this trait.
+    /// take, `None` for refused, or `Some(`[`UNANSWERED`]`)` when nobody
+    /// answered in time. **The broker never assumes an answer** — there is no
+    /// default-allow path through this trait.
     ///
     /// `text` is the message and must be shown **verbatim**; `why` is the
     /// game's own stated reason and must be shown as a claim, if at all. Both
@@ -130,13 +131,13 @@ pub trait Host: Send {
 
     /// A name and a face for one address — Steam's `GetPlayerSummaries`.
     ///
-    /// Reads `/api/who`, the origin's own join across sworn name, npub, vow and
-    /// wallet, and flattens it to what a HUD draws. **A read about a stranger,
+    /// Reads `/api/who`, the origin's own join on the wallet (its name,
+    /// picture, seat and hive link), and flattens it to what a HUD draws. **A read about a stranger,
     /// never authentication**: it describes an address, it does not establish
     /// that the player holds its key. That is [`Host::prove`].
     ///
     /// ⚠ The reply must keep *we could not look* apart from *there is nothing
-    /// there* (`CLAUDE.md` §traps). A player with no sworn name and an origin
+    /// there* (`CLAUDE.md` §traps). A player with no name set and an origin
     /// that is down are different answers, and a game that draws "no name" for
     /// the second has invented a fact about somebody.
     ///
@@ -211,14 +212,24 @@ pub const REFUSALS_PER_GAME: u32 = 3;
 /// same job under another name), `buddy`, whose `gift` moves the player's
 /// credit to a wallet the detail names, and every other act a meter route verifies
 /// for the platform rather than a game: the work board (`claim`, `submit`),
-/// GatesBench, buddy links, witness pledges and readings. A grant never covers
-/// the next one: each is shown, each time, whatever count was clicked.
+/// GatesBench, buddy links, witness pledges and readings, and a trade on a
+/// prediction (`predict`), a lobby act (`lobby`), reading out or deleting
+/// cloud saves (`cloud`), a Workshop subscription (`workshop`) and being
+/// listed live on the site while streaming (`stream`). A grant
+/// never covers the next one: each is shown, each time, whatever count was
+/// clicked.
 /// `meter/test_playauth_platform.py` fails on a meter action missing here.
-pub const ONE_AT_A_TIME: [&str; 19] = [
+pub const ONE_AT_A_TIME: [&str; 25] = [
     "npub", "listing", "report", "face", "herald", "profile", "chatkey", "vote", "drops",
-    "friends", "grant", "revoke", "swear", "claim", "submit", "bench", "buddy", "pledge",
-    "reading",
+    "friends", "guilds", "grant", "revoke", "swear", "claim", "submit", "bench", "buddy",
+    "pledge", "reading", "predict", "lobby", "cloud", "workshop", "stream",
 ];
+
+/// What [`Host::ask_consent`] returns when the prompt went unanswered: the
+/// player was away, not saying no. It signs nothing, like a refusal, but it is
+/// not remembered as one — otherwise a game asked while its player was making
+/// tea is refused that kind of message until the launcher restarts.
+pub const UNANSWERED: u32 = 0;
 
 /// What a consent grant is keyed on: the family, and for a text whose second
 /// line is `action: …` (`elo play`), the action too. A player who allowed a
@@ -231,8 +242,17 @@ pub fn consent_kind(family: &str, text: &str) -> String {
 }
 
 /// Does a grant for this kind of message run out after one signature?
-fn one_at_a_time(kind: &str) -> bool {
-    kind.split_once(' ').is_some_and(|(_, action)| ONE_AT_A_TIME.contains(&action))
+///
+/// Only an `elo play` action can be granted a count. Every other family — the
+/// dev desk, the store, partners, pairing, account links — is the platform's
+/// authority rather than a game's, and its kind has no action to narrow it,
+/// so a counted grant on one would cover any later text that starts the same
+/// way. Those are asked about every time.
+pub fn one_at_a_time(kind: &str) -> bool {
+    match kind.split_once(' ') {
+        Some(("play", action)) => ONE_AT_A_TIME.contains(&action),
+        _ => true,
+    }
 }
 
 impl Consent {
@@ -301,7 +321,10 @@ impl Consent {
                 }
                 Ok(())
             }
-            _ => {
+            Some(_) => Err(Refusal::new(format!(
+                "nobody answered the prompt for {game}'s {kind:?} message in time — nothing was signed"
+            ))),
+            None => {
                 r.denied.insert(key);
                 *r.by_game.entry(game.to_string()).or_insert(0) += 1;
                 Err(Refusal::by_player(format!(
@@ -593,8 +616,8 @@ impl Session {
                                 m.insert(
                                     "note".into(),
                                     json!("what the origin says about this address. \
-                                           `handle` is sworn; `display_name` is \
-                                           self-declared — draw them differently or do \
+                                           `handle` is a held hive handle; \
+                                           `display_name` is self-declared — draw them differently or do \
                                            not draw the second."),
                                 );
                             }
@@ -698,28 +721,46 @@ where
 {
     let mut session = Session::sharing(refusals);
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
+    let mut raw = Vec::new();
     loop {
-        line.clear();
-        let n = reader.read_line(&mut line)?;
+        raw.clear();
+        // Bounded: any local process can connect, and an unbounded read_line
+        // lets one grow the process that holds the unlocked key until the OS
+        // kills it.
+        let n = std::io::Read::take(&mut reader, MAX_LINE as u64 + 1).read_until(b'\n', &mut raw)?;
         if n == 0 {
             return Ok(());
         }
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let reply = match serde_json::from_str::<Value>(trimmed) {
-            Ok(req) => session.handle(host, &req),
-            Err(e) => Refusal::new(format!("that line is not JSON: {e}")).to_json(),
+        let too_long = raw.len() > MAX_LINE && !raw.ends_with(b"\n");
+        let reply = if too_long {
+            Refusal::new(format!("that line is over {MAX_LINE} bytes")).to_json()
+        } else {
+            match std::str::from_utf8(&raw) {
+                Ok(line) if line.trim().is_empty() => continue,
+                Ok(line) => match serde_json::from_str::<Value>(line.trim()) {
+                    Ok(req) => session.handle(host, &req),
+                    Err(e) => Refusal::new(format!("that line is not JSON: {e}")).to_json(),
+                },
+                Err(_) => Refusal::new("that line is not UTF-8").to_json(),
+            }
         };
         let out = reply.to_string();
         let w = reader.get_mut();
         w.write_all(out.as_bytes())?;
         w.write_all(b"\n")?;
         w.flush()?;
+        if too_long {
+            // The rest of that line would be read as the next request, so
+            // the conversation ends here, after saying why.
+            return Ok(());
+        }
     }
 }
+
+/// The longest request line the door reads. Far beyond any real request — a
+/// message to sign is a few hundred bytes — and small enough that a client
+/// cannot use the read itself to exhaust memory.
+pub const MAX_LINE: usize = 1 << 20;
 
 /// Every verb this build speaks — for a capabilities line and for tests that
 /// assert the vocabulary did not grow by accident.

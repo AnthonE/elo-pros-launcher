@@ -239,10 +239,12 @@ fn main() {
     // nested event loop around it is the only part a test cannot drive, which
     // is exactly why the meaning was split out of it.
     {
+        // The kind the broker hands the prompt (`consent_kind`): family and
+        // action, which is what a counted grant is keyed on.
         let ask = elo_ui::consent::Ask::new(
             "gates",
-            "play",
-            "elo play\naction: duel\nvow: vow_x\nday: 2026-08-08\ndetail: ETH up 5",
+            "play duel",
+            "elo play\naction: duel\nwallet: 0xabc\nday: 2026-08-08\ndetail: ETH up 5",
             "settling round 41",
         );
 
@@ -262,6 +264,13 @@ fn main() {
             check(&mut failures, &format!("\"{label}\" grants {grant}"),
                   answer.get() == Some(*grant));
         }
+
+        // A kind that is asked about every time offers one signature only —
+        // "Allow 25" there would be a button that quietly means one.
+        let dev = elo_ui::consent::Ask::new("gates", "dev", "elo dev\nact: edit\ngame: gates", "");
+        let win = windows::consent(&dev, Some(&on_disk), true);
+        check(&mut failures, "a one-at-a-time kind offers only \"Just this one\"",
+              win.allow.len() == 1);
 
         // Nothing is granted by the window merely existing. The player has to
         // press something, and a prompt that timed out into a grant would be
@@ -348,7 +357,7 @@ fn main() {
 
         let request = serde_json::json!({
             "op": "sign",
-            "text": "elo play\naction: duel\nvow: vow_x\nday: 2026-08-08\ndetail: ETH up 5",
+            "text": "elo play\naction: duel\nwallet: 0xabc\nday: 2026-08-08\ndetail: ETH up 5",
             "why": "settling round 41",
         });
         let hello = serde_json::json!({"op": "hello", "game": "gates", "protocol": 1});
@@ -367,7 +376,9 @@ fn main() {
         let allowed = drive(&keystore, "correct horse", &hello, &request, |ask| {
             // The prompt got the game's own words, both of them.
             assert_eq!(ask.game, "gates", "hello's name must reach the prompt");
-            assert_eq!(ask.family, "play", "the family is parsed from the message");
+            // The kind, as the broker keys a grant on it: the family and the
+            // action, both parsed from the message (`consent_kind`).
+            assert_eq!(ask.family, "play duel", "the kind is parsed from the message");
             assert!(ask.text.contains("ETH up 5"), "the message must arrive verbatim");
             assert!(ask.why.contains("round 41"), "the game's reason must reach the player");
             Some(1)
@@ -401,12 +412,22 @@ fn main() {
         };
         let gw = windows::games(&[row]);
         let take_it: wiring::Then = Rc::new(|_, _| true);
-        wiring::wire_games(&gw, front, Rc::new(|_, _| {}), take_it);
+        let refreshed = Rc::new(std::cell::Cell::new(0));
+        let r2 = Rc::clone(&refreshed);
+        wiring::wire_games(&gw, front, Rc::new(|_, _| {}), take_it, Rc::new(move || r2.set(r2.get() + 1)));
         let mut act = gw.rows[0].act.clone();
         check(&mut failures, "a stale row says Update", act.label() == "Update");
         act.do_callback();
+        // The update runs as a job off this thread now; its answer lands on a
+        // timer, so the loop has to turn for it.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while fake.plays.get() == 0 && std::time::Instant::now() < until {
+            let _ = app::wait_for(0.05);
+        }
         check(&mut failures, "Update installs once and Play now starts it",
               fake.installs.get() == 1 && fake.plays.get() == 1);
+        check(&mut failures, "and the library is re-read after the update",
+              refreshed.get() == 1);
         check(&mut failures, "while the game runs the button says Running and is off",
               act.label() == "Running" && !act.active());
         fake.live.set(false);
@@ -435,6 +456,10 @@ fn main() {
                 listed: Arc::new(|| Err("offline".into())),
                 recipients: dir.join("recipients.json"),
                 open: Rc::new(|_| {}),
+                sol_chain: Arc::new(|| Box::new(wiring::NoRpc)),
+                ours: Arc::new(Vec::new),
+                quote: Arc::new(|_, _, _, _| Err("offline".into())),
+                follow: Arc::new(|_, _| Err("offline".into())),
             }
         };
         let pump = |done: &dyn Fn() -> bool| {
@@ -553,6 +578,119 @@ fn main() {
                   && matches!(told4.borrow().first(), Some((Told::Refused, m)) if m.contains("checksum")));
     }
 
+    // ── 11 · the same account on Solana: read, review, passphrase, sent ────
+    //
+    // The account made from words in §1 has its Solana half. Robinhood Chain
+    // is offline here; the Solana line still reads, and SOL sends on its own
+    // chain with its own passphrase prompt.
+    {
+        let sol_sent: Arc<Mutex<Vec<String>>> = Arc::default();
+        let reviewed: Rc<RefCell<Vec<(String, String)>>> = Rc::default();
+        let offered: Rc<RefCell<Vec<String>>> = Rc::default();
+        let told = Rc::new(RefCell::new(Vec::new()));
+        let desk = {
+            let s = Arc::clone(&sol_sent);
+            wiring::WalletDesk {
+                chain: Arc::new(|| Box::new(wiring::NoRpc)),
+                listed: Arc::new(|| Err("offline".into())),
+                recipients: dir.join("recipients.json"),
+                open: Rc::new(|_| {}),
+                sol_chain: Arc::new(move || Box::new(ClickSolana { sent: Arc::clone(&s) })),
+                ours: Arc::new(Vec::new),
+                quote: Arc::new(|_, _, _, _| Err("offline".into())),
+                follow: Arc::new(|_, _| Err("offline".into())),
+            }
+        };
+        let review: wiring::Review = {
+            let r = Rc::clone(&reviewed);
+            Rc::new(move |lines, _| {
+                r.borrow_mut().extend(lines.iter().cloned());
+                true
+            })
+        };
+        let then: wiring::Then = {
+            let o = Rc::clone(&offered);
+            Rc::new(move |body, _| {
+                o.borrow_mut().push(body.to_string());
+                false
+            })
+        };
+        let signer: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&keystore)));
+        let has_sol = signer.lock().unwrap().sol_address().is_some();
+        check(&mut failures, "an account made from words has its Solana address too", has_sol);
+        let ww = windows::wallet(Some(&on_disk));
+        let read = wiring::wire_wallet(&ww, &signer, desk,
+                                       wiring::scripted_ask(vec![Some("correct horse".into())]),
+                                       wiring::recording_tell(Rc::clone(&told)), review, then);
+        read();
+        let text = || ww.balances.buffer().map(|b| b.text()).unwrap_or_default();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !text().contains("SOL") && std::time::Instant::now() < until {
+            let _ = app::wait_for(0.05);
+        }
+        check(&mut failures, "the wallet shows both chains, and Solana's SOL",
+              text().contains("on Robinhood Chain") && text().contains("on Solana") && text().contains("2 SOL"));
+        check(&mut failures, "the Solana address is shown beside the 0x one",
+              ww.sol_address.label() == signer.lock().unwrap().sol_address().unwrap_or_default());
+        // ETH (Robinhood) is first; SOL (Solana) second
+        ww.coin.clone().set_value(1);
+        ww.amount.clone().set_value("0.25");
+        ww.to.clone().set_value("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
+        ww.review.clone().do_callback();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while offered.borrow().is_empty() && told.borrow().is_empty() && std::time::Instant::now() < until {
+            let _ = app::wait_for(0.05);
+        }
+        let net = reviewed.borrow().iter().find(|(k, _)| k == "Network").map(|(_, v)| v.clone());
+        check(&mut failures, "a SOL send is reviewed on Solana, read from the transaction",
+              reviewed.borrow().first().map(|(_, v)| v.as_str()) == Some("0.25 SOL")
+                  && net.as_deref() == Some("Solana"));
+        let raws = sol_sent.lock().unwrap().clone();
+        let landed = raws.first().and_then(|b| elo_vault::solana::b64_decode(b).ok())
+            .and_then(|b| elo_vault::solana::Transaction::parse(&b).ok());
+        check(&mut failures, "it is signed with the passphrase and sent to Solana",
+              landed.is_some_and(|t| t.signatures[0] != [0u8; 64]));
+        check(&mut failures, "the player is told it went",
+              offered.borrow().first().is_some_and(|m| m.starts_with("Sent 0.25 SOL")));
+        check(&mut failures, "a Solana recipient is remembered beside the 0x ones",
+              elo_net::solana::known_recipients(&dir.join("recipients.json")).len() == 1
+                  && elo_net::wallet::known_recipients(&dir.join("recipients.json")).len() == 1);
+    }
+
+    // An account adopted from a bare key has no Solana half; the Solana row's
+    // Add takes the words that made it and writes one.
+    {
+        let words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let ks = dir.join("older").join("keystore.json");
+        let secret = elo_vault::Phrase::parse(words).unwrap().account().unwrap().secret();
+        let made = elo_vault::LocalSigner::import(&ks, "correct horse", secret.as_ref()).unwrap();
+        let addr = elo_broker::signer::Signer::address(&made).unwrap();
+        let signer: wiring::Shared = Arc::new(Mutex::new(elo_vault::LocalSigner::at(&ks)));
+        let told = Rc::new(RefCell::new(Vec::new()));
+        let desk = wiring::WalletDesk {
+            chain: Arc::new(|| Box::new(wiring::NoRpc)),
+            listed: Arc::new(|| Err("offline".into())),
+            recipients: dir.join("older").join("recipients.json"),
+            open: Rc::new(|_| {}),
+            sol_chain: Arc::new(|| Box::new(wiring::NoRpc)),
+            ours: Arc::new(Vec::new),
+            quote: Arc::new(|_, _, _, _| Err("offline".into())),
+            follow: Arc::new(|_, _| Err("offline".into())),
+        };
+        let ww = windows::wallet(Some(&addr));
+        let read = wiring::wire_wallet(&ww, &signer, desk,
+                                       wiring::scripted_ask(vec![Some(words.into()), Some("correct horse".into())]),
+                                       wiring::recording_tell(Rc::clone(&told)),
+                                       Rc::new(|_, _| false), Rc::new(|_, _| false));
+        read();
+        check(&mut failures, "an older account's Solana row offers Add", ww.sol_copy.label() == "Add…");
+        ww.sol_copy.clone().do_callback();
+        check(&mut failures, "Add writes the Solana address the words make, the one Phantom shows",
+              signer.lock().unwrap().sol_address().as_deref() == Some("HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk")
+                  && matches!(told.borrow().first(), Some((Told::Done, m)) if m.contains("HAgk14Jp"))
+                  && ww.sol_copy.label() == "Copy");
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
     if failures == 0 {
         println!("\nclick: every control does what it says");
@@ -598,6 +736,33 @@ impl wiring::Storefront for FakeFront {
 /// A chain that answers like Robinhood Chain and keeps what it is sent.
 struct ClickChain {
     sent: Arc<Mutex<Vec<String>>>,
+}
+
+/// Solana, answering like mainnet for a plain SOL send, and recording what it
+/// is handed.
+struct ClickSolana {
+    sent: Arc<Mutex<Vec<String>>>,
+}
+
+impl elo_net::chain::Rpc for ClickSolana {
+    fn call(&self, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        use serde_json::json;
+        Ok(match method {
+            "getBalance" => json!({"value": 2_000_000_000u64}),
+            "getTokenAccountsByOwner" => json!({"value": []}),
+            "getAccountInfo" => json!({"value": {"owner": "11111111111111111111111111111111", "executable": false}}),
+            "getLatestBlockhash" => json!({"value": {"blockhash": "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N"}}),
+            "getMinimumBalanceForRentExemption" => json!(890_880),
+            "simulateTransaction" => json!({"value": {"err": null, "accounts": [{"lamports": 1_749_995_000u64}],
+                                                      "preBalances": [2_000_000_000u64], "postBalances": [1_749_995_000u64]}}),
+            "sendTransaction" => {
+                let raw = params[0].as_str().unwrap_or_default().to_string();
+                self.sent.lock().map_err(|_| "poisoned")?.push(raw);
+                json!("5ig1ature")
+            }
+            other => return Err(format!("no answer for {other}")),
+        })
+    }
 }
 
 impl elo_net::chain::Rpc for ClickChain {

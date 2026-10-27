@@ -122,7 +122,28 @@ pub struct Ask {
     pub text: String,
     /// The game's own reason. A CLAIM, and drawn as one.
     pub why: String,
+    /// Set when the asking side stopped waiting, so a prompt already on
+    /// screen can close instead of collecting an answer nobody will read.
+    pub gave_up: GaveUp,
 }
+
+/// Whether the door stopped waiting on an [`Ask`]. Never part of what the
+/// ask *is*, so two asks compare equal whatever their flags say.
+#[derive(Clone, Debug, Default)]
+pub struct GaveUp(Arc<AtomicBool>);
+
+impl GaveUp {
+    pub fn get(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl PartialEq for GaveUp {
+    fn eq(&self, _: &GaveUp) -> bool {
+        true
+    }
+}
+impl Eq for GaveUp {}
 
 impl Ask {
     pub fn new(game: &str, family: &str, text: &str, why: &str) -> Ask {
@@ -131,6 +152,7 @@ impl Ask {
             family: family.to_string(),
             text: text.to_string(),
             why: why.to_string(),
+            gave_up: GaveUp::default(),
         }
     }
 
@@ -227,13 +249,15 @@ impl Doorbell {
     /// seconds for it. What must never happen is this returning a number
     /// because it got bored.
     ///
-    /// Returns `None` — refused — when nobody answers in time, which covers
-    /// both the player walking away and the launcher closing with a prompt up.
+    /// Returns `Some(`[`elo_broker::UNANSWERED`]`)` when nobody answers in
+    /// time, which covers both the player walking away and the launcher
+    /// closing with a prompt up: nothing is signed, and the broker does not
+    /// remember it as the player saying no.
     pub fn ask(&self, ask: Ask) -> Option<u32> {
         // Depth 1: the reply is a single value and the sender never blocks,
         // because it sends once and the receiver is already parked.
         let (reply, answer) = sync_channel(1);
-        let abandoned = Arc::new(AtomicBool::new(false));
+        let abandoned = Arc::clone(&ask.gave_up.0);
         match self.queue.lock() {
             Ok(mut q) => {
                 q.push_back(Pending { ask, reply, abandoned: Arc::clone(&abandoned) })
@@ -249,7 +273,7 @@ impl Doorbell {
             Ok(granted) => granted,
             Err(_) => {
                 abandoned.store(true, Ordering::SeqCst);
-                None
+                Some(elo_broker::UNANSWERED)
             }
         }
     }
@@ -358,7 +382,8 @@ mod tests {
         }
         // What shutdown looks like from here: nobody ever pumps again.
         drop(bell);
-        assert_eq!(asked.join().unwrap(), None, "an unanswered ask must refuse");
+        assert_eq!(asked.join().unwrap(), Some(elo_broker::UNANSWERED),
+                   "an unanswered ask grants nothing, and says it was unanswered");
     }
 
     /// A game that gave up is not shown to the player later.
@@ -370,8 +395,11 @@ mod tests {
     fn a_game_that_gave_up_is_never_drawn() {
         let bell = Doorbell::with_patience(Duration::from_millis(80));
         let door = bell.clone();
-        let asked = std::thread::spawn(move || door.ask(Ask::new("gates", "play", "t", "")));
-        assert_eq!(asked.join().unwrap(), None, "it must give up on its own");
+        let ask = Ask::new("gates", "play", "t", "");
+        let flag = ask.gave_up.clone();
+        let asked = std::thread::spawn(move || door.ask(ask));
+        assert_eq!(asked.join().unwrap(), Some(elo_broker::UNANSWERED), "it must give up on its own");
+        assert!(flag.get(), "and a window already showing it can see that it did");
 
         // The entry is still queued — nothing has drained it — and the pump
         // must skip it rather than prompt.

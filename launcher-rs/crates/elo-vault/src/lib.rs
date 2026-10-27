@@ -50,12 +50,15 @@ pub mod keystore;
 pub mod local;
 pub mod masked;
 pub mod phrase;
+pub mod seaport;
+pub mod solana;
 pub mod tx;
 
 pub use harden::harden_process;
 pub use keystore::{decrypt, encrypt, KdfParams, Keystore};
 pub use local::LocalSigner;
 pub use phrase::Phrase;
+pub use solana::SolAccount;
 
 /// Where the local keystore lives, and **this is the only definition**.
 ///
@@ -78,10 +81,19 @@ pub fn keystore_path() -> std::path::PathBuf {
     }
     #[cfg(not(windows))]
     {
-        let base = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_default();
-            if home.is_empty() { ".".into() } else { format!("{home}/.config") }
-        });
+        // ⚠ Only an ABSOLUTE `XDG_CONFIG_HOME` counts, which is what the XDG
+        // spec says and not pedantry: an empty one (`XDG_CONFIG_HOME= elo …`,
+        // or a desktop session that exports it blank) joined to `elo/` is a
+        // path under whatever directory the launcher was started in, so the
+        // key landed in the player's Downloads folder, or a game's, and the
+        // next run from somewhere else found no account at all.
+        let base = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|p| std::path::Path::new(p).is_absolute())
+            .unwrap_or_else(|| {
+                let home = std::env::var("HOME").unwrap_or_default();
+                if home.is_empty() { ".".into() } else { format!("{home}/.config") }
+            });
         std::path::PathBuf::from(base).join("elo").join("keystore.json")
     }
 }
@@ -121,11 +133,22 @@ pub fn pairing_path() -> std::path::PathBuf {
 /// that is renamed over the old file, so a reader holding the old one never
 /// sees the new contents and a link at the path is replaced, not followed.
 ///
+/// ⚠ **A fresh file appears whole or not at all.** It is written and synced
+/// under a temp name first, then hard-linked to its real name. A crash
+/// partway through a direct write left a truncated `keystore.json`, and every
+/// create after it refused that stump as "may be the only copy of a key" — a
+/// player locked out of making an account by a file holding no key. `link`
+/// is the one call that is atomic AND refuses an existing name (rename
+/// replaces), so the no-overwrite rule above survives the move. The
+/// directory is synced after, so the name outlives a power cut as well as
+/// the bytes.
+///
 /// On Windows the file inherits the user's profile ACL, which is the
 /// platform's equivalent and is not something this should second-guess.
 pub fn write_private(path: &std::path::Path, body: &[u8], fresh: bool) -> std::io::Result<()> {
     use std::io::Write;
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty());
+    if let Some(dir) = dir {
         let mut b = std::fs::DirBuilder::new();
         b.recursive(true);
         #[cfg(unix)]
@@ -139,15 +162,6 @@ pub fn write_private(path: &std::path::Path, body: &[u8], fresh: bool) -> std::i
         std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
         o.open(at)
     };
-    if fresh {
-        // A failed write leaves no partial file: the next create would refuse
-        // it as "may be the only copy of a key". It is ours to remove — the
-        // exclusive create above is what made it.
-        let mut f = open(path)?;
-        return f.write_all(body).and_then(|()| f.sync_all()).inspect_err(|_| {
-            let _ = std::fs::remove_file(path);
-        });
-    }
     // Unique per call, not per process: two threads saving the same file
     // (the GUI re-pairing twice) must not share, or remove, one temp file.
     static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -160,6 +174,31 @@ pub fn write_private(path: &std::path::Path, body: &[u8], fresh: bool) -> std::i
         f.write_all(body)?;
         f.sync_all()
     });
+    if fresh {
+        let made = wrote.and_then(|()| {
+            std::fs::hard_link(&tmp, path).or_else(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    return Err(e);
+                }
+                // A disk with no hard links (FAT or exFAT — where a key kept
+                // on a USB stick through `ELO_KEYSTORE` lives) refuses the link
+                // for a reason that has nothing to do with the path. The
+                // exclusive create is still the refusal there; only the
+                // whole-or-nothing promise is lost, and only on that disk. A
+                // failed write still removes what this call made.
+                let mut f = open(path)?;
+                f.write_all(body).and_then(|()| f.sync_all()).inspect_err(|_| {
+                    let _ = std::fs::remove_file(path);
+                })
+            })
+        });
+        // The temp name goes whatever happened: on success the real name holds
+        // the same file, and on failure nothing of this call is left behind.
+        let _ = std::fs::remove_file(&tmp);
+        made?;
+        sync_dir(dir);
+        return Ok(());
+    }
     match wrote.and_then(|()| std::fs::rename(&tmp, path)) {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -167,6 +206,31 @@ pub fn write_private(path: &std::path::Path, body: &[u8], fresh: bool) -> std::i
             Err(e)
         }
     }
+}
+
+/// Make a new name in `dir` durable. Best effort, and deliberately silent: it
+/// runs after the file is already in place, so failing here would report an
+/// account as not made while its keystore sits on disk — and the next try
+/// would refuse that keystore as "may be the only copy of a key". Unix only;
+/// Windows cannot open a directory as a file and journals the name itself.
+fn sync_dir(dir: Option<&std::path::Path>) {
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir.unwrap_or(std::path::Path::new("."))) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
+/// The Solana half of an account, beside its keystore: `keystore.json` →
+/// `keystore.solana.json`. The same V3 shape and the same passphrase, so one
+/// unlock answers for both chains; its `address` is base58 and its `path`
+/// says where the key came from. Named from the keystore rather than fixed so
+/// a keystore somewhere else (`ELO_KEYSTORE`) keeps its Solana half beside it.
+pub fn solana_path_for(keystore: &std::path::Path) -> std::path::PathBuf {
+    let stem = keystore.file_stem().map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "keystore".into());
+    keystore.with_file_name(format!("{stem}.solana.json"))
 }
 
 /// The addresses this launcher has sent to, beside the keystore. Public data,

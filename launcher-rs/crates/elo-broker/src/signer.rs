@@ -97,7 +97,6 @@ impl BrowserSigner {
             "play" if play_action(text) == Some("friends") => "profile.html",
             "play" => "play.html",
             "review" => "reviews.html",
-            "vow" => "vows.html",
             "hive" | "braid" => "chat.html",
             "store" => "manage.html",
             _ => "wallet.html",

@@ -318,7 +318,7 @@ fn live_chat_engine_goes_live() {
 
 /// A face, end to end against the real origin: `/who` names a picture on our
 /// own host, the capped fetch returns it, and it reads as an image. Uses the
-/// deploy wallet, which has a vow and so a mark. Reads only.
+/// deploy wallet. Reads only.
 ///
 /// ```bash
 /// cargo test -p elo-hive --test voice -- --ignored live_face

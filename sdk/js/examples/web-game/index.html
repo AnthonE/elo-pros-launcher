@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your game</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         font: 16px/1.4 system-ui, sans-serif; background: #111; color: #eee; }
+  main { width: min(92vw, 420px); text-align: center; }
+  button { font: inherit; padding: 10px 18px; border-radius: 6px; border: 1px solid #555;
+           background: #222; color: inherit; cursor: pointer; }
+  #who { display: flex; gap: 12px; align-items: center; justify-content: center; margin: 16px 0; }
+  #who img { width: 48px; height: 48px; border-radius: 8px; }
+  #say { color: #aaa; min-height: 1.4em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your game</h1>
+  <div id="who" hidden><img id="face" alt="" hidden><b id="name"></b></div>
+  <p id="say"></p>
+  <button id="in">Sign in with a wallet</button>
+  <button id="out" hidden>Sign out</button>
+  <canvas id="game" width="320" height="180" hidden></canvas>
+</main>
+
+<!-- The web SDK, pinned by its hash: the URL you pin is the code you get. -->
+<script src="https://elopros.com/sdk/elo-3.js"
+        integrity="sha384-pKOcdX/DZSGO11b/QS2tFdcm6YFqcVCl0xc6IHDJKFBYRJCvY2JBNjbaVA3jIih/"
+        crossorigin="anonymous"></script>
+<script type="module">
+  const SLUG = "__ELO_SLUG__";
+  const $ = (id) => document.getElementById(id);
+  const say = (t) => { $("say").textContent = t; };
+  let session = null;
+
+  async function signIn() {
+    say("Connecting your wallet…");
+    try {
+      await Elo.connect();
+      const { nonce } = await (await fetch("/nonce")).json();           // a fresh challenge from OUR server
+      const { message, signature } = await Elo.signIn({ nonce });       // the player signs it in their wallet
+      const r = await fetch("/signin", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, signature, nonce }) });
+      const body = await r.json();
+      if (r.status === 402) { say("This wallet has no copy yet."); window.open(body.buy, "_blank", "noopener"); return; }
+      if (!r.ok) { say(body.error || "Sign-in failed."); return; }
+      session = body.session;
+      await show(body.address);
+    } catch (e) {
+      if (e && e.code === "no_wallet") say("You need a wallet to sign in: MetaMask, Rabby, Phantom or Coinbase Wallet.");
+      else if (e && e.code === 4001) say("Signing in was cancelled.");
+      else say(String((e && e.message) || e));
+    }
+  }
+
+  async function show(address) {
+    const p = await Elo.profile(address);             // null: could not look — draw nothing, never "anonymous"
+    $("name").textContent = p ? p.label : address.slice(0, 6) + "…" + address.slice(-4);
+    if (p && p.avatar) { $("face").src = p.avatar; $("face").hidden = false; }
+    $("who").hidden = false;
+    $("in").hidden = true;
+    $("out").hidden = false;
+    $("game").hidden = false;
+    say("You're in.");
+    play();
+  }
+
+  function signOut(why) {
+    session = null;
+    $("who").hidden = true; $("face").hidden = true;
+    $("in").hidden = false; $("out").hidden = true; $("game").hidden = true;
+    say(why || "");
+  }
+
+  // A different account in the wallet is a different player: sign in again.
+  Elo.on("account", (who) => { if (session) signOut(who ? "Your wallet switched accounts — sign in again." : ""); });
+
+  $("in").addEventListener("click", signIn);
+  $("out").addEventListener("click", async () => { await Elo.disconnect(); signOut(); });
+
+  // Your game goes here. Send `session` to your server with each request
+  // (Authorization: Bearer …), and keep the rules on the server.
+  function play() {
+    const g = $("game").getContext("2d");
+    g.fillStyle = "#222"; g.fillRect(0, 0, 320, 180);
+    g.fillStyle = "#eee"; g.font = "16px system-ui"; g.fillText("your game here", 100, 95);
+  }
+</script>
+</body>
+</html>

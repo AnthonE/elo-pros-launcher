@@ -80,6 +80,13 @@ ctr = { version = "=0.9.2", default-features = false }
 hmac = { version = "=0.12.1", default-features = false }
 pbkdf2 = { version = "=0.12.2", default-features = false, features = ["hmac"] }
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+# ── the same account on Solana ───────────────────────────────────────────────
+# Ed25519 signing is `ring`'s (declared below for TLS: BoringSSL's audited
+# curve25519), and the one piece of field arithmetic a program address needs,
+# the on-curve test, is `crypto-bigint`, already here under `k256`. Two edges,
+# zero packages: `supply_chain.rs` proves it, and the ed25519 crates measured
+# at +10 were never needed.
+crypto-bigint = { version = "=0.5.5", default-features = false }
 
 # ── speaking at all ──────────────────────────────────────────────────────────
 # buzz binds an event's author to the NIP-42-authenticated CONNECTION
@@ -140,4 +147,17 @@ opt-level = 3
 [profile.dev.package.pbkdf2]
 opt-level = 3
 [profile.dev.package.k256]
+opt-level = 3
+
+# And in release too. The binary is built for size (`opt-level = "z"`), which
+# is right for nearly all of it and wrong for the KDF: unlocking the keystore
+# took 2.4 s in a shipped build and takes 1.3 s with these four built for
+# speed (measured 2026-10-25), for a few kilobytes of binary.
+[profile.release.package.sha2]
+opt-level = 3
+[profile.release.package.scrypt]
+opt-level = 3
+[profile.release.package.salsa20]
+opt-level = 3
+[profile.release.package.pbkdf2]
 opt-level = 3

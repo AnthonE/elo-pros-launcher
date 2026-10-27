@@ -3,16 +3,23 @@
  "game": "your-slug",
  "version": "0.1.0",
  "_version": "What your game SAYS it is. elo never copies this onto your store row — it serves it beside the version actually published in the depot and flags the gap, because a tag ahead of a build is a signal and a typed field would erase it.",
+ "terms": "2026-10-26",
+ "_terms": "The version of the community terms you accept: https://elopros.com/terms.html#community. Committing it says you made this game or have the right to list it. The checklist names the current version if this one is out of date.",
+ "multiplayer": "match",
+ "_multiplayer": "How people play together: shard, match, persistent or co-op.",
  "listing": {
   "name": "Your Game",
   "kind": "the one-line genre, e.g. 'survival — 100-player shards'",
   "blurb": "The card's sentence: what the game is, in plain words. 400 characters.",
   "about": "The long paragraph on the game page.",
   "tags": ["survival", "multiplayer", "open source"],
+  "engine": {"name": "Godot", "license": "MIT"},
+  "made_with": {"parts": []},
   "repo": "https://github.com/you/your-game",
   "repo_public": true
  },
- "_listing": "Every field a steward may write: name, kind, blurb, about, state, tags, repo, repo_public, room, play_url, capsule, hero, media, record, coins, collections, economy, receipts. The house keeps band, hidden, placeholder, lane and note — a game cannot commit its way onto a shelf. Drop this block entirely if a release only needs a post.",
+ "_listing": "Every field a steward may write: name, kind, blurb, about, state, tags, engine, made_with, repo, repo_public, room, play_url, capsule, hero, media, record, coins, collections, economy, receipts. engine is what it is built on and must take no cut. made_with lists where a model helped (art, code, audio, writing, translation, qa); an empty list means none. Add play_url when the game is up. The house keeps band, hidden, placeholder, lane, note, buddy_url and marquee — a game cannot commit its way onto a shelf.",
+ "_sell": "To sell copies, add \"sell\": {\"usd_cents\": 1000} for $10.00. We list the sale, pay the gas and keep the price on the dollar. Add \"wallet\": \"0x…\" when you have one; until then we hold your money for you. The dev console writes both lines for you: https://elopros.com/dev-console.html#sell",
  "updates": [
   {
    "id": "v0.1.0",
@@ -22,5 +29,5 @@
   }
  ],
  "_updates": "kind is one of update / patch / release / news / event. The `id` is yours and is what makes re-reading this file idempotent: an id that has already posted is skipped, so leaving old entries here is harmless. 20 per manifest.",
- "_next": "Fill this in, then: python3 sign_manifest.py --game your-slug   ...which writes elo.sig.json. Commit both. Keys starting with _ are your own margin notes and are ignored by elo. Full standard: https://elopros.com/api/library/GAME-REPO.md"
+ "_next": "Fill this in, commit it with a LICENSE, and paste your repo into https://elopros.com/dev-console.html#repo — the checklist says what is missing, and a game listed from its repo needs no signature. Copy elo-sync.yml to .github/workflows/elo.yml and every push updates your page. A game listed with a wallet signs each change instead: python3 sign_manifest.py --game your-slug writes elo.sig.json. Keys starting with _ are your own margin notes and are ignored by elo. Full standard: https://elopros.com/api/library/GAME-REPO.md"
 }

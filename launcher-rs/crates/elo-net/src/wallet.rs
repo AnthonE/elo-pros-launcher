@@ -45,7 +45,15 @@ impl Coin {
 /// A coin whose contract will not say its decimals is left out, because a
 /// balance or an amount read against guessed decimals is a wrong number.
 pub fn book(listed: &Value, rpc: &dyn Rpc) -> Vec<Coin> {
+    book_and_unread(listed, rpc).0
+}
+
+/// [`book`], and the symbols it left out because the chain did not answer for
+/// them — so a wallet can say a coin is missing because nobody could look,
+/// rather than show a list that is quietly one coin short.
+pub fn book_and_unread(listed: &Value, rpc: &dyn Rpc) -> (Vec<Coin>, Vec<String>) {
     let mut out = vec![Coin::eth()];
+    let mut unread = Vec::new();
     let rows = listed.get("coins").and_then(Value::as_array).cloned().unwrap_or_default();
     for row in rows {
         let Some(addr) = row.get("addr").and_then(Value::as_str) else { continue };
@@ -53,8 +61,11 @@ pub fn book(listed: &Value, rpc: &dyn Rpc) -> Vec<Coin> {
         if out.iter().any(|c| c.token == Some(token)) {
             continue;
         }
-        let Ok(decimals) = chain::token_decimals(rpc, &token) else { continue };
         let listed_sym = row.get("sym").and_then(Value::as_str).unwrap_or("").to_string();
+        let Ok(decimals) = chain::token_decimals(rpc, &token) else {
+            unread.push(if listed_sym.is_empty() { addr.to_string() } else { listed_sym });
+            continue;
+        };
         let sym = chain::token_symbol(rpc, &token).ok().flatten().unwrap_or(listed_sym);
         if sym.is_empty() {
             continue;
@@ -64,10 +75,10 @@ pub fn book(listed: &Value, rpc: &dyn Rpc) -> Vec<Coin> {
             .and_then(|g| g.get("name"))
             .and_then(Value::as_str)
             .map(|n| format!("{n}'s coin"))
-            .unwrap_or_else(|| "the platform's".to_string());
+            .unwrap_or_else(|| "the platform's coin".to_string());
         out.push(Coin { sym, token: Some(token), decimals, what });
     }
-    out
+    (out, unread)
 }
 
 /// Everything the wallet shows for one address, read in one go so it can be
@@ -92,7 +103,16 @@ impl Snapshot {
 /// load (ETH is still read).
 pub fn snapshot(rpc: &dyn Rpc, listed: Result<&Value, &str>, who: &[u8; 20]) -> Snapshot {
     let (coins, note) = match listed {
-        Ok(v) => (book(v, rpc), None),
+        Ok(v) => match book_and_unread(v, rpc) {
+            (coins, unread) if unread.is_empty() => (coins, None),
+            (coins, unread) => {
+                // The origin's text, so only the letters of a ticker survive.
+                let names = unread.iter()
+                    .map(|s| s.chars().filter(char::is_ascii_alphanumeric).take(16).collect::<String>())
+                    .collect::<Vec<_>>().join(", ");
+                (coins, Some(format!("the chain did not answer for {names}, so it is not shown — Refresh tries again")))
+            }
+        },
         Err(why) => (vec![Coin::eth()], Some(format!("the coin list did not load ({why}) — ETH only"))),
     };
     let coins = coins.into_iter().map(|c| { let h = held(rpc, &c, who); (c, h) }).collect();
@@ -335,15 +355,13 @@ pub fn remember_recipient(path: &Path, to: &[u8; 20]) -> Result<(), String> {
     }
     all.push(*to);
     let list: Vec<String> = all.iter().map(|a| elo_vault::to_checksum(a)).collect();
-    let body = serde_json::json!({"sent_to": list}).to_string();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, body).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    // Merged, not replaced: the same file keeps the Solana list
+    // (`solana::remember_recipient`), and a send on one chain must not
+    // forget the other chain's history.
+    let mut doc: Value = std::fs::read_to_string(path).ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    doc["sent_to"] = serde_json::json!(list);
+    elo_vault::write_private(path, doc.to_string().as_bytes(), false).map_err(|e| e.to_string())
 }

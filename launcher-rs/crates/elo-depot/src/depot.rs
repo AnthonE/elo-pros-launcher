@@ -3,7 +3,8 @@
 
 use crate::digest::digest;
 use crate::error::{DepotError, Result};
-use crate::path::safe_relpath;
+use crate::install::RECEIPT_NAME;
+use crate::path::{alias_key, safe_relpath};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -97,8 +98,15 @@ impl Depot {
 
     /// Where a file is fetched from. One join, in one place, so a depot root
     /// with or without a trailing slash cannot produce two different URLs.
+    ///
+    /// Each segment is percent-encoded and the `/` between them kept. Joined
+    /// raw, `a#b` fetched `a` (the rest is a fragment the server never sees),
+    /// `a?b` fetched `a` with a query, a file named `a%20b` fetched `a b`,
+    /// and a space was no URL at all. The hash check would catch
+    /// the wrong bytes; this makes it ask for the right ones.
     pub fn file_url(&self, rel: &str) -> String {
-        format!("{}/{}", self.root.trim_end_matches('/'), rel)
+        let path: Vec<String> = rel.split('/').map(percent_encode).collect();
+        format!("{}/{}", self.root.trim_end_matches('/'), path.join("/"))
     }
 
     /// Move downloads off a retired host onto the origin that served this
@@ -139,6 +147,22 @@ impl Depot {
         self.healed_from = Some(was.clone());
         Some(was)
     }
+}
+
+/// RFC 3986 percent-encoding of one path segment: everything outside the
+/// unreserved set (`A-Z a-z 0-9 - . _ ~`) as `%XX` of its UTF-8 bytes. A
+/// layout, not a primitive — a crate for it would be another package on the
+/// budget `supply_chain.rs` counts.
+fn percent_encode(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for b in segment.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 fn require_https(url: &str, allow_insecure: bool) -> Result<String> {
@@ -188,9 +212,19 @@ pub fn parse_depot(raw: &Value, allow_insecure: bool) -> Result<Depot> {
             .as_object()
             .ok_or_else(|| DepotError::new("a depot file entry is not an object"))?;
         let rel = safe_relpath(f.get("path").and_then(|v| v.as_str()).unwrap_or(""))?;
-        // Case-insensitive: two entries differing only in case overwrite each
-        // other on a mac/win install and the second hash wins with no error.
-        if !seen.insert(rel.to_lowercase()) {
+        // By the name the DISK sees (`alias_key`): two entries differing only
+        // in case, or by a dot Windows drops, overwrite each other on a
+        // mac/win install and the second hash wins with no error.
+        let key = alias_key(&rel);
+        // The receipt is written after every file and over any file of its
+        // name, so a depot listing one would install a file that can never
+        // verify — and on a case-blind disk `.ELO-INSTALL.JSON` is the same.
+        if key == alias_key(RECEIPT_NAME) {
+            return Err(DepotError::new(format!(
+                "a depot may not ship {rel:?}: it is the install receipt's name"
+            )));
+        }
+        if !seen.insert(key) {
             return Err(DepotError::new(format!("depot lists {rel:?} twice")));
         }
         let sha = f

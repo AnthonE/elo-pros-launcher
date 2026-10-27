@@ -1,0 +1,30 @@
+{
+ "elo_asset": 1,
+ "id": "your-asset-id",
+ "name": "Your Asset",
+ "about": "What it is and what is in it, in plain words: how many models, which formats, the poly count, the palette. 2000 characters.",
+ "kind": "model",
+ "version": "1.0.0",
+ "license": "CC-BY-4.0",
+ "engines": ["godot", "any"],
+ "price_cents": 0,
+ "files": [
+  {
+   "name": "your-asset.glb",
+   "url": "https://github.com/you/your-asset/releases/download/v1.0.0/your-asset.glb",
+   "sha256": "the 64 hex characters sha256sum prints for your-asset.glb",
+   "size": 123456
+  }
+ ],
+ "preview": "preview.png",
+ "tags": ["low-poly"],
+ "made_with": {"parts": [], "note": ""},
+ "_id": "Lowercase letters, digits and '-', up to 48 characters. An id belongs to the first repo that publishes it, so a fork picks its own.",
+ "_kind": "One of: model, texture, material, sprite, tileset, animation, sound, music, font, shader, ui, vfx, plugin, template, pack, other.",
+ "_license": "Required: an SPDX id like CC0-1.0, CC-BY-4.0 or MIT, or \"custom\" with a LICENSE file in this repo.",
+ "_engines": "The engines it is built for; \"any\" means plain files that fit anywhere. A file may name one engine (\"engine\": \"godot\") and is then installed only for it.",
+ "_price_cents": "0 to 99. A priced asset installs only for a wallet that holds its licence. Add \"payee\": \"0x…\" to be paid; until then the gamedev wallet holds what it earns.",
+ "_files": "1 to 16 files. Each url is a release asset of THIS repo: https://github.com/<you>/<this repo>/releases/download/<tag>/<file>. size is in bytes. `elo assets init <folder> --repo … --tag …` writes this list for you.",
+ "_optional": "preview (a .png or .jpg committed in this repo), tags, credit (the line a game prints; we write one if you leave it out), source (an https link to where the work came from, when it is not all yours), payee, made_with (where a model was used: parts from art, code, audio, writing, translation, qa; an empty list means none) and requires (other asset ids).",
+ "_next": "Upload the files to a GitHub release on a public repo, commit this file at the repo's root as elo-asset.json, then paste the repo at https://elopros.com/assets.html, run `elo assets publish --repo https://github.com/you/your-asset`, or POST https://elopros.com/api/assets/publish with {\"repo\": \"https://github.com/you/your-asset\"}. For an update, make a new release, change version and the files, commit, and publish again. Keys starting with _ are your own notes and are ignored."
+}

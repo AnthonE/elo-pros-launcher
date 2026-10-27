@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elo-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Elo Pros platform SDK: a player's identity and signatures through the launcher with no key in the game, plus the platform's HTTP API (friends and buddies, tickets, items, faces, leaderboards, payout files)."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -19,6 +19,10 @@ classifiers = [
 ]
 # None: the standard library only.
 dependencies = []
+
+[project.optional-dependencies]
+# A game server signing with its server key (elo_sdk.ServerKey): Ed25519.
+server = ["cryptography>=46"]
 
 [project.urls]
 Homepage = "https://elopros.com"

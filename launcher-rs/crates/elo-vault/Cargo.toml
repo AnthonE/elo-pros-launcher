@@ -19,15 +19,19 @@ license.workspace = true
 #   aes/ctr AES-128-CTR — the V3 cipher
 #   pbkdf2/hmac/sha2  BIP-39 seed and BIP-32 derivation — the recovery phrase
 #   zeroize  wipes derived keys, decrypted bytes and the phrase on drop
+#   ring     Ed25519 — the Solana key, at the same words' Solana path
+#   crypto-bigint  the on-curve test for a Solana program address
 #   libc     setrlimit/prctl — `harden.rs`, unix only
 [dependencies]
 elo-broker = { path = "../elo-broker" }
 aes = { workspace = true }
+crypto-bigint = { workspace = true }
 ctr = { workspace = true }
 getrandom = { workspace = true }
 hmac = { workspace = true }
 k256 = { workspace = true }
 pbkdf2 = { workspace = true }
+ring = { workspace = true }
 scrypt = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

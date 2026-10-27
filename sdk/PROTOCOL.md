@@ -118,17 +118,12 @@ The message must be an EIP-191 personal_sign text whose first line is
 `elo <family>`. Build it with the same rules the server uses
 (`meter/playauth.py` — the format is deterministic and rebuildable offline).
 
-> ⚠ **The subject is the `wallet` line, and it was `vow: <vow_id>` until
-> 2026-08-12.** A game no longer has to send its players to swear a vow before
-> they can act — the signature recovers the signer, so the wallet IS the
-> identity. **Two rules if you build the text yourself:** the address is
+> ⚠ **The subject is the `wallet` line** — the signature recovers the
+> signer, so the wallet IS the identity. **Two rules if you build the text
+> yourself:** the address is
 > **lowercase** (a checksummed address is different bytes and verifies
 > differently), and the `day` is UTC `yyyy-mm-dd`, so a signature is good for
 > that day only.
->
-> The old vow-keyed text is **still accepted** for a caller that has one, so an
-> integration written against the previous shape keeps working while it moves.
-> It is a transition, not a second dialect — build the wallet form.
 
 **A human reads both fields, so write them for one.** The launcher shows the
 player your `text` **verbatim** — every line of it, in a scrolling well, in the
@@ -293,8 +288,8 @@ proof has made the launcher required, which it never is.
 {"op": "profile"}
 {"op": "profile", "address": "0x…"}
 → {"ok": true, "reachable": true, "address": "0x…",
-   "profile": {"handle": "moss", "sworn": true, "display_name": "Moss",
-               "avatar": "/api/vow/…/mark.svg", "identities": 2,
+   "profile": {"handle": "moss@elopros.com", "checked": true, "display_name": "Moss",
+               "avatar": "/api/face/0x…/pic.png", "matches": 1,
                "links": {"achievements": "/api/achievements/of/0x…", …}},
    "source": "https://…/api/who?handle=0x…"}
 ```
@@ -303,9 +298,10 @@ Steam's `GetPlayerSummaries`. With no `address` it answers for the one this
 launcher watches; pass one to look up somebody else — the address you got back
 from `prove`, or another player on your shard.
 
-Behind it is one read of `/api/who`, the origin's own join across sworn name,
-npub, vow and wallet, flattened to what a HUD actually draws. **One verb is one
-origin read**: achievements, holdings and reputation are separate endpoints and
+Behind it is one read of `/api/who`, the origin's own join on the wallet (its
+name, picture, seat and hive link), flattened to what a HUD actually draws.
+**One verb is one origin read**: achievements, items and holdings are separate
+endpoints and
 arrive here as urls under `links`, the same way Steam splits summaries from
 achievements. Fetch those yourself.
 
@@ -314,7 +310,7 @@ achievements. Fetch those yourself.
 | reply | what happened | what to draw |
 |---|---|---|
 | `ok:true` + a `profile` | we looked and found one | the profile |
-| `ok:true` + `profile:null` + `reachable:true` | we looked; **nobody has sworn on this address** | an anonymous player — a normal way to play |
+| `ok:true` + `profile:null` + `reachable:true` | we looked; **nothing is set for this address** | an anonymous player — a normal way to play |
 | `ok:false` + `reachable:false` | **we could not look** | nothing about identity; say the origin is unreachable |
 
 `CLAUDE.md` §traps — *a never-raises reader returns `[]` for both "nothing
@@ -322,12 +318,12 @@ there" and "we could not look."* A game that draws a confident *"anonymous"*
 over a network outage has invented a fact about a person. The `reachable` flag
 is the machine-readable half; the `reason` says the same thing in words.
 
-#### ⚠ `handle` is sworn and `display_name` is not
+#### ⚠ `handle` is checked and `display_name` is not
 
-`handle` is the NIP-05 name out of the locked index — it costs ELO to change.
-`display_name` is whatever its owner typed into a face. **Never show a claimed
+`handle` is a hive handle as NIP-05, held by one wallet; `checked` says one is
+there. `display_name` is whatever the wallet typed into its own profile. **Never show a claimed
 name in the clothes of a checked one.** Both reference clients expose a `label`
-that does this for you: a sworn name renders bare, anything self-declared gets
+that does this for you: a held handle renders bare, anything self-declared gets
 a `~` prefix (`ACHIEVEMENTS.md`'s convention), and a nameless player falls back
 to a shortened address.
 
@@ -337,8 +333,9 @@ It describes an address. It does not establish that the player is holding its
 key — anything can name an address. `prove` is the verb for that; look up the
 address you recovered, not one a client handed you.
 
-`identities` is how many vows the wallet holds: one party, several identities.
-A wallet with 3 is not three claimants.
+`matches` is how many people answered to the handle you looked up. A wallet or
+an npub names one; a self-declared name can be shared, and a game should say
+"one of 3" rather than pick one.
 
 ### `overlay` — one snapshot a game can DRAW
 

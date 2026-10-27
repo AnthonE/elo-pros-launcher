@@ -179,7 +179,7 @@ mod tests {
         // The failure mode on the other side: a sanitiser that eats real
         // messages is a client nobody uses.
         for good in [
-            "the record anchored — root 0x2b8822f2e0e995… · 23 vows",
+            "the record anchored — root 0x2b8822f2e0e995…",
             "https://elopros.com/api/anchors",
             "emoji 🐝 and CJK 龍 and accents éàü",
             "punctuation: {}[]()<>|\\/*&^%$#@!~`",

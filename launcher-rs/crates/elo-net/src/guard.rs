@@ -24,21 +24,38 @@ pub struct Listed {
     pub spender: bool,
     /// a token: approvals only
     pub token: bool,
+    /// may be named as the operator of `setApprovalForAll` on one of ours
+    pub operator: bool,
+    /// one of our collections: `setApprovalForAll` to a listed operator only
+    pub nft: bool,
 }
 
 pub const ALLOW: &[Listed] = &[
-    Listed { address: "0x8876789976decbfcbbbe364623c63652db8c0904", what: "Uniswap UniversalRouter", spender: true, token: false },
-    Listed { address: "0x000000000022d473030f116ddee9f6b43ac78ba3", what: "Permit2", spender: true, token: false },
-    Listed { address: "0xb477751b76cf82d00a686a1232f5fcd772414af3", what: "LI.FI (cross-chain)", spender: true, token: false },
-    Listed { address: "0x0000000000000068f116a894984e2db1123eb395", what: "Seaport 1.6 (OpenSea)", spender: false, token: false },
-    Listed { address: "0xf7997e4fd821e39d884d86d25e1655017f241a42", what: "the reserve token", spender: false, token: true },
-    Listed { address: "0xd6bd13a8a16e5249fa54961fc92eee0307e0f1b9", what: "JUNK", spender: false, token: true },
-    Listed { address: "0x0bd7d308f8e1639fab988df18a8011f41eacad73", what: "WETH", spender: false, token: true },
-    Listed { address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168", what: "USDG", spender: false, token: true },
+    Listed { address: "0x8876789976decbfcbbbe364623c63652db8c0904", what: "Uniswap UniversalRouter", spender: true, token: false, operator: false, nft: false },
+    Listed { address: "0x000000000022d473030f116ddee9f6b43ac78ba3", what: "Permit2", spender: true, token: false, operator: false, nft: false },
+    Listed { address: "0xb477751b76cf82d00a686a1232f5fcd772414af3", what: "LI.FI (cross-chain)", spender: true, token: false, operator: false, nft: false },
+    Listed { address: "0x0000000000000068f116a894984e2db1123eb395", what: "Seaport 1.6 (OpenSea)", spender: false, token: false, operator: true, nft: false },
+    // OpenSea's conduit (one address on every chain it is on): an operator our
+    // collections may approve, never called directly (`token` = no direct call)
+    Listed { address: "0x1e0049783f008a0085193e00003d00cd54003c71", what: "OpenSea's conduit", spender: false, token: true, operator: true, nft: false },
+    // our collections: a holder approves OpenSea's operator to list; nothing else
+    Listed { address: "0x93f4965638f9c99dd53f13bf2b47358a6ff7630c", what: "Gates skins", spender: false, token: true, operator: false, nft: true },
+    // a copy is bought from its own contract (mintFree, buyWith…) after an
+    // exact-amount approval to it, so it is a spender and takes calls
+    Listed { address: "0x54538c224ae8c5bacc6382b86eed301e10d3e5e6", what: "Gates copies", spender: true, token: false, operator: false, nft: true },
+    Listed { address: "0x2f2169bcd4e674c76c417191d23ef3c1cfdabf7b", what: "Elo Pros", spender: false, token: true, operator: false, nft: true },
+    // the Gates skin shop (EloItemStore:GATES): buys a skin for JUNK after an
+    // exact-amount approval to it
+    Listed { address: "0x6ca8f8c4657c08ee291cead3caf827530220c260", what: "the Gates skin shop", spender: true, token: false, operator: false, nft: false },
+    Listed { address: "0xf7997e4fd821e39d884d86d25e1655017f241a42", what: "the reserve token", spender: false, token: true, operator: false, nft: false },
+    Listed { address: "0xd6bd13a8a16e5249fa54961fc92eee0307e0f1b9", what: "JUNK", spender: false, token: true, operator: false, nft: false },
+    Listed { address: "0x0bd7d308f8e1639fab988df18a8011f41eacad73", what: "WETH", spender: false, token: true, operator: false, nft: false },
+    Listed { address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168", what: "USDG", spender: false, token: true, operator: false, nft: false },
 ];
 
 const APPROVE: [u8; 4] = [0x09, 0x5e, 0xa7, 0xb3];
 const PERMIT2_APPROVE: [u8; 4] = [0x87, 0x51, 0x7c, 0x45];
+pub const SET_APPROVAL_FOR_ALL: [u8; 4] = [0xa2, 0x2c, 0xb4, 0x65];
 
 fn hex20(a: &[u8; 20]) -> String {
     let mut s = String::from("0x");
@@ -67,6 +84,12 @@ pub struct Verdict {
 pub fn decode(to: &[u8; 20], data: &[u8]) -> Verdict {
     let sel: Option<[u8; 4]> = data.get(..4).and_then(|s| s.try_into().ok());
     let name = |a: &[u8; 20]| find(a).map(|l| l.what.to_string()).unwrap_or_else(|| hex20(a));
+    if sel == Some(SET_APPROVAL_FOR_ALL) {
+        if let Some(op) = word_addr(data, 0) {
+            let ok = find(to).is_some_and(|l| l.nft) && find(&op).is_some_and(|l| l.operator);
+            return Verdict { listed: ok, what: format!("let {} move your {} when one sells", name(&op), name(to)) };
+        }
+    }
     if sel == Some(APPROVE) {
         if let Some(sp) = word_addr(data, 0) {
             let ok = find(&sp).is_some_and(|l| l.spender);
@@ -86,6 +109,21 @@ pub fn decode(to: &[u8; 20], data: &[u8]) -> Verdict {
         Some(l) => Verdict { listed: false, what: format!("{}: a call that is not an approval", l.what) },
         None => Verdict { listed: false, what: format!("an unknown contract {}", hex20(to)) },
     }
+}
+
+/// [`decode`], with the ETH the call carries. An approval is allowed on its
+/// SPENDER, whatever contract it is sent to, so that a coin the list does not
+/// name can still be approved to the router — which is only safe while an
+/// approval moves no money. One that carries ETH is not an approval anyone
+/// asked for: it is a payment to whatever `to` is, and is refused like one.
+pub fn verdict(to: &[u8; 20], data: &[u8], value: u128) -> Verdict {
+    let v = decode(to, data);
+    let sel: Option<[u8; 4]> = data.get(..4).and_then(|s| s.try_into().ok());
+    let approval = matches!(sel, Some(APPROVE | PERMIT2_APPROVE | SET_APPROVAL_FOR_ALL));
+    if v.listed && approval && value > 0 {
+        return Verdict { listed: false, what: format!("{}, sending ETH with it", v.what) };
+    }
+    v
 }
 
 /// The holder's settings, and the defaults: low friction, with the list on.
@@ -215,6 +253,21 @@ mod tests {
     }
 
     #[test]
+    fn an_approval_that_carries_eth_is_refused_wherever_it_is_sent() {
+        // An approval is judged on its spender, not its `to` — so the ETH it
+        // carries is the only thing standing between a breached origin and a
+        // payment to any contract that answers to `approve`.
+        let ok = call(APPROVE, &[addr_word(UR), vec![0u8; 32]]);
+        assert!(verdict(&a(RES), &ok, 0).listed);
+        assert!(!verdict(&a(EVIL), &ok, 1).listed);
+        assert!(!verdict(&a(RES), &ok, 10u128.pow(18)).listed);
+        let p2 = call(PERMIT2_APPROVE, &[addr_word(RES), addr_word(UR), vec![0xff; 32], vec![0xff; 32]]);
+        assert!(!verdict(&a(P2), &p2, 1).listed);
+        // A call to a listed router may still pay: that is what a swap of ETH is.
+        assert!(verdict(&a(UR), &[0x35, 0x93, 0x56, 0x4c], 5).listed);
+    }
+
+    #[test]
     fn calls_only_to_listed_contracts_and_never_a_token_transfer() {
         assert!(decode(&a(UR), &[0x35, 0x93, 0x56, 0x4c]).listed);
         assert!(!decode(&a(EVIL), &[0x35, 0x93, 0x56, 0x4c]).listed);
@@ -228,6 +281,25 @@ mod tests {
         assert!(decode(&a(P2), &w).listed);
         let bad = call(PERMIT2_APPROVE, &[addr_word(RES), addr_word(EVIL), vec![0xff; 32], vec![0xff; 32]]);
         assert!(!decode(&a(P2), &bad).listed);
+    }
+
+    #[test]
+    fn our_collections_approve_opensea_and_nobody_else() {
+        const SKINS: &str = "0x93f4965638f9c99dd53f13bf2b47358a6ff7630c";
+        const SEA: &str = "0x0000000000000068f116a894984e2db1123eb395";
+        const CONDUIT: &str = "0x1e0049783f008a0085193e00003d00cd54003c71";
+        let mut yes = vec![0u8; 32];
+        yes[31] = 1;
+        let safa = |to: &str, op: &str| decode(&a(to), &call(SET_APPROVAL_FOR_ALL, &[addr_word(op), yes.clone()]));
+        assert!(safa(SKINS, SEA).listed, "our skins to Seaport");
+        assert!(safa(SKINS, CONDUIT).listed, "our skins to OpenSea's conduit");
+        assert!(!safa(SKINS, EVIL).listed, "our skins to a stranger");
+        assert!(!safa(EVIL, SEA).listed, "someone else's collection");
+        assert!(!safa(RES, SEA).listed, "a coin is not a collection");
+        let transfer = call([0x23, 0xb8, 0x72, 0xdd], &[addr_word(EVIL), addr_word(EVIL), vec![7u8; 32]]);
+        assert!(!decode(&a(SKINS), &transfer).listed, "no direct call to a collection");
+        assert!(!decode(&a(CONDUIT), &[0x4c, 0xe3, 0x4a, 0xa2]).listed, "no direct call to the conduit");
+        assert!(decode(&a(SEA), &[0xfd, 0x9f, 0x1e, 0x10]).listed, "Seaport itself: buy, cancel, accept");
     }
 
     #[test]

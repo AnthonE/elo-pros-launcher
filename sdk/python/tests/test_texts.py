@@ -44,5 +44,45 @@ class FaceTexts(unittest.TestCase):
                 self.assertEqual(texts.play_message(texts.FACE_ACTION, c["wallet"], detail, c["day"]), c["text"])
 
 
+class BuddyTexts(unittest.TestCase):
+    def test_ops_are_the_servers(self):
+        self.assertEqual(list(texts.BUDDY_OPS), fx("buddy_texts.json")["ops"])
+
+    def test_every_case_reads_back_as_the_change_asked_for(self):
+        for c in fx("buddy_texts.json")["cases"]:
+            with self.subTest(op=c["op"], asked=c["asked"]):
+                got = texts.buddy_change(c["text"], c["wallet"])
+                self.assertEqual(got, {"day": c["day"], "op": c["op"], "args": c["args"], "at": c["at"]})
+                self.assertTrue(texts.same_args(c["asked"], got["args"]))
+                self.assertEqual(texts.read_play(c["text"], texts.BUDDY_ACTION, c["wallet"].upper().replace("0X", "0x")),
+                                 {"day": c["day"], "detail": c["detail"]}, "a checksummed wallet reads the same text")
+
+    def test_a_text_for_another_change_is_never_the_one_asked_for(self):
+        for c in fx("buddy_texts.json")["refused"]:
+            with self.subTest(why=c["why"]):
+                got = texts.buddy_change(c["text"], c["wallet"])
+                self.assertFalse(got is not None and got["op"] == c["op"] and texts.same_args(c["asked"], got["args"]))
+
+
+class BoardTexts(unittest.TestCase):
+    def test_every_case_rebuilds(self):
+        for c in fx("board_texts.json")["cases"]:
+            with self.subTest(op=c["op"], quest=c["quest_id"]):
+                if c["op"] == "claim":
+                    self.assertEqual(texts.claim_text(c["wallet"], c["quest_id"], c["day"]), c["text"])
+                else:
+                    self.assertEqual(texts.submit_detail(c["quest_id"], c["url"], c["n"]), c["detail"])
+                    self.assertTrue(c["detail"].split(" ")[1] == c["url_sha16"])
+                    self.assertEqual(texts.submit_text(c["wallet"], c["quest_id"], c["url"], c["n"], c["day"]),
+                                     c["text"])
+
+
+class EntitleTexts(unittest.TestCase):
+    def test_every_case_rebuilds(self):
+        for c in fx("entitle_texts.json")["cases"]:
+            with self.subTest(wallet=c["wallet"]):
+                self.assertEqual(texts.entitle_text(c["game"], c["wallet"], c["day"]), c["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

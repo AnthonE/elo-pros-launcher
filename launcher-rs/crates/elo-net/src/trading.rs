@@ -31,18 +31,25 @@ pub fn q(s: &str) -> String {
 
 /// One read of the origin's API, its own error sentence when it refuses.
 pub fn api(rpc: &HttpRpc, host: &str, path: &str) -> Result<Value, String> {
-    let got = rpc.net.get_json(&format!("{host}/api{path}"));
+    // `told`: a refusal's own sentence ("#9 is not in 0x…") comes back, never
+    // just its status code
+    let got = rpc.net.get_json_told(&format!("{host}/api{path}"));
     match got.value {
-        Some(v) => match v.get("error").and_then(Value::as_str) {
+        Some(v) if got.ok => match v.get("error").and_then(Value::as_str) {
             Some(e) => Err(e.to_string()),
             None => Ok(v),
         },
-        None => Err(format!("the origin did not answer: {}", got.why)),
+        _ if got.reachable => Err(got.why),
+        _ => Err(format!("the origin did not answer: {}", got.why)),
     }
 }
 
 pub fn unhex(s: &str) -> Result<Vec<u8>, String> {
     let s = s.trim_start_matches("0x");
+    // ASCII first: the slices below are by byte, and the origin's text is not ours.
+    if !s.is_ascii() {
+        return Err("bad hex from the origin".into());
+    }
     if s.len() % 2 != 0 {
         return Err("odd-length hex from the origin".into());
     }
@@ -67,6 +74,7 @@ fn addr_of(w: &[u8]) -> [u8; 20] {
 pub enum Need {
     Erc20 { token: [u8; 20], spender: [u8; 20], amount: u128 },
     Permit2 { token: [u8; 20], spender: [u8; 20], amount: u128 },
+    Operator { collection: [u8; 20], operator: [u8; 20] },
     Always,
 }
 
@@ -76,6 +84,10 @@ pub fn need_of(to: &[u8; 20], data: &[u8]) -> Need {
         "095ea7b3" => match (word_at(data, 0), word_at(data, 1)) {
             (Some(sp), Some(am)) => Need::Erc20 { token: *to, spender: addr_of(sp), amount: as_u128(am) },
             _ => Need::Always,
+        },
+        "a22cb465" => match word_at(data, 0) {
+            Some(op) => Need::Operator { collection: *to, operator: addr_of(op) },
+            None => Need::Always,
         },
         "87517c45" if chain::addr_param(to) == PERMIT2 => match (word_at(data, 0), word_at(data, 1), word_at(data, 2)) {
             (Some(tk), Some(sp), Some(am)) => Need::Permit2 { token: addr_of(tk), spender: addr_of(sp), amount: as_u128(am) },
@@ -101,6 +113,9 @@ fn already_has(rpc: &dyn Rpc, owner: &[u8; 20], need: &Need) -> bool {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
                 Some(have >= *amount && exp > now + 60)
             }).unwrap_or(false),
+        Need::Operator { collection, operator } => call(chain::addr_param(collection),
+                format!("0xe985e9c5{}{}", pad(owner), pad(operator)))
+            .ok().and_then(|v| chain::word(&v).ok()).is_some_and(|w| w == 1),
         Need::Always => false,
     }
 }
@@ -151,7 +166,7 @@ pub fn execute(prep: &Value, rpc: &HttpRpc, from: &[u8; 20], settings: &Settings
         let value: u128 = s.get("value").and_then(Value::as_str).unwrap_or("0").parse()
             .map_err(|_| "a step's value is not a number".to_string())?;
         let why = s.get("why").and_then(Value::as_str).unwrap_or("a step").to_string();
-        let v = guard::decode(&to, &data);
+        let v = guard::verdict(&to, &data, value);
         let entry = json!({"source": source, "to": to_s, "value": value.to_string(),
                            "data": &data_hex[..data_hex.len().min(1200)], "what": v.what, "why": why});
         let with = |verdict: &str, extra: Value| {
@@ -239,6 +254,26 @@ pub fn save_orders(p: &Path, book: &[Order]) -> Result<(), String> {
         .map_err(|e| format!("cannot write {}: {e}", p.display()))
 }
 
+/// Write what a tick changed about ONE order over the book as it is on disk
+/// now, field by field, and nothing else.
+///
+/// A tick is out on the network for seconds at a time, and the book is the
+/// holder's to edit meanwhile — the Orders window, `elo trade orders add`.
+/// Saving the tick's own copy of the whole book put back an order the holder
+/// had just removed (and it fired on the next tick), and dropped one they had
+/// just placed. An order that is no longer on disk stays gone.
+fn save_order(path: &Path, id: u64, state: Option<&orders::State>, paused: Option<Option<String>>) {
+    let mut fresh = load_orders(path);
+    let Some(o) = fresh.iter_mut().find(|o| o.id == id) else { return };
+    if let Some(st) = state {
+        o.state = st.clone();
+    }
+    if let Some(p) = paused {
+        o.paused = p;
+    }
+    let _ = save_orders(path, &fresh);
+}
+
 /// One pass over the book: price every live order from one `/pairs` read,
 /// confirm a trigger at the order's own size, trade it, and save. A trade that
 /// fails pauses its order with the reason; nothing is retried behind the
@@ -247,23 +282,23 @@ pub fn save_orders(p: &Path, book: &[Order]) -> Result<(), String> {
 pub fn tick(rpc: &HttpRpc, host: &str, path: &Path, me: &[u8; 20], settings: &Settings, log: &Path,
             bps: u32, sign: Sign, say: &dyn Fn(&str)) -> Vec<String> {
     let mut said = Vec::new();
-    let mut book = load_orders(path);
+    let book = load_orders(path);
     if !book.iter().any(|o| !o.state.finished && o.paused.is_none()) {
         return said;
     }
     let Ok(pairs) = api(rpc, host, "/pairs") else { return said };
     let pairs = pairs.get("pairs").and_then(Value::as_array).cloned().unwrap_or_default();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
-    let mut changed = false;
-    for i in 0..book.len() {
-        if book[i].state.finished || book[i].paused.is_some() {
+    for o in book {
+        if o.state.finished || o.paused.is_some() {
             continue;
         }
-        let o = book[i].clone();
         let price = orders::price_eth(&pairs, &o.coin).unwrap_or(f64::NAN);
         let (act, st) = orders::step(&o, price, now);
         let Action::Fire { side, amount } = act else {
-            if st != o.state { book[i].state = st; changed = true; }
+            if st != o.state {
+                save_order(path, o.id, Some(&st), None);
+            }
             continue;
         };
         let amt = orders::amount_text(amount);
@@ -275,26 +310,66 @@ pub fn tick(rpc: &HttpRpc, host: &str, path: &Path, me: &[u8; 20], settings: &Se
         let Some((Action::Fire { .. }, st2)) = confirmed else {
             continue;
         };
+        // The last look before money moves, at the book as it is NOW: an order
+        // the holder removed or paused while this tick was reading prices does
+        // not fire on the strength of a copy read seconds ago.
+        if !load_orders(path).iter().any(|f| f.id == o.id && !f.state.finished && f.paused.is_none()) {
+            continue;
+        }
         say(&format!("  #{} fires: {}", o.id, o.describe()));
         // on disk before the first signature: a crash mid-trade leaves the order
         // paused with this note, never ready to fire the same slot again
-        book[i].paused = Some("interrupted while trading — check your wallet before resuming".into());
-        let _ = save_orders(path, &book);
+        save_order(path, o.id, None,
+                   Some(Some("interrupted while trading — check your wallet before resuming".into())));
         let res = prepare(rpc, host, &amt, from, to, bps, me, settings)
             .and_then(|prep| execute(&prep, rpc, me, settings, log, &format!("order #{}", o.id), sign, say));
         match res {
             Ok(h) => {
-                book[i].state = st2;
-                book[i].paused = None;
+                save_order(path, o.id, Some(&st2), Some(None));
                 said.push(format!("#{} traded: {}", o.id, chain::tx_url(&h)));
             }
-            Err(e) => { book[i].paused = Some(e.clone()); said.push(format!("#{} paused: {e}", o.id)); }
+            Err(e) => {
+                save_order(path, o.id, None, Some(Some(e.clone())));
+                said.push(format!("#{} paused: {e}", o.id));
+            }
         }
-        changed = true;
-        let _ = save_orders(path, &book);
-    }
-    if changed {
-        let _ = save_orders(path, &book);
     }
     said
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn order(id: u64) -> Order {
+        Order::from_json(&json!({"id": id, "kind": "limit", "coin": "elo", "side": "buy",
+                                 "amount": "1", "price": 0.5}))
+            .unwrap()
+    }
+
+    /// The runner's write is one order's fields over the book as it is NOW. It
+    /// used to save its own copy of the whole book, read before it went out to
+    /// the network: an order the holder removed meanwhile came back (and fired
+    /// next tick), and one they placed meanwhile vanished.
+    #[test]
+    fn a_ticks_write_never_resurrects_a_removed_order_or_drops_a_new_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("orders.json");
+        save_orders(&path, &[order(1), order(2)]).unwrap();
+        // The tick read the book here. Meanwhile, in the window: #2 removed,
+        // #3 placed, #1 paused by hand.
+        let mut one = order(1);
+        one.paused = Some("held by the holder".into());
+        save_orders(&path, &[one, order(3)]).unwrap();
+        // The tick moves #1's trailing state, and finishes a trade on #2.
+        let st = orders::State { peak: Some(9.0), ..order(1).state };
+        save_order(&path, 1, Some(&st), None);
+        save_order(&path, 2, Some(&st), Some(None));
+        let now = load_orders(&path);
+        let ids: Vec<u64> = now.iter().map(|o| o.id).collect();
+        assert_eq!(ids, [1, 3], "#2 stays removed and #3 stays placed");
+        assert_eq!(now[0].state.peak, Some(9.0), "the tick's own change landed");
+        assert_eq!(now[0].paused.as_deref(), Some("held by the holder"),
+                   "and the holder's pause was not written over");
+    }
 }

@@ -299,8 +299,8 @@ impl Host for Launcher {
     /// `prove` is the verb that establishes who is holding a key.
     ///
     /// ⚠ **The three states are kept apart, and that is the whole care here.**
-    /// A 404 from `/api/who` is a real ANSWER — nobody has sworn on this
-    /// address — and comes back as `ok` with a null profile. Anything else that
+    /// A 404 from `/api/who` is a real ANSWER — nobody answers to this
+    /// handle — and comes back as `ok` with a null profile. Anything else that
     /// failed refuses with `reachable` saying whether we ever got there. The
     /// bug this shape prevents is `CLAUDE.md` §traps: a reader that returns
     /// nothing for both "no profile" and "the origin is down" lets a game draw
@@ -319,9 +319,9 @@ impl Host for Launcher {
             return Ok(json!({
                 "reachable": true,
                 "profile": Value::Null,
-                "note": "no sworn identity for that address. Playing unsworn is a \
-                         normal state, and this is a real answer rather than a \
-                         failed read.",
+                "note": "nothing set for that address. Playing with a bare \
+                         wallet is a normal state, and this is a real answer \
+                         rather than a failed read.",
             }));
         }
         Err(Refusal::new(if got.reachable {
@@ -389,21 +389,10 @@ fn games_root() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("ELO_GAMES") {
         return std::path::PathBuf::from(p);
     }
-    #[cfg(windows)]
-    {
-        let base = std::env::var("LOCALAPPDATA")
-            .or_else(|_| std::env::var("APPDATA"))
-            .unwrap_or_else(|_| ".".into());
-        std::path::PathBuf::from(base).join("elo").join("games")
-    }
-    #[cfg(not(windows))]
-    {
-        let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_default();
-            if home.is_empty() { ".".into() } else { format!("{home}/.local/share") }
-        });
-        std::path::PathBuf::from(base).join("elo").join("games")
-    }
+    // The CLI's own rule (`elo_depot::dirs::home_based`), so the two cannot
+    // disagree about where games live — and an empty or relative
+    // `XDG_DATA_HOME` is not a folder under wherever the launcher started.
+    elo_depot::dirs::home_based("XDG_DATA_HOME", ".local/share").join("elo").join("games")
 }
 
 /// Serve the game door for as long as the launcher is open.
@@ -641,11 +630,11 @@ fn main() {
     if door.is_none() {
         let restart = wiring::show_notice(
             windows::Note::Refused,
-            "The game door did not open",
-            "Games will still install and start — they will just play anonymously,\n\
-             because nothing can ask this launcher who is playing or for a signature.\n\n\
-             The usual cause is another copy of elo already running.\n\n\
-             Nothing retries this while the program is open, so a restart is the fix.",
+            "Games can't reach your account",
+            "Games will still install and start, but they will play anonymously:\n\
+             they can't ask elo who is playing or for a signature.\n\n\
+             The usual cause is another copy of elo already running. Close it,\n\
+             then restart this one.",
             Some("Restart elo now"),
         );
         if restart {
@@ -682,22 +671,10 @@ fn main() {
         host: host.clone(),
         root: root.clone(),
         started: Default::default(),
+        installing: Installing::default(),
     });
     let front: Rc<dyn wiring::Storefront> = shop.clone();
 
-    // Gates' shards, read at startup the same way the catalog is. The whole
-    // read is one function so the window keeps taking measured facts and doing
-    // no I/O of its own.
-    let shards = read_shards(&host, SERVERS_SLUG);
-    // Only a list we actually READ names a url worth passing on. `Unreadable`
-    // carries one too, and handing the game a url this launcher just failed to
-    // read would ask it to make the same failed request again.
-    let list_url = match &shards {
-        windows::Shards::Listed { url, .. } => Some(url.clone()),
-        _ => None,
-    };
-    let servers_w = windows::servers(SERVERS_SLUG, &shards);
-    wire_servers(&servers_w, SERVERS_SLUG, &host, &root, list_url.as_deref());
 
     let account_w = {
         let s = signer.lock().expect("signer lock");
@@ -705,7 +682,8 @@ fn main() {
     };
     let signing_w = {
         let s = signer.lock().expect("signer lock");
-        windows::signing(s.kind(), &s.status(), s.address().as_deref(), s.exists())
+        windows::signing(s.kind(), &wiring::status_shown(&s.status(), s.address().as_deref()),
+                         s.address().as_deref(), s.exists())
     };
 
     // The behaviour lives in `elo_ui::wiring` so it can be driven by a test
@@ -789,15 +767,22 @@ fn main() {
         store: std::cell::RefCell::new(None),
         games: std::cell::RefCell::new(None),
         friends: std::cell::RefCell::new(None),
+        want: std::cell::RefCell::new(std::collections::BTreeSet::new()),
+        servers: std::cell::RefCell::new(None),
         pairs: std::cell::RefCell::new(None),
         orders: std::cell::RefCell::new(None),
         orders_run: std::cell::RefCell::new(None),
         orders_said: std::cell::RefCell::new(None),
+        skins: std::cell::RefCell::new(None),
+        skins_key: std::cell::Cell::new(0),
+        skins_said: std::cell::RefCell::new(None),
         signer: Arc::clone(&signer),
         changing: std::cell::Cell::new(false),
     });
-    refresh_store(&ui, false);
-    refresh_games(&ui, false);
+    // Read off this thread: the menu is up and answering while the catalog
+    // and the library load, and Store or Games pressed before they land opens
+    // as soon as they do (`wanted`).
+    refresh_shelves(&ui);
 
     // The wallet: balances read off the chain each time it opens, and a send
     // that is checked, shown, and then asks the passphrase (`wiring::wire_wallet`).
@@ -818,7 +803,6 @@ fn main() {
                                           wiring::real_review(), wiring::real_then());
 
     let windows_by_label: Vec<(&str, fltk::window::Window)> = vec![
-        ("Servers", servers_w.window.clone()),
         ("Account", account_w.window.clone()),
         ("Signing", signing_w.window.clone()),
         ("About", windows::about()),
@@ -858,15 +842,19 @@ fn main() {
             let ui_c = Rc::clone(&ui);
             match label.as_str() {
                 "Store" => child.set_callback(move |_| {
-                    if let Some(s) = ui_c.store.borrow().as_ref() {
-                        let mut w = s.window.clone();
-                        w.show();
+                    match ui_c.store.borrow().as_ref() {
+                        Some(s) => s.window.clone().show(),
+                        None => {
+                            ui_c.want.borrow_mut().insert("Store");
+                        }
                     }
                 }),
                 "Games" => child.set_callback(move |_| {
-                    if let Some(g) = ui_c.games.borrow().as_ref() {
-                        let mut w = g.window.clone();
-                        w.show();
+                    match ui_c.games.borrow().as_ref() {
+                        Some(g) => g.window.clone().show(),
+                        None => {
+                            ui_c.want.borrow_mut().insert("Games");
+                        }
                     }
                 }),
                 "Chat" => {
@@ -885,8 +873,12 @@ fn main() {
                 // friend is playing is a measurement, and an hour-old one
                 // shown as current is the cached balance wall 3 refuses.
                 "Friends" => child.set_callback(move |_| defer(&ui_c, refresh_friends)),
+                // The same for player counts: read when the window is asked
+                // for, so a count is never a startup number shown all session.
+                "Servers" => child.set_callback(move |_| defer(&ui_c, refresh_servers)),
                 "Pairs" => child.set_callback(move |_| defer(&ui_c, refresh_pairs)),
                 "Orders" => child.set_callback(move |_| defer(&ui_c, refresh_orders)),
+                "Skins" => child.set_callback(move |_| defer(&ui_c, refresh_skins)),
                 _ => {}
             }
         }
@@ -913,51 +905,61 @@ fn main() {
     // newer version speaks; current, ahead, unpublished and unreadable all
     // leave the corner as built (`newer_client`'s own test pins that), so
     // "could not look" never wears "up to date".
-    let card = elo_net::Net::new().get_json(&format!("{host}/api/launcher"));
-    if let Some(newer) = wiring::newer_client(card.value.as_ref(), env!("CARGO_PKG_VERSION")) {
-        let mine = env!("CARGO_PKG_VERSION");
-        menu.version_line
-            .set_label(&format!("v{mine} — {newer} is out"));
-        menu.version_line.set_label_color(elo_ui::theme::GOLD);
-        println!("elo-gui: client {mine} — {newer} is published at {host}/download.html");
-        // One dialog, once per launch, dismissible — a nudge with the reason
-        // in it, never a nag loop and never a download this program performs.
-        //
-        // ⚠ **This was the last `dialog::message_default` in the client**, and
-        // it outlived the pass that removed the other three (`windows.rs`, the
-        // three-stock-dialogs note). It drew FLTK's own grey box with a blue
-        // `?` over an olive client — the operator's *"the passphrase screen
-        // doesnt match anything else"*, surviving in the one window a player
-        // sees before they have touched anything. `Note::Done` and not
-        // `Refused`: a published update is news, not a fault.
-        if wiring::show_notice(
-            windows::Note::Done,
-            "A newer elo is published",
-            &format!(
-                "{newer} is out — this is {mine}.\n\n\
-                 Get it at {host}/download.html, or from your package manager\n\
-                 if you installed it there.\n\n\
-                 This program does not replace itself: a binary that rewrites\n\
-                 itself would need absolute trust, so the swap happens in the\n\
-                 open, where you can see it."
-            ),
-            // Same rule as the restart notice one screen up: the step after
-            // "a newer one is out" is going to get it, so offer that rather
-            // than print an address and leave the player to carry it. The
-            // program still does not replace itself — this opens a page.
-            Some("Open the download page"),
-        ) {
-            let url = format!("{host}/download.html");
-            if let Err(e) = ui.front.open(&url) {
-                wiring::show_notice(
-                    windows::Note::Refused,
-                    "Could not open a browser",
-                    &format!("{e}\n\nOpen it yourself:\n{url}"),
-                    None,
-                );
+    //
+    // Read off this thread like every other origin read (`load`), so a slow
+    // origin delays the notice and never the menu.
+    let card_url = format!("{host}/api/launcher");
+    let mut version_line = menu.version_line.clone();
+    let host_c = host.clone();
+    load(&ui, false, move || elo_net::Net::new().get_json(&card_url), move |ui, card, _| {
+        let host = host_c;
+        if let Some(newer) = wiring::newer_client(card.value.as_ref(), env!("CARGO_PKG_VERSION")) {
+            let mine = env!("CARGO_PKG_VERSION");
+            // The origin's version string, so drawn through the escape like
+            // any other text this program did not write.
+            version_line.set_label(&elo_ui::chrome::defuse(&format!("v{mine} — {newer} is out")));
+            version_line.set_label_color(elo_ui::theme::GOLD);
+            version_line.redraw_label();
+            println!("elo-gui: client {mine} — {newer} is published at {host}/download.html");
+            // One dialog, once per launch, dismissible — a nudge with the reason
+            // in it, never a nag loop and never a download this program performs.
+            //
+            // ⚠ **This was the last `dialog::message_default` in the client**, and
+            // it outlived the pass that removed the other three (`windows.rs`, the
+            // three-stock-dialogs note). It drew FLTK's own grey box with a blue
+            // `?` over an olive client — the operator's *"the passphrase screen
+            // doesnt match anything else"*, surviving in the one window a player
+            // sees before they have touched anything. `Note::Done` and not
+            // `Refused`: a published update is news, not a fault.
+            if wiring::show_notice(
+                windows::Note::Done,
+                "A newer elo is published",
+                &format!(
+                    "{newer} is out — this is {mine}.\n\n\
+                     Get it at {host}/download.html, or from your package manager\n\
+                     if you installed it there.\n\n\
+                     This program does not replace itself: a binary that rewrites\n\
+                     itself would need absolute trust, so the swap happens in the\n\
+                     open, where you can see it."
+                ),
+                // Same rule as the restart notice one screen up: the step after
+                // "a newer one is out" is going to get it, so offer that rather
+                // than print an address and leave the player to carry it. The
+                // program still does not replace itself — this opens a page.
+                Some("Open the download page"),
+            ) {
+                let url = format!("{host}/download.html");
+                if let Err(e) = ui.front.open(&url) {
+                    wiring::show_notice(
+                        windows::Note::Refused,
+                        "Could not open a browser",
+                        &format!("{e}\n\nOpen it yourself:\n{url}"),
+                        None,
+                    );
+                }
             }
         }
-    }
+    });
 
     a.run().unwrap();
 }
@@ -1159,6 +1161,10 @@ struct Ui {
     /// Built on first open and rebuilt on every open after: presence moves,
     /// so the window is read when it is asked for rather than at startup.
     friends: std::cell::RefCell<Option<windows::FriendsWindow>>,
+    /// Windows asked for before their first read landed — see [`wanted`].
+    want: std::cell::RefCell<std::collections::BTreeSet<&'static str>>,
+    /// Servers, read each time it is opened: a player count is a measurement.
+    servers: std::cell::RefCell<Option<windows::ServersWindow>>,
     /// Pairs, read each time it is opened: a price is a measurement.
     pairs: std::cell::RefCell<Option<windows::PairsWindow>>,
     /// Orders, rebuilt from the book on disk whenever it changes.
@@ -1167,6 +1173,11 @@ struct Ui {
     /// window last looked.
     orders_run: std::cell::RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>,
     orders_said: std::cell::RefCell<Option<std::sync::mpsc::Receiver<String>>>,
+    /// Skins, read each time it is opened; which collection it shows; and the
+    /// answer of the one sale, cancel or offer in flight.
+    skins: std::cell::RefCell<Option<windows::SkinsWindow>>,
+    skins_key: std::cell::Cell<usize>,
+    skins_said: std::cell::RefCell<Option<std::sync::mpsc::Receiver<Result<String, String>>>>,
     /// Whose list Friends reads — see [`known_address`].
     signer: wiring::Shared,
     /// A friends change is in flight. One at a time: a second press while the
@@ -1207,9 +1218,58 @@ fn place(new: &mut fltk::window::Window, previous: Option<(i32, i32)>, drift: (i
     }
 }
 
+/// Read off the window's thread, then build on it.
+///
+/// Every window that shows what the origin or the chain says is put up this
+/// way. The reads used to run right here, so the whole client — the menu, a
+/// consent prompt, the relock — froze for as long as the slowest answer took:
+/// a few seconds at startup on a good line, up to a minute a read with the
+/// origin down. `put` runs on this thread from a timer, never inside a widget
+/// callback, which is what makes swapping a window in safe (see [`defer`]).
+fn load<T: Send + 'static>(
+    ui: &Rc<Ui>,
+    show: bool,
+    read: impl FnOnce() -> T + Send + 'static,
+    put: impl FnOnce(&Rc<Ui>, T, bool) + 'static,
+) {
+    let ui = Rc::clone(ui);
+    wiring::off_thread(read, move |got| put(&ui, got, show));
+}
+
+/// Was this window asked for before its first read landed? Then it shows the
+/// moment it is built, rather than the click being lost.
+fn wanted(ui: &Rc<Ui>, name: &'static str, show: bool) -> bool {
+    ui.want.borrow_mut().remove(name) || show
+}
+
+/// Read the catalog AND the library, then put up both — at startup, and after
+/// an install, when both have changed. One read of the shelf serves both,
+/// because the library takes its names and icons from it.
+fn refresh_shelves(ui: &Rc<Ui>) {
+    let (host, root) = (ui.host.clone(), ui.root.clone());
+    load(
+        ui,
+        false,
+        move || {
+            let shelf = read_shelf(&host, &root);
+            let library = read_library(&host, &root, &shelf.0);
+            (shelf, library)
+        },
+        |ui, (shelf, library), _| {
+            put_store(ui, shelf, false);
+            put_games(ui, library, false);
+        },
+    );
+}
+
 /// Read the shelf and put up a Store window over whatever was there.
 fn refresh_store(ui: &Rc<Ui>, show: bool) {
-    let (rows, reachable, why) = read_shelf(&ui.host, &ui.root);
+    let (host, root) = (ui.host.clone(), ui.root.clone());
+    load(ui, show, move || read_shelf(&host, &root), put_store);
+}
+
+fn put_store(ui: &Rc<Ui>, (rows, reachable, why): (Vec<windows::Shelf>, bool, String), show: bool) {
+    let show = wanted(ui, "Store", show);
     println!(
         "elo-gui: shelf {}",
         if reachable {
@@ -1232,12 +1292,7 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
     // over a Games window that will not show it until the next launch.
     let after = {
         let ui = Rc::clone(ui);
-        Rc::new(move || {
-            defer(&ui, |ui, _| {
-                refresh_store(ui, false);
-                refresh_games(ui, false);
-            })
-        }) as Rc<dyn Fn()>
+        Rc::new(move || refresh_shelves(&ui)) as Rc<dyn Fn()>
     };
     wiring::wire_store(&store_w, Rc::clone(&ui.front), wiring::real_tell(),
                        wiring::real_then(), after);
@@ -1267,7 +1322,12 @@ fn refresh_store(ui: &Rc<Ui>, show: bool) {
 
 /// Re-read what is installed and put up a Games window over whatever was there.
 fn refresh_games(ui: &Rc<Ui>, show: bool) {
-    let rows = read_library(&ui.host, &ui.root, &ui.shelf.borrow());
+    let (host, root, shelf) = (ui.host.clone(), ui.root.clone(), ui.shelf.borrow().clone());
+    load(ui, show, move || read_library(&host, &root, &shelf), put_games);
+}
+
+fn put_games(ui: &Rc<Ui>, rows: Vec<Row>, show: bool) {
+    let show = wanted(ui, "Games", show);
     println!("elo-gui: {} install(s) under {}", rows.len(), ui.root.display());
     let mut games_w = windows::games(&rows);
     place(
@@ -1275,8 +1335,12 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
         ui.games.borrow().as_ref().map(|g| (g.window.x(), g.window.y())),
         ui.drift,
     );
+    let after = {
+        let ui = Rc::clone(ui);
+        Rc::new(move || refresh_games(&ui, false)) as Rc<dyn Fn()>
+    };
     wiring::wire_games(&games_w, Rc::clone(&ui.front), wiring::real_tell(),
-                       wiring::real_then());
+                       wiring::real_then(), after);
 
     let mut refresh = games_w.refresh.clone();
     let ui_c = Rc::clone(ui);
@@ -1307,7 +1371,11 @@ fn refresh_games(ui: &Rc<Ui>, show: bool) {
 /// old one stood, and swapped in on a timer rather than inside a callback.
 fn refresh_friends(ui: &Rc<Ui>, show: bool) {
     let wallet = known_address(&ui.signer).filter(|w| elo_net::friends::is_wallet(w));
-    let state = read_friends(&ui.host, wallet.as_deref());
+    let host = ui.host.clone();
+    load(ui, show, move || read_friends(&host, wallet.as_deref()), put_friends_read);
+}
+
+fn put_friends_read(ui: &Rc<Ui>, state: windows::Friends, show: bool) {
     println!(
         "elo-gui: friends {}",
         match &state {
@@ -1319,6 +1387,42 @@ fn refresh_friends(ui: &Rc<Ui>, show: bool) {
         }
     );
     put_friends(ui, &state, show, None);
+}
+
+/// Read Gates' shard list and put up a Servers window over whatever was there.
+///
+/// Read on open, like Friends: the window used to be built once at startup,
+/// so its counts were an hour old by evening, a list the origin failed to
+/// serve stayed failed all session, and a Join that said "not installed"
+/// stayed off after the game was installed.
+fn refresh_servers(ui: &Rc<Ui>, show: bool) {
+    let host = ui.host.clone();
+    load(ui, show, move || read_shards(&host, SERVERS_SLUG), put_servers);
+}
+
+fn put_servers(ui: &Rc<Ui>, shards: windows::Shards, show: bool) {
+    // Only a list we actually READ names a url worth passing on. `Unreadable`
+    // carries one too, and handing the game a url this launcher just failed to
+    // read would ask it to make the same failed request again.
+    let list_url = match &shards {
+        windows::Shards::Listed { url, .. } => Some(url.clone()),
+        _ => None,
+    };
+    let mut servers_w = windows::servers(SERVERS_SLUG, &shards);
+    place(
+        &mut servers_w.window,
+        ui.servers.borrow().as_ref().map(|s| (s.window.x(), s.window.y())),
+        ui.drift,
+    );
+    wire_servers(&servers_w, SERVERS_SLUG, &ui.host, &ui.root, list_url.as_deref());
+    let mut window = servers_w.window.clone();
+    if let Some(old) = ui.servers.replace(Some(servers_w)) {
+        let mut w = old.window.clone();
+        w.hide();
+    }
+    if show {
+        window.show();
+    }
 }
 
 /// Orders: the book on this machine, a form, the settings, and the runner.
@@ -1336,6 +1440,12 @@ fn refresh_orders(ui: &Rc<Ui>, show: bool) {
     let has_account = elo_vault::LocalSigner::at(elo_vault::keystore_path()).address().is_some();
     let mut w = windows::orders(&book, &settings, running, has_account);
     place(&mut w.window, ui.orders.borrow().as_ref().map(|o| (o.window.x(), o.window.y())), ui.drift);
+    // The form survives the rebuild. A running book rebuilds this window on
+    // every line the runner says, and an order half typed into it was wiped
+    // each time — the player watching their orders was the one who lost work.
+    if let Some(old) = ui.orders.borrow().as_ref() {
+        carry_order_form(old, &mut w);
+    }
 
     {   // the field line follows the kind
         let mut hint = w.hint.clone();
@@ -1360,7 +1470,15 @@ fn refresh_orders(ui: &Rc<Ui>, show: bool) {
                 Ok(o) => {
                     book.push(o);
                     match trading::save_orders(&path, &book) {
-                        Ok(()) => defer(&ui_c, refresh_orders),
+                        Ok(()) => {
+                            // Placed, so the form is done with: emptied here,
+                            // the rebuild carries the empty form over.
+                            for mut f in [amount.clone(), a.clone(), b.clone(), c.clone(), d.clone(),
+                                          cap.clone()] {
+                                f.set_value("");
+                            }
+                            defer(&ui_c, refresh_orders)
+                        }
                         Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
                     }
                 }
@@ -1476,9 +1594,12 @@ fn refresh_orders(ui: &Rc<Ui>, show: bool) {
 
     let mut window = w.window.clone();
     if let Some(old) = ui.orders.replace(Some(w)) {
-        let mut ow = old.window.clone();
-        let was_up = ow.shown();
-        ow.hide();
+        let was_up = old.window.shown();
+        // Deleted, not hidden: this rebuilds on every line a running book
+        // says, and a hidden window per line was a leak that grew all night.
+        // Safe because nothing outside the window holds its widgets — the
+        // runner's poll reads `ui.orders`, which is the new one by now.
+        fltk::window::Window::delete(old.window);
         if was_up {
             window.show();
         }
@@ -1488,12 +1609,29 @@ fn refresh_orders(ui: &Rc<Ui>, show: bool) {
     }
 }
 
+/// What the player had typed into the Orders form, put into its rebuild.
+fn carry_order_form(old: &windows::OrdersWindow, new: &mut windows::OrdersWindow) {
+    new.kind.set_value(old.kind.value());
+    new.side.set_value(old.side.value());
+    for (from, to) in [(&old.coin, &mut new.coin), (&old.amount, &mut new.amount), (&old.a, &mut new.a),
+                       (&old.b, &mut new.b), (&old.c, &mut new.c), (&old.d, &mut new.d),
+                       (&old.cap, &mut new.cap)] {
+        to.set_value(&from.value());
+    }
+    let i = new.kind.value().max(0) as usize;
+    new.hint.set_label(windows::ORDER_KINDS.get(i).map(|x| x.1).unwrap_or(""));
+}
+
 /// The origin's markets, as `(rows, reachable, why)`.
 fn read_pairs(host: &str) -> (Vec<windows::PairLine>, bool, String) {
     let got = elo_net::Net::new().get_json(&format!("{host}/api/pairs"));
     let Some(v) = got.value else { return (Vec::new(), false, got.why) };
     let num = |x: Option<&serde_json::Value>| x.and_then(|v| v.as_f64());
-    let rows = v.get("pairs").and_then(|p| p.as_array()).map(|r| r.iter().filter_map(|p| {
+    // An answer with no list in it is a read that failed, not "no markets".
+    let Some(listed) = v.get("pairs").and_then(|p| p.as_array()) else {
+        return (Vec::new(), false, "the origin's answer had no markets in it".into());
+    };
+    let rows = listed.iter().filter_map(|p| {
         let key = p.get("key")?.as_str()?.to_string();
         let base = p.get("base").and_then(|b| b.as_str()).unwrap_or("?");
         let quote = p.get("quote").and_then(|b| b.as_str()).unwrap_or("?");
@@ -1504,13 +1642,17 @@ fn read_pairs(host: &str) -> (Vec<windows::PairLine>, bool, String) {
             venue: p.get("venue").and_then(|b| b.as_str()).unwrap_or("").to_string(),
             key,
         })
-    }).collect()).unwrap_or_default();
+    }).collect();
     (rows, true, String::new())
 }
 
 /// Read the markets and put up a Pairs window over whatever was there.
 fn refresh_pairs(ui: &Rc<Ui>, show: bool) {
-    let (rows, reachable, why) = read_pairs(&ui.host);
+    let host = ui.host.clone();
+    load(ui, show, move || read_pairs(&host), put_pairs);
+}
+
+fn put_pairs(ui: &Rc<Ui>, (rows, reachable, why): (Vec<windows::PairLine>, bool, String), show: bool) {
     let mut pairs_w = windows::pairs(&rows, reachable, &why);
     place(&mut pairs_w.window, ui.pairs.borrow().as_ref().map(|p| (p.window.x(), p.window.y())), ui.drift);
     for (key, b) in &pairs_w.rows {
@@ -1531,9 +1673,9 @@ fn refresh_pairs(ui: &Rc<Ui>, show: bool) {
     });
     let mut window = pairs_w.window.clone();
     if let Some(old) = ui.pairs.replace(Some(pairs_w)) {
-        let mut w = old.window.clone();
-        let was_up = w.shown();
-        w.hide();
+        let was_up = old.window.shown();
+        // Deleted, not hidden — nothing outside the window holds its widgets.
+        fltk::window::Window::delete(old.window);
         if was_up {
             window.show();
         }
@@ -1541,6 +1683,247 @@ fn refresh_pairs(ui: &Rc<Ui>, show: bool) {
     if show {
         window.show();
     }
+}
+
+/// What Skins draws: this account's items in the chosen collection and its
+/// open listings, read now (`elo_net::skins`) — and the collection's address,
+/// read ONCE here for every item's OpenSea link. It was read once per item,
+/// on the window's thread, every time the window opened.
+fn read_skins(host: &str, key: &str) -> (windows::Skins, Option<String>) {
+    let Some(addr) = elo_vault::LocalSigner::at(elo_vault::keystore_path()).address() else {
+        return (windows::Skins::NoAccount, None);
+    };
+    let who = addr.to_lowercase();
+    let rpc = elo_net::chain::HttpRpc::new();
+    let collection = elo_net::skins::collection(&rpc, host, key).ok()
+        .and_then(|c| c.get("address").and_then(Value::as_str).map(str::to_string));
+    let held = match elo_net::skins::held(&rpc, host, key, &who) {
+        Ok(h) => h,
+        Err(why) => return (windows::Skins::Unreadable { why }, collection),
+    };
+    let (listed, listings_why) = match elo_net::skins::listings(&rpc, host, key, &who) {
+        Ok(l) => (l, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    let rows = held.into_iter().map(|h| {
+        let l = listed.iter().find(|l| l.id == h.id)
+            .map(|l| (l.price_eth.map(|p| format!("{p}")).unwrap_or_else(|| "?".into()), l.order.clone()));
+        windows::SkinLine { id: h.id, name: h.name, listed: l }
+    }).collect();
+    (windows::Skins::Held { rows, listings_why }, collection)
+}
+
+/// Skins: sell, relist, cancel, take the best offer, or open OpenSea, for each
+/// item this account holds. The origin prepares; `elo_net::skins::check_sell`
+/// holds a listing to what was typed; the review shows it; the passphrase is
+/// asked for each one; the steps run on a thread (a receipt can take a while)
+/// and come back on a channel this window polls.
+fn refresh_skins(ui: &Rc<Ui>, show: bool) {
+    let key = windows::SKIN_COLLECTIONS[ui.skins_key.get().min(windows::SKIN_COLLECTIONS.len() - 1)].0;
+    let host = ui.host.clone();
+    load(ui, show, move || read_skins(&host, key), move |ui, read, show| put_skins(ui, key, read, show));
+}
+
+fn put_skins(ui: &Rc<Ui>, key: &'static str, (state, collection): (windows::Skins, Option<String>),
+             show: bool) {
+    let mut w = windows::skins(&state, ui.skins_key.get());
+    place(&mut w.window, ui.skins.borrow().as_ref().map(|o| (o.window.x(), o.window.y())), ui.drift);
+
+    {
+        let ui_c = Rc::clone(ui);
+        w.collection.clone().set_callback(move |c| {
+            ui_c.skins_key.set(c.value().max(0) as usize);
+            defer(&ui_c, refresh_skins);
+        });
+        let ui_c = Rc::clone(ui);
+        w.refresh.clone().set_callback(move |b| {
+            b.set_label("Reading…");
+            b.deactivate();
+            defer(&ui_c, refresh_skins);
+        });
+        let (front, url) = (Rc::clone(&ui.front), format!("{}/terminal.html?collection={key}#col", ui.host));
+        w.market.clone().set_callback(move |_| {
+            if let Err(e) = front.open(&url) {
+                eprintln!("elo-gui: {e}");
+            }
+        });
+    }
+    for windows::SkinRow { id, sell, cancel, offer, open } in &w.rows {
+        {   // OpenSea
+            let url = collection.as_ref().map(|a| format!("https://opensea.io/item/robinhood/{a}/{id}"));
+            let front = Rc::clone(&ui.front);
+            open.clone().set_callback(move |_| {
+                if let Some(u) = &url {
+                    if let Err(e) = front.open(u) {
+                        eprintln!("elo-gui: {e}");
+                    }
+                }
+            });
+        }
+        {   // Sell / Relist
+            let (ui_c, id, price, days, mut status) = (Rc::clone(ui), id.clone(), w.price.clone(), w.days.clone(),
+                                                       w.status.clone());
+            sell.clone().set_callback(move |_| {
+                let d = windows::LISTING_DAYS.get(days.value().max(0) as usize).copied().unwrap_or(7);
+                match prepare_listing(&ui_c.host, key, &id, &price.value(), d) {
+                    Ok(job) => start_skins_job(&ui_c, job, &mut status),
+                    Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
+                }
+            });
+        }
+        if let Some((order, b)) = cancel {
+            let (ui_c, id, order, mut status) = (Rc::clone(ui), id.clone(), order.clone(), w.status.clone());
+            b.clone().set_callback(move |_| {
+                match prepare_steps(&ui_c.host, key, "cancel", &id, &order) {
+                    Ok(job) => start_skins_job(&ui_c, job, &mut status),
+                    Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
+                }
+            });
+        }
+        {   // Best offer
+            let (ui_c, id, mut status) = (Rc::clone(ui), id.clone(), w.status.clone());
+            offer.clone().set_callback(move |_| {
+                match prepare_steps(&ui_c.host, key, "accept", &id, "") {
+                    Ok(job) => start_skins_job(&ui_c, job, &mut status),
+                    Err(e) => say(&mut status, &e, elo_ui::theme::GOLD),
+                }
+            });
+        }
+    }
+
+    let mut window = w.window.clone();
+    if let Some(old) = ui.skins.replace(Some(w)) {
+        let mut ow = old.window.clone();
+        let was_up = ow.shown();
+        ow.hide();
+        if was_up {
+            window.show();
+        }
+    }
+    if show {
+        window.show();
+    }
+}
+
+/// A sale, cancel or offer, checked and reviewed, waiting for its passphrase.
+struct SkinsJob {
+    key: &'static str,
+    prep: serde_json::Value,
+    /// the listing the vault will sign, when this is a sale
+    order: Option<elo_vault::seaport::Order>,
+    heading: String,
+    lines: Vec<(String, String)>,
+    notes: Vec<String>,
+    go: &'static str,
+}
+
+fn prepare_listing(host: &str, key: &'static str, id: &str, price: &str, days: u32) -> Result<SkinsJob, String> {
+    let signer = elo_vault::LocalSigner::at(elo_vault::keystore_path());
+    let addr = signer.address().ok_or("no account on this machine")?;
+    let me = elo_vault::parse_address(&addr)?;
+    let price_wei = elo_net::skins::wei(price)?;
+    let rpc = elo_net::chain::HttpRpc::new();
+    let col = elo_net::skins::collection(&rpc, host, key)?;
+    let col_addr = elo_vault::parse_address(col.get("address").and_then(|v| v.as_str()).unwrap_or(""))
+        .map_err(|_| "the origin names no address for that collection".to_string())?;
+    let prep = elo_net::skins::prepare_sell(&rpc, host, key, id, price, days, &addr.to_lowercase())?;
+    let order = elo_net::skins::check_sell(&prep, &col_addr, id, price_wei, &me)?;
+    let r = |k: &str| prep.pointer(&format!("/review/{k}")).and_then(|v| v.as_str()).unwrap_or("?").to_string();
+    let mut lines = vec![("Sell".to_string(), r("give")), ("Price".to_string(), r("price"))];
+    for f in prep.pointer("/review/fees").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
+        lines.push(("Fee".into(), format!("{} to {}", f.get("amount").and_then(|v| v.as_str()).unwrap_or("?"),
+                                          f.get("to").and_then(|v| v.as_str()).unwrap_or("?"))));
+    }
+    lines.push(("You get".into(), r("you_get")));
+    lines.push(("Ends".into(), r("ends")));
+    let approvals = prep.get("txs").and_then(|t| t.as_array()).map(Vec::len).unwrap_or(0);
+    let mut notes: Vec<String> = prep.pointer("/review/note").and_then(|v| v.as_str()).map(|n| vec![n.to_string()])
+        .unwrap_or_default();
+    notes.push("It stays in your wallet, and in game, until it sells. OpenSea takes its fee; we take none.".into());
+    if approvals > 0 {
+        notes.push("First, a one-time approval so OpenSea's Seaport can deliver it when it sells.".into());
+    }
+    Ok(SkinsJob { key, prep, order: Some(order), heading: "check this listing".into(), lines, notes, go: "List it" })
+}
+
+fn prepare_steps(host: &str, key: &'static str, verb: &str, id: &str, order: &str) -> Result<SkinsJob, String> {
+    let addr = elo_vault::LocalSigner::at(elo_vault::keystore_path()).address().ok_or("no account on this machine")?;
+    let who = addr.to_lowercase();
+    let rpc = elo_net::chain::HttpRpc::new();
+    if verb == "cancel" {
+        let prep = elo_net::skins::prepare_cancel(&rpc, host, key, order, &who)?;
+        return Ok(SkinsJob { key, prep, order: None, heading: "cancel this listing".into(),
+                             lines: vec![("Cancel".into(), format!("the listing of #{id}"))],
+                             notes: vec!["A transaction from your account; it costs a little gas.".into()],
+                             go: "Cancel it" });
+    }
+    let prep = elo_net::skins::prepare_accept(&rpc, host, key, id, &who)?;
+    let o = prep.get("offer").cloned().unwrap_or(serde_json::Value::Null);
+    let amount = format!("{} {}", o.get("amount").and_then(|v| v.as_f64()).map(|x| format!("{x}")).unwrap_or_else(|| "?".into()),
+                         o.get("currency").and_then(|v| v.as_str()).unwrap_or(""));
+    Ok(SkinsJob { key, prep, order: None, heading: "sell to the best offer".into(),
+                  lines: vec![("Sell".into(), format!("#{id}")), ("For".into(), amount)],
+                  notes: vec!["The offer is OpenSea's best right now; the item leaves your wallet when it lands.".into()],
+                  go: "Sell" })
+}
+
+/// Review, passphrase, then the steps on a thread; the answer comes back on a
+/// channel this window polls.
+fn start_skins_job(ui: &Rc<Ui>, job: SkinsJob, status: &mut fltk::frame::Frame) {
+    if ui.skins_said.borrow().is_some() {
+        say(status, "one at a time: the last one is still going", elo_ui::theme::GOLD);
+        return;
+    }
+    if !wiring::review_in_window_as(&job.heading, &job.lines, &job.notes, "Your passphrase is asked next.", job.go) {
+        return;
+    }
+    let ask = wiring::real_ask();
+    let Some(pass) = ask("Skins", "Your passphrase:") else { return };
+    let signer = elo_vault::LocalSigner::at(elo_vault::keystore_path());
+    let Some(addr) = signer.address() else { return };
+    let Ok(me) = elo_vault::parse_address(&addr) else { return };
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+    let host = ui.host.clone();
+    std::thread::spawn(move || {
+        let rpc = elo_net::chain::HttpRpc::new();
+        let settings = elo_net::guard::Settings::load(&elo_net::guard::settings_path());
+        let sign = |t: &elo_vault::tx::Tx| signer.sign_transaction(&pass, t);
+        let has_steps = job.prep.get("txs").and_then(|t| t.as_array()).is_some_and(|t| !t.is_empty());
+        let ran = if has_steps {
+            elo_net::trading::execute(&job.prep, &rpc, &me, &settings, &elo_net::guard::activity_path(), "skins",
+                                      &sign, &|l: &str| println!("elo-gui: skins — {}", l.trim())).map(Some)
+        } else { Ok(None) };
+        let out = ran.and_then(|hash| match &job.order {
+            Some(order) => {
+                let sig = signer.sign_seaport_listing(&pass, order)?;
+                elo_net::guard::log(&elo_net::guard::activity_path(), serde_json::json!({
+                    "source": "skins", "to": "Seaport 1.6 (OpenSea)", "verdict": "ok", "what": "a listing",
+                    "order": job.prep.get("order_hash").cloned().unwrap_or_default()}));
+                elo_net::skins::submit(&rpc, &host, job.key, &job.prep, &sig).map(|page| format!("listed: {page}"))
+            }
+            None => Ok(format!("done: {}", hash.map(|h| elo_net::chain::tx_url(&h)).unwrap_or_default())),
+        });
+        let _ = tx.send(out);
+    });
+    *ui.skins_said.borrow_mut() = Some(rx);
+    say(status, "working — the chain answers in a few seconds", elo_ui::theme::INK);
+    let poll_ui = Rc::clone(ui);
+    app::add_timeout3(0.5, move |h| {
+        let got = poll_ui.skins_said.borrow().as_ref().and_then(|rx| rx.try_recv().ok());
+        let Some(got) = got else {
+            app::repeat_timeout3(0.5, h);
+            return;
+        };
+        *poll_ui.skins_said.borrow_mut() = None;
+        refresh_skins(&poll_ui, false);
+        if let Some(sw) = poll_ui.skins.borrow().as_ref() {
+            let mut s = sw.status.clone();
+            match got {
+                Ok(line) => say(&mut s, &line, elo_ui::theme::INK),
+                Err(e) => say(&mut s, &e, elo_ui::theme::GOLD),
+            }
+        }
+    });
 }
 
 /// Put up a Friends window drawn from `state` over whatever was there, with
@@ -1616,8 +1999,8 @@ fn hold_friend_acts(w: &windows::FriendsWindow, on: bool) {
 
 /// A wallet's friends list, in the window's three states.
 ///
-/// On the SHORT deadline: the player pressed a button on the UI thread and is
-/// watching it, so a dead origin costs four seconds and says so, never sixty.
+/// On the SHORT deadline: the player opened the window and is watching it, so
+/// a dead origin costs four seconds and says so, never sixty.
 fn read_friends(host: &str, wallet: Option<&str>) -> windows::Friends {
     let Some(wallet) = wallet else {
         return windows::Friends::NoWallet;
@@ -1837,6 +2220,8 @@ struct Front {
     /// The games Play started, so their rows can say Running and nothing
     /// installs under them. Reaped as they exit.
     started: std::cell::RefCell<Vec<(String, std::process::Child)>>,
+    /// Titles an install is running for — see [`Installing`].
+    installing: Installing,
 }
 
 impl Front {
@@ -1854,168 +2239,44 @@ impl Front {
 }
 
 impl wiring::Storefront for Front {
-    /// Fetch, hash-verify and place a build.
-    ///
-    /// ⚠ **This blocks the UI thread for as long as the download takes**, and
-    /// that is a real cost stated rather than hidden: the window freezes.
-    /// It is still better than the alternative shipped today, which is no
-    /// button at all — and the honest fix is a progress row, which is work
-    /// this change does not do. The button says `Installing…` before it
-    /// starts, so the freeze reads as the install and not as a crash.
+    /// Fetch, hash-verify and place a build — as [`Storefront::install_job`]
+    /// runs it, with the window's progress ignored. Kept for the trait; the
+    /// windows run the job.
     fn install(&self, slug: &str) -> Result<String, String> {
+        self.install_job(slug)(&|_, _| {})
+    }
+
+    /// The install, for another thread. What only this one can answer is
+    /// asked here: a running game is not updated under itself, and a title
+    /// already installing is not installed twice at once — the Store's Install
+    /// and the library's Update are two doors to one directory.
+    fn install_job(&self, slug: &str) -> wiring::Job {
         // An update replaces the files the game is running from and then
         // removes the old build, so it waits until the game has exited.
         if self.running(slug) {
-            return Err(format!(
-                "{slug} is running. Quit it first, then update."
-            ));
+            let said = format!("{slug} is running. Quit it first, then update.");
+            return Box::new(move |_| Err(said));
         }
-        let net = elo_net::Net::new();
-        let url = format!("{}/api/launcher/manifest/{slug}", self.host);
-        let got = net.get_json(&url);
-        let Some(v) = got.value else {
-            return Err(format!(
-                "could not read {slug}'s manifest — {}\n\n{url}",
-                got.why
-            ));
+        let Some(claim) = Installing::claim(&self.installing, slug) else {
+            let said = format!("{slug} is already installing — it will be ready in a moment.");
+            return Box::new(move |_| Err(said));
         };
-        // ⚠ **`rebase` or the depot url is unusable.** The origin serves a
-        // manifest whose `depot` is a PATH — `/api/launcher/depot/gates/…` —
-        // and the client completes it against the host it asked. Without this
-        // the check fails with *"bad uri"* and the row says the origin could
-        // not be reached, which is a sentence about the network for a bug in
-        // this file. `load_manifest` in the CLI does the same thing and this
-        // is the same call.
-        let mut m = elo_depot::parse_manifest(&v).map_err(|e| e.to_string())?;
-        m.rebase(&self.host);
-        let checked = elo_depot::check(&m, &elo_depot::platform_tag(), &self.root, &net, false);
-        match &checked.state {
-            elo_depot::UpdateState::Unpublished => {
-                return Err(format!(
-                    "{} publishes no build for {} yet.\n\n\
-                     This is a normal state, not a fault — the row says so and the \
-                     button stays off until a depot is published.",
-                    m.name,
-                    elo_depot::platform_tag()
-                ))
-            }
-            // A 401 IS the ticket door and not a fault: the title is sold, and
-            // the download wants the grant a copy buys. The CLI says the same
-            // sentence for the same case (`main.rs`, the install arm).
-            elo_depot::UpdateState::Unknown { why } if why.contains("401") => {
-                return Err(format!(
-                    "This game is sold — the download needs the grant your copy buys.\n\n\
-                     In a terminal:  elo entitle {slug}\n\
-                     then press Install again.\n\n\
-                     No copy yet? The price and the contract:\n{}/api/ticket/{slug}",
-                    self.host
-                ))
-            }
-            elo_depot::UpdateState::Unknown { why } => {
-                return Err(format!("refusing to install — {why}"))
-            }
-            // `check` hands back the depot for a current build too, and this
-            // used to download all of it again into the build being played.
-            elo_depot::UpdateState::Current { build, .. } => {
-                return Ok(format!("{} is already up to date (build {build}).", m.name))
-            }
-            _ => {}
-        }
-        let Some(depot) = checked.depot else {
-            return Ok(format!("{} is already up to date.", m.name));
-        };
-        let plan = elo_depot::plan(&depot, &self.root);
-        let at = elo_depot::install(&depot, &self.root, &net, Some(&plan), None)
-            .map_err(|e| e.to_string())?;
-        // The digest goes in the message. It is the one number a player can
-        // take to a block explorer, and an install that computes it and keeps
-        // it quiet has wasted the only property no other storefront has.
-        let digest = depot.digest().map_err(|e| e.to_string())?;
-        // **Sweep the builds this one replaces.** Keeping the old build until
-        // the new one is whole is the safe half of an update; keeping it
-        // FOREVER is how a player ends up with six directories of one game, a
-        // library listing each as its own row, and a Play button choosing
-        // between them. Steam does not show you last week's build.
-        //
-        // A failure here is not the install's failure: the new build is
-        // complete and playable, and a directory we could not delete costs
-        // disk rather than correctness. So it is reported in the message and
-        // never raised.
-        let mut swept = 0usize;
-        let mut kept_back = Vec::new();
-        // By the depot's slug, which `check` has bound to the manifest's: the
-        // title that was installed is the one whose old builds go.
-        for old in elo_depot::superseded(&self.root, &depot.slug, &depot.build) {
-            match elo_depot::uninstall(&old.path) {
-                Ok(()) => swept += 1,
-                Err(e) => kept_back.push(format!("{} ({e})", old.build)),
-            }
-        }
-        // Same notice the CLI prints, for the same reason: the bytes came from
-        // a host this build's own document does not name, and that is a thing
-        // to say out loud rather than a convenience to hide. The depot was
-        // packaged before a domain move; see `Depot::heal_retired_root`.
-        let healed = match &depot.healed_from {
-            Some(was) => format!(
-                "\n\nnote: this build names its files on {}, which is retired. They \
-                 were downloaded from {} instead, and every file was still checked \
-                 against the sha256 in the depot this origin served.",
-                elo_depot::origin_of(was),
-                elo_depot::origin_of(&depot.root)
-            ),
-            None => String::new(),
-        };
-        let sweep = match (swept, kept_back.is_empty()) {
-            (0, true) => String::new(),
-            (n, true) => format!("\n\n{n} older build(s) removed."),
-            (n, false) => format!(
-                "\n\n{n} older build(s) removed; could not remove {}",
-                kept_back.join(", ")
-            ),
-        };
-        Ok(format!(
-            "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}{healed}\n\n\
-             It is in Games, and Play now starts it.",
-            m.name,
-            depot.build,
-            at.display()
-        ))
+        let (host, root, slug) = (self.host.clone(), self.root.clone(), slug.to_string());
+        Box::new(move |tick| {
+            let _claim = claim;
+            install_title(&host, &root, &slug, tick)
+        })
     }
 
     fn verify(&self, slug: &str, build: &str) -> Result<String, String> {
-        let Some(i) = elo_depot::installed(&self.root)
-            .into_iter()
-            .find(|i| i.slug == slug && i.build == build)
-        else {
-            return Err(format!("{slug} {build} is not installed any more."));
-        };
-        let v = elo_depot::verify(&i.path);
-        if v.ok {
-            Ok(format!(
-                "{slug} {build} verified.\n\n{}\n\n\
-                 depot digest\n{}\n\n\
-                 That digest is the number to look up on chain — it is what the \n\
-                 notary event names.",
-                v.line(),
-                i.depot_digest
-            ))
-        } else {
-            // A failed hash is the one thing in this client that means the
-            // bytes on disk are not the bytes that were published.
-            let named: Vec<String> = v
-                .missing
-                .iter()
-                .chain(v.changed.iter())
-                .take(8)
-                .cloned()
-                .collect();
-            Err(format!(
-                "{slug} {build} does NOT match its depot.\n\n{}\n\n{}\n\n\
-                 Re-installing replaces every file the depot names.",
-                v.line(),
-                named.join("\n")
-            ))
-        }
+        verify_title(&self.root, slug, build)
+    }
+
+    /// Hashing is the whole of a verify, and it is CPU: a few hundred
+    /// megabytes is a second or two the window should not spend frozen.
+    fn verify_job(&self, slug: &str, build: &str) -> wiring::Job {
+        let (root, slug, build) = (self.root.clone(), slug.to_string(), build.to_string());
+        Box::new(move |_| verify_title(&root, &slug, &build))
     }
 
     fn running(&self, slug: &str) -> bool {
@@ -2027,6 +2288,9 @@ impl wiring::Storefront for Front {
     fn play(&self, slug: &str) -> Result<String, String> {
         if self.running(slug) {
             return Err(format!("{slug} is already running."));
+        }
+        if self.installing.has(slug) {
+            return Err(format!("{slug} is still installing — it will be ready in a moment."));
         }
         // The most recently INSTALLED build, by directory mtime — see
         // `newest_of`. A build id ends in a hex sha, so name order is noise.
@@ -2085,6 +2349,213 @@ impl wiring::Storefront for Front {
 /// route failed becomes `Price::Unknown` and not `Price::Free`: reading a
 /// dropped packet as "free" is how a store gives a game away, and it is the
 /// repo's own trap wearing a price tag.
+/// The titles an install is running for right now, so a second door to the
+/// same directory is refused instead of racing the first. Held by the job, on
+/// whatever thread runs it, and let go when the job ends however it ends.
+#[derive(Clone, Default)]
+struct Installing(Arc<Mutex<std::collections::BTreeSet<String>>>);
+
+impl Installing {
+    fn claim(this: &Installing, slug: &str) -> Option<Claim> {
+        let mut busy = this.0.lock().ok()?;
+        busy.insert(slug.to_string()).then(|| Claim(this.clone(), slug.to_string()))
+    }
+    fn has(&self, slug: &str) -> bool {
+        self.0.lock().map(|b| b.contains(slug)).unwrap_or(true)
+    }
+}
+
+struct Claim(Installing, String);
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        if let Ok(mut busy) = (self.0).0.lock() {
+            busy.remove(&self.1);
+        }
+    }
+}
+
+/// Fetch, hash-verify and place a title's build — every verb here is the
+/// CLI's, reached through the same `elo-depot` calls `elo install` makes.
+/// Runs on a job's thread; `tick` hears `(done, total)` bytes.
+fn install_title(host: &str, root: &std::path::Path, slug: &str, tick: &dyn Fn(i64, i64))
+    -> Result<String, String> {
+    let net = elo_net::Net::new();
+    let url = format!("{host}/api/launcher/manifest/{slug}");
+    let got = net.get_json(&url);
+    let Some(v) = got.value else {
+        return Err(format!(
+            "could not read {slug}'s manifest — {}\n\n{url}",
+            got.why
+        ));
+    };
+    // ⚠ **`rebase` or the depot url is unusable.** The origin serves a
+    // manifest whose `depot` is a PATH — `/api/launcher/depot/gates/…` —
+    // and the client completes it against the host it asked. Without this
+    // the check fails with *"bad uri"* and the row says the origin could
+    // not be reached, which is a sentence about the network for a bug in
+    // this file. `load_manifest` in the CLI does the same thing and this
+    // is the same call.
+    let mut m = elo_depot::parse_manifest(&v).map_err(|e| e.to_string())?;
+    m.rebase(host);
+    let checked = elo_depot::check(&m, &elo_depot::platform_tag(), root, &net, false);
+    match &checked.state {
+        elo_depot::UpdateState::Unpublished => {
+            return Err(format!(
+                "{} publishes no build for {} yet.\n\n\
+                 This is a normal state, not a fault — the row says so and the \
+                 button stays off until a depot is published.",
+                m.name,
+                elo_depot::platform_tag()
+            ))
+        }
+        // A 401 IS the ticket door and not a fault: the title is sold, and
+        // the download wants the grant a copy buys. The CLI says the same
+        // sentence for the same case (`main.rs`, the install arm).
+        elo_depot::UpdateState::Unknown { why } if why.contains("401") => {
+            return Err(format!(
+                "This game is sold — the download needs the grant your copy buys.\n\n\
+                 In a terminal:  elo entitle {slug}\n\
+                 then press Install again.\n\n\
+                 No copy yet? The price and the contract:\n{}/api/ticket/{slug}",
+                host
+            ))
+        }
+        elo_depot::UpdateState::Unknown { why } => {
+            return Err(format!("refusing to install — {why}"))
+        }
+        // `check` hands back the depot for a current build too, and this
+        // used to download all of it again into the build being played.
+        elo_depot::UpdateState::Current { build, .. } => {
+            return Ok(format!("{} is already up to date (build {build}).", m.name))
+        }
+        _ => {}
+    }
+    let Some(depot) = checked.depot else {
+        return Ok(format!("{} is already up to date.", m.name));
+    };
+    let plan = elo_depot::plan(&depot, root);
+    let mut told = |done: i64, total: i64, _: &str, _: bool| tick(done, total);
+    let at = elo_depot::install(&depot, root, &net, Some(&plan), Some(&mut told))
+        .map_err(|e| e.to_string())?;
+    // The digest goes in the message. It is the one number a player can
+    // take to a block explorer, and an install that computes it and keeps
+    // it quiet has wasted the only property no other storefront has.
+    let digest = depot.digest().map_err(|e| e.to_string())?;
+    // **Sweep the builds this one replaces.** Keeping the old build until
+    // the new one is whole is the safe half of an update; keeping it
+    // FOREVER is how a player ends up with six directories of one game, a
+    // library listing each as its own row, and a Play button choosing
+    // between them. Steam does not show you last week's build.
+    //
+    // A failure here is not the install's failure: the new build is
+    // complete and playable, and a directory we could not delete costs
+    // disk rather than correctness. So it is reported in the message and
+    // never raised.
+    let mut swept = 0usize;
+    let mut kept_back = Vec::new();
+    // By the depot's slug, which `check` has bound to the manifest's: the
+    // title that was installed is the one whose old builds go.
+    for old in elo_depot::superseded(root, &depot.slug, &depot.build) {
+        match elo_depot::uninstall(&old.path) {
+            Ok(()) => swept += 1,
+            Err(e) => kept_back.push(format!("{} ({e})", old.build)),
+        }
+    }
+    // Same notice the CLI prints, for the same reason: the bytes came from
+    // a host this build's own document does not name, and that is a thing
+    // to say out loud rather than a convenience to hide. The depot was
+    // packaged before a domain move; see `Depot::heal_retired_root`.
+    let healed = match &depot.healed_from {
+        Some(was) => format!(
+            "\n\nnote: this build names its files on {}, which is retired. They \
+             were downloaded from {} instead, and every file was still checked \
+             against the sha256 in the depot this origin served.",
+            elo_depot::origin_of(was),
+            elo_depot::origin_of(&depot.root)
+        ),
+        None => String::new(),
+    };
+    let sweep = match (swept, kept_back.is_empty()) {
+        (0, true) => String::new(),
+        (n, true) => format!("\n\n{n} older build(s) removed."),
+        (n, false) => format!(
+            "\n\n{n} older build(s) removed; could not remove {}",
+            kept_back.join(", ")
+        ),
+    };
+    Ok(format!(
+        "{} {} is installed.\n\n{}\n\ndepot digest\n{digest}{sweep}{healed}\n\n\
+         It is in Games, and Play now starts it.",
+        m.name,
+        depot.build,
+        at.display()
+    ))
+}
+
+fn verify_title(root: &std::path::Path, slug: &str, build: &str) -> Result<String, String> {
+    let Some(i) = elo_depot::installed(root)
+        .into_iter()
+        .find(|i| i.slug == slug && i.build == build)
+    else {
+        return Err(format!("{slug} {build} is not installed any more."));
+    };
+    let v = elo_depot::verify(&i.path);
+    if v.ok {
+        Ok(format!(
+            "{slug} {build} verified.\n\n{}\n\n\
+             depot digest\n{}\n\n\
+             That digest is the number to look up on chain — it is what the \n\
+             notary event names.",
+            v.line(),
+            i.depot_digest
+        ))
+    } else {
+        // A failed hash is the one thing in this client that means the
+        // bytes on disk are not the bytes that were published.
+        let named: Vec<String> = v
+            .missing
+            .iter()
+            .chain(v.changed.iter())
+            .take(8)
+            .cloned()
+            .collect();
+        Err(format!(
+            "{slug} {build} does NOT match its depot.\n\n{}\n\n{}\n\n\
+             Re-installing replaces every file the depot names.",
+            v.line(),
+            named.join("\n")
+        ))
+    }
+}
+
+/// `f` over every item, up to eight at a time, answers in the items' order.
+///
+/// The shelf's per-title reads (a price, an icon) and the library's per-title
+/// checks are independent round trips; one after another they were most of the
+/// time a shelf took to load, and the count grows with the catalog.
+fn par_map<I: Sync, O: Send>(items: &[I], f: impl Fn(&I) -> O + Sync) -> Vec<O> {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    let next = AtomicUsize::new(0);
+    let mut out: Vec<(usize, O)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..items.len().min(8))
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Relaxed);
+                        let Some(item) = items.get(i) else { break mine };
+                        mine.push((i, f(item)));
+                    }
+                })
+            })
+            .collect();
+        workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
+    });
+    out.sort_by_key(|(i, _)| *i);
+    out.into_iter().map(|(_, o)| o).collect()
+}
+
 fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool, String) {
     let net = elo_net::Net::new();
     let got = net.get_json(&format!("{host}/api/launcher/manifests"));
@@ -2093,17 +2564,24 @@ fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool,
         // return type — see the Store window's two branches.
         return (Vec::new(), false, got.why);
     };
-    let manifests = v
-        .get("manifests")
-        .and_then(|m| m.as_array())
-        .cloned()
-        .unwrap_or_default();
+    // An answer with no list in it is a read that failed, not an empty shelf.
+    let Some(manifests) = v.get("manifests").and_then(|m| m.as_array()).cloned() else {
+        return (Vec::new(), false, "the origin's answer had no catalog in it".into());
+    };
     let here = elo_depot::platform_tag();
     let on_disk = elo_depot::installed(root);
+    // Each title's price and icon, all titles at once.
+    let mut extras = par_map(&manifests, |m| {
+        m.get("slug")
+            .and_then(Value::as_str)
+            .map(|slug| (read_price(&net, host, slug), read_icon(&net, host, m)))
+    })
+    .into_iter();
 
     let mut rows = Vec::new();
     for m in manifests.iter() {
-        let Some(slug) = m.get("slug").and_then(Value::as_str) else {
+        let extra = extras.next().flatten();
+        let (Some(slug), Some((price, icon))) = (m.get("slug").and_then(Value::as_str), extra) else {
             continue;
         };
         let name = m.get("name").and_then(Value::as_str).unwrap_or(slug);
@@ -2136,8 +2614,8 @@ fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool,
                 .to_string(),
             installable,
             installed: on_disk.iter().any(|i| i.slug == slug),
-            price: read_price(&net, host, slug),
-            icon: read_icon(&net, host, m),
+            price,
+            icon,
         });
     }
     (rows, true, String::new())
@@ -2174,11 +2652,11 @@ fn read_library(host: &str, root: &std::path::Path, shelf: &[windows::Shelf]) ->
     let mut published: std::collections::BTreeMap<String, Result<String, String>> =
         std::collections::BTreeMap::new();
 
-    for i in &installs {
-        if published.contains_key(&i.slug) {
-            continue;
-        }
-        let url = format!("{host}/api/launcher/manifest/{}", i.slug);
+    let mut slugs: Vec<&str> = installs.iter().map(|i| i.slug.as_str()).collect();
+    slugs.sort_unstable();
+    slugs.dedup();
+    let answers = par_map(&slugs, |slug| {
+        let url = format!("{host}/api/launcher/manifest/{slug}");
         let got = net.get_json(&url);
         let answer = match got.value.as_ref().map(elo_depot::parse_manifest) {
             Some(Ok(mut m)) => {
@@ -2203,7 +2681,10 @@ fn read_library(host: &str, root: &std::path::Path, shelf: &[windows::Shelf]) ->
             None if got.reachable => Err(got.why.clone()),
             None => Err(format!("could not reach the origin — {}", got.why)),
         };
-        published.insert(i.slug.clone(), answer);
+        answer
+    });
+    for (slug, answer) in slugs.iter().zip(answers) {
+        published.insert(slug.to_string(), answer);
     }
 
     // **One row per TITLE, not per build.** The updater keeps the previous
@@ -2552,7 +3033,10 @@ mod tests {
         }
         // What a launcher shutting down looks like from the door's side.
         drop(bell);
-        assert_eq!(asked.join().unwrap(), None, "an unanswered prompt must not grant");
+        // Not a grant, and not a "no" either: the broker signs nothing for
+        // it and does not remember it as the player refusing.
+        assert_eq!(asked.join().unwrap(), Some(elo_broker::UNANSWERED),
+                   "an unanswered prompt must not grant");
     }
 
     /// The prompt is handed the game's words unaltered — flattening for

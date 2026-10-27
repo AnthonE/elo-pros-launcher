@@ -20,7 +20,14 @@ use std::process::Command;
 /// it must point inside the build.
 ///
 /// Compared upper-cased, so `Path` on Windows is `PATH`.
-pub const ENV_DENY: [&str; 24] = [
+///
+/// The runtimes a game is likely built on each have a variable that loads
+/// code before `main`: Mono and .NET (Unity and Godot-C# builds), the CLR
+/// profiler on Windows, SDL's dynamic API, the Mesa/VA/OpenCL driver loaders,
+/// and the interpreters' option variables. Each lets a depot that passed
+/// every hash run a library it never shipped. The `VK_`, `LIBGL_` and
+/// `__EGL_` families are covered by [`ENV_DENY_PREFIX`].
+pub const ENV_DENY: [&str; 41] = [
     "LD_PRELOAD",
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
@@ -45,6 +52,23 @@ pub const ENV_DENY: [&str; 24] = [
     "JDK_JAVA_OPTIONS",
     "BASH_ENV",
     "ENV",
+    "PERL5OPT",
+    "RUBYOPT",
+    "MONO_PATH",
+    "MONO_CONFIG",
+    "MONO_ENV_OPTIONS",
+    "DOTNET_STARTUP_HOOKS",
+    "DOTNET_ADDITIONAL_DEPS",
+    "CORECLR_PROFILER",
+    "CORECLR_PROFILER_PATH",
+    "CORECLR_ENABLE_PROFILING",
+    "COR_PROFILER",
+    "COR_PROFILER_PATH",
+    "COR_ENABLE_PROFILING",
+    "SDL_DYNAMIC_API",
+    "LIBVA_DRIVERS_PATH",
+    "GBM_BACKENDS_PATH",
+    "OCL_ICD_FILENAMES",
 ];
 
 /// Whole families of loader variables: the glibc and macOS loaders, the

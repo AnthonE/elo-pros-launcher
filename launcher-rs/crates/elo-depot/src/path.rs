@@ -22,6 +22,15 @@ pub const MAX_PATH_LEN: usize = 1024;
 /// uniqueness rule. `a/b` and `./a/b` are two strings for one file, so a depot
 /// could list both, slip the duplicate check, and let whichever downloaded
 /// last silently win. One spelling per file.
+///
+/// The same rule, for the disks players actually have. Refused too, because
+/// each is a second spelling of a name on Windows or macOS: a `:` anywhere
+/// (a drive letter, or `run:x` — an NTFS alternate stream of `run`), a
+/// component ending in `.` or a space (Windows trims both, so `run.` IS
+/// `run`), a Windows device name (`nul`, `com1.txt` open the device, not a
+/// file), and anything outside ASCII — macOS normalises Unicode, so `é`
+/// typed two ways is one file there and two here, and no crate in this
+/// tree's budget does that normalisation to compare them.
 pub fn safe_relpath(raw: &str) -> Result<String> {
     if raw.is_empty() || raw.len() > MAX_PATH_LEN {
         return Err(DepotError::new(format!("bad depot path: {raw:?}")));
@@ -36,16 +45,41 @@ pub fn safe_relpath(raw: &str) -> Result<String> {
             "depot paths must be relative files: {raw:?}"
         )));
     }
-    // `c:` and friends. Checked on bytes so a multi-byte first char cannot
-    // shift the colon out of index 1 and slip past.
-    if raw.len() > 1 && raw.as_bytes()[1] == b':' {
-        return Err(DepotError::new(format!("depot path looks absolute: {raw:?}")));
+    // `c:` and `run:stream` alike. Anywhere, not only at index 1: a colon
+    // later in a name is an alternate data stream on NTFS, which writes into
+    // a file the depot lists under another name.
+    if raw.contains(':') {
+        return Err(DepotError::new(format!(
+            "a depot path may not hold ':' (a drive, or an NTFS stream): {raw:?}"
+        )));
+    }
+    if !raw.is_ascii() {
+        return Err(DepotError::new(format!(
+            "depot paths are ASCII — macOS folds two spellings of one accented \
+             name into one file: {raw:?}"
+        )));
     }
     let parts: Vec<&str> = raw.split('/').collect();
     if parts.iter().any(|p| p.is_empty() || *p == "." || *p == "..") {
         return Err(DepotError::new(format!(
             "depot path escapes the build directory: {raw:?}"
         )));
+    }
+    for p in &parts {
+        if p.ends_with('.') || p.ends_with(' ') {
+            return Err(DepotError::new(format!(
+                "a depot path component ends in '.' or a space, which Windows \
+                 drops — {p:?} is another file's name there: {raw:?}"
+            )));
+        }
+        // The device check is on the name before its first dot, the way
+        // Windows makes it: `nul.txt` and `CON.tar.gz` are devices too.
+        let stem = p.split('.').next().unwrap_or("").trim_end_matches(' ');
+        if WINDOWS_DEVICES.iter().any(|d| stem.eq_ignore_ascii_case(d)) {
+            return Err(DepotError::new(format!(
+                "{p:?} is a Windows device name, not a file: {raw:?}"
+            )));
+        }
     }
     // The canonical check. With no empty/./.. components left, re-joining is
     // the normalised spelling, so any difference means the input was not it.
@@ -56,6 +90,24 @@ pub fn safe_relpath(raw: &str) -> Result<String> {
         )));
     }
     Ok(joined)
+}
+
+/// Names Windows opens as a device whatever the directory or extension.
+const WINDOWS_DEVICES: [&str; 26] = [
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+    "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// The one name a case-insensitive disk sees for a depot path: lowercased,
+/// with the trailing dots and spaces Windows drops trimmed from every
+/// component. Two depot files with one key are one file on NTFS and APFS, so
+/// this — never the raw string — is what a duplicate check compares.
+pub fn alias_key(rel: &str) -> String {
+    rel.split('/')
+        .map(|c| c.trim_end_matches(['.', ' ']).to_lowercase())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Join, then prove the result is under `root` on the real filesystem.

@@ -30,6 +30,8 @@
 //! listing rule is what makes it safe to run at all: a listed game is open
 //! source (`GATES.md` §5), so the binary has a source tree anyone can diff.
 
+/// Assets a builder added to a project from the asset store, pinned in a lock.
+pub mod assets;
 /// Join links — `elo://join/<slug>/<host:port>`. The scheme the platform
 /// owns, so one link works for every title and a link for an uninstalled one
 /// is still actionable.
@@ -50,6 +52,8 @@ pub mod streamer;
 pub mod publisher;
 pub mod session;
 pub mod update;
+/// Workshop mods a player subscribed to, fetched and held to their sha256s.
+pub mod workshop;
 
 pub const CHUNK: usize = 262_144;
 

@@ -24,16 +24,23 @@ pub struct Args {
 
 /// Flags that take a value. Everything else with a `--` is a switch, and a
 /// `--` that is neither is an error.
-pub const VALUE_FLAGS: [&str; 22] = ["--games", "--host", "--platform", "--browser", "--server",
+pub const VALUE_FLAGS: [&str; 33] = ["--games", "--host", "--platform", "--browser", "--server",
                                      "--wallet", "--room", "--limit", "--status",
                                      // the dev desk
                                      "--set", "--from", "--slot", "--title", "--body",
                                      "--body-file", "--kind", "--art", "--link", "--scope",
                                      "--days",
                                      // elo trade
-                                     "--slippage", "--every"];
-pub const SWITCHES: [&str; 10] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
-                                  "--detach", "--quiet", "--statement", "--no-watch",
+                                     "--slippage", "--every",
+                                     // elo skins
+                                     "--collection",
+                                     // a title's beta branch (`elo install <title> --branch beta`)
+                                     "--branch",
+                                     // elo assets
+                                     "--engine", "--dir", "--repo", "--tag", "--id", "--name",
+                                     "--license", "--price", "--about"];
+pub const SWITCHES: [&str; 11] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
+                                  "--detach", "--quiet", "--statement", "--no-watch", "--help",
                                   // Which signer signs. Only ever narrows: it forces the local
                                   // keystore over a live browser pairing, and there is no
                                   // `--paired` because pairing is already the deliberate act.
@@ -42,8 +49,12 @@ pub const SWITCHES: [&str; 10] = ["--json", "--yes", "--allow-insecure", "--no-r
 pub fn parse(argv: &[String]) -> Result<Args, String> {
     let mut out = Args::default();
     let mut it = argv.iter().peekable();
+    // After a bare `--` nothing is a flag: `elo chat say -- --brb` says "--brb".
+    let mut flags_over = false;
     while let Some(a) = it.next() {
-        if let Some(name) = a.strip_prefix("--").map(|_| a.as_str()) {
+        if !flags_over && a == "--" {
+            flags_over = true;
+        } else if let Some(name) = a.strip_prefix("--").filter(|_| !flags_over).map(|_| a.as_str()) {
             let (name, inline) = match name.split_once('=') {
                 Some((n, v)) => (n, Some(v.to_string())),
                 None => (name, None),

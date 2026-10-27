@@ -240,16 +240,10 @@ impl Relay {
 
     /// Read frames until one of them is a JSON array we understand.
     ///
-    /// Waits up to [`IO_TIMEOUT`] in total, however short the socket's own
-    /// read timeout is — a live feed polls on a short one, and a ruling that
-    /// takes a second must not read as a relay that went away.
-    fn next_message(&mut self) -> Result<Vec<Value>> {
-        self.next_message_before(Instant::now() + IO_TIMEOUT)
-    }
-
-    /// [`Relay::next_message`] against a deadline the caller holds, for a
-    /// wait made of many messages: a relay that keeps talking restarts a
-    /// per-message deadline forever.
+    /// The deadline is the caller's, for a wait made of many messages: a relay
+    /// that keeps talking would restart a per-message deadline forever, and a
+    /// live feed polls on a short socket timeout, so a ruling that takes a
+    /// second must not read as a relay that went away.
     fn next_message_before(&mut self, deadline: Instant) -> Result<Vec<Value>> {
         let mut frames = 0;
         loop {

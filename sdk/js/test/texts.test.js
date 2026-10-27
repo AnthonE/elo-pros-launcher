@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { OPS, dayOf, faceDetail, friendsDetail, friendsSignText, jsonString, playMessage, FACE_ACTION } from "../index.js";
+import { OPS, dayOf, faceDetail, friendsDetail, friendsSignText, jsonString, playMessage, FACE_ACTION, BUDDY_ACTION,
+  BUDDY_OPS, buddyChange, claimText, entitleText, readPlay, sameArgs, submitDetail, submitText } from "../index.js";
 import { fx } from "./_testdata.js";
 
 test("the ops are the server's", () => {
@@ -45,4 +46,41 @@ test("every face text rebuilds byte for byte", () => {
 test("JSON strings are Python's", () => {
   assert.equal(jsonString('Doc "W" \\o/'), '"Doc \\"W\\" \\\\o/"');
   assert.equal(jsonString("é😀"), '"\\u00e9\\ud83d\\ude00"');
+});
+
+test("the buddy ops are the server's", () => {
+  assert.deepEqual([...BUDDY_OPS], fx("buddy_texts.json").ops);
+});
+
+test("every buddy text reads back as the change asked for", () => {
+  for (const c of fx("buddy_texts.json").cases) {
+    const got = buddyChange(c.text, c.wallet);
+    assert.deepEqual(got, { day: c.day, op: c.op, args: c.args, at: c.at }, c.op);
+    assert.ok(sameArgs(c.asked, got.args), `${c.op}: ${JSON.stringify(c.asked)}`);
+    assert.deepEqual(readPlay(c.text, BUDDY_ACTION, "0x" + c.wallet.slice(2).toUpperCase()),
+      { day: c.day, detail: c.detail }, "a checksummed wallet reads the same text");
+  }
+});
+
+test("a buddy text for another change is never the one asked for", () => {
+  for (const c of fx("buddy_texts.json").refused) {
+    const got = buddyChange(c.text, c.wallet);
+    assert.ok(!(got && got.op === c.op && sameArgs(c.asked, got.args)), c.why);
+  }
+});
+
+test("every board text rebuilds byte for byte", async () => {
+  for (const c of fx("board_texts.json").cases) {
+    if (c.op === "claim") {
+      assert.equal(claimText(c.wallet, c.quest_id, c.day), c.text);
+    } else {
+      assert.equal(await submitDetail(c.quest_id, c.url, c.n), c.detail);
+      assert.equal(c.detail.split(" ")[1], c.url_sha16);
+      assert.equal(await submitText(c.wallet, c.quest_id, c.url, c.n, c.day), c.text);
+    }
+  }
+});
+
+test("every entitle text rebuilds byte for byte", () => {
+  for (const c of fx("entitle_texts.json").cases) assert.equal(entitleText(c.game, c.wallet, c.day), c.text);
 });

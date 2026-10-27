@@ -45,6 +45,10 @@ use std::time::{Duration, Instant};
 pub const HISTORY: usize = 60;
 /// How many messages the feed holds before the oldest go.
 pub const FEED_CAP: usize = 500;
+
+/// How far ahead of this machine's clock a note may be dated and still be
+/// shown — see [`message_of`].
+pub const MAX_FUTURE_SECS: i64 = 900;
 /// The longest note a room carries — the origin's own cap (`meter/hive.py`).
 pub const MAX_NOTE: usize = 8000;
 /// The kinds a room's feed shows: the town stream, a room note, and buzz's
@@ -87,12 +91,12 @@ pub enum Link {
 /// Resolved through `who::resolve` — the one identity rule every surface in
 /// the client uses — so the name and picture here are the ones the site's
 /// profile shows: the wallet's own picture, then the Elo Pros seat it holds,
-/// then the vow's mark (`who.rs` `build`).
+/// then a hive picture (`who.rs` `build`).
 #[derive(Debug, Clone)]
 pub struct Person {
     pub name: String,
     pub kind: NameKind,
-    /// The wallet this key resolves to — a sworn vow's, or one the wallet
+    /// The wallet this key resolves to — one the wallet
     /// linked (`/api/hive/link`). How the window tells a linked key.
     pub wallet: Option<String>,
     /// Image bytes, fetched from OUR origin only (`Identity::origin_face`) and
@@ -391,6 +395,13 @@ pub fn message_of(ev: &Event, room: &str, names: &Names) -> Option<Message> {
     }
     let in_room = ev.tags.iter().any(|t| t.len() >= 2 && t[0] == "h" && t[1] == room);
     if !room.is_empty() && !in_room {
+        return None;
+    }
+    // The feed sorts by `created_at` and drops the oldest past FEED_CAP, so a
+    // note dated next year would sit at the bottom of every room and push
+    // real ones out. Anyone's key can sign any date; a quarter hour of clock
+    // skew is the most a real note needs.
+    if ev.created_at > crate::clock::now().saturating_add(MAX_FUTURE_SECS) {
         return None;
     }
     let mut m = Message {
@@ -1110,6 +1121,10 @@ mod tests {
 
         let presence = event(20001, vec![vec!["h".into(), "room-1".into()]]);
         assert!(message_of(&presence, "room-1", &names).is_none());
+        // A note dated a year ahead would pin itself under every real one.
+        let mut ahead = here.clone();
+        ahead.created_at = crate::clock::now() + 365 * 86_400;
+        assert!(message_of(&ahead, "room-1", &names).is_none());
     }
 
     #[test]
@@ -1215,7 +1230,7 @@ mod tests {
 
         // An answer lands in the view; an unreachable lookup waits FACE_RETRY.
         answer.send(("npub1alice".to_string(), Some(Person {
-            name: "alice".into(), kind: NameKind::Sworn, wallet: None, picture: None,
+            name: "alice".into(), kind: NameKind::Handle, wallet: None, picture: None,
         }))).unwrap();
         answer.send(("npub1bob".to_string(), None)).unwrap();
         w.trade_faces();

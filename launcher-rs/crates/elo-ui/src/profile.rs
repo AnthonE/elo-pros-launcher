@@ -171,6 +171,65 @@ pub fn read(http: &dyn FaceHttp, host: &str, wallet: &str) -> Result<Shown, Stri
     Ok(Shown { name, picture })
 }
 
+/// The text a profile change signs, rebuilt here and held against the one the
+/// origin offered — the same check `friendsop::checked_text` makes for a
+/// friends change. The format is `meter/faces.py`'s and deterministic: an
+/// `elo play` message whose detail is the sorted, compact JSON of `at` and the
+/// fields being changed. Only the day is taken from the offered text, and only
+/// when it is shaped like one.
+///
+/// Signing whatever `sign_this` said meant a breached or buggy origin could put
+/// any `elo play` text under this account's key behind a profile edit; the
+/// prompt shows the text, but a player changing their name does not read a
+/// detail line of JSON.
+pub fn checked_profile_text(offered: &str, wallet: &str, at: i64, name: Option<&str>,
+                            picture_sha256: Option<&str>) -> Result<(), String> {
+    let day = offered
+        .lines()
+        .nth(3)
+        .and_then(|l| l.strip_prefix("day: "))
+        .filter(|d| d.len() == 10 && d.bytes().enumerate()
+            .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() }))
+        .ok_or("the origin's text to sign is not a profile change — nothing was signed")?;
+    let mut detail = serde_json::Map::new();
+    detail.insert("at".into(), Value::from(at));
+    if let Some(n) = name {
+        detail.insert("name".into(), Value::from(n));
+    }
+    if let Some(h) = picture_sha256 {
+        detail.insert("picture_sha256".into(), Value::from(h));
+    }
+    let wanted = format!(
+        "elo play\naction: profile\nwallet: {}\nday: {day}\ndetail: {}",
+        wallet.to_lowercase(),
+        ascii_json(&Value::Object(detail).to_string())
+    );
+    if wanted == offered {
+        Ok(())
+    } else {
+        Err("the origin asked to sign something other than this change — nothing was signed"
+            .into())
+    }
+}
+
+/// Python's `json.dumps` default: every non-ASCII character as `\uXXXX`, a
+/// character past U+FFFF as its UTF-16 surrogate pair. serde_json leaves them
+/// raw, so a name like "Zoë" would otherwise rebuild as different bytes.
+fn ascii_json(compact: &str) -> String {
+    let mut out = String::with_capacity(compact.len());
+    for c in compact.chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            let mut units = [0u16; 2];
+            for u in c.encode_utf16(&mut units) {
+                out.push_str(&format!("\\u{u:04x}"));
+            }
+        }
+    }
+    out
+}
+
 /// A minimal PNG header of `size`×`size` that passes [`png_error`], for tests
 /// elsewhere in the crate.
 #[cfg(test)]
@@ -193,6 +252,30 @@ mod tests {
         b.extend([depth, colour, 0, 0, interlace]);
         b.extend([0, 0, 0, 0]);
         b
+    }
+
+    /// The bytes `meter/faces.py` hands out, character for character —
+    /// `json.dumps(..., sort_keys=True, separators=(",", ":"))`, so non-ASCII
+    /// is escaped — and anything else refused.
+    #[test]
+    fn a_profile_change_signs_only_the_text_it_describes() {
+        let w = "0xAbC0000000000000000000000000000000000001";
+        let ok = "elo play\naction: profile\nwallet: 0xabc0000000000000000000000000000000000001\n\
+                  day: 2026-10-25\ndetail: {\"at\":1793000000,\"name\":\"Zo\\u00eb \\ud83d\\ude00\",\
+                  \"picture_sha256\":\"ab\"}";
+        assert_eq!(checked_profile_text(ok, w, 1_793_000_000, Some("Zoë 😀"), Some("ab")), Ok(()));
+        // Another name, another action, another wallet, a picture nobody chose.
+        for bad in [
+            ok.replace("Zo", "Xo"),
+            ok.replace("action: profile", "action: grant"),
+            ok.replace("0xabc0", "0xdef0"),
+            ok.replace(",\"picture_sha256\":\"ab\"", ""),
+            ok.replace("day: 2026-10-25", "day: tomorrow!!"),
+        ] {
+            assert!(checked_profile_text(&bad, w, 1_793_000_000, Some("Zoë 😀"), Some("ab")).is_err(),
+                    "{bad}");
+        }
+        assert!(checked_profile_text(ok, w, 1_793_000_001, Some("Zoë 😀"), Some("ab")).is_err());
     }
 
     #[test]

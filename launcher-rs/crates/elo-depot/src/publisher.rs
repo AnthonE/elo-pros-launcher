@@ -117,6 +117,22 @@ pub fn statement(m: &Manifest) -> String {
     )
 }
 
+/// Why this manifest has no unambiguous statement, or `None` when it has one.
+///
+/// ⚠ **"No escaping questions" holds only while no field can hold a line
+/// break.** The statement joins fields with `\n`, so a `publisher` of
+/// `"Elo Pros\nrepo:https://evil.example"` makes the same bytes as a `repo`
+/// of `"https://evil.example\nrepo:<the real repo>"` — one signature, two
+/// different manifests. A line break in a signed field is refused rather than
+/// escaped: escaping would be a second format for every other implementation
+/// to get right.
+pub fn ambiguous(m: &Manifest) -> Option<String> {
+    [("slug", &m.slug), ("name", &m.name), ("publisher", &m.publisher), ("repo", &m.repo)]
+        .into_iter()
+        .find(|(_, v)| v.contains(['\n', '\r']))
+        .map(|(field, _)| format!("the signed field `{field}` holds a line break, so its statement could be another manifest's"))
+}
+
 /// Check a manifest's publisher signature.
 pub fn verify(m: &Manifest) -> PublisherCheck {
     let obj = m.raw.as_object();
@@ -139,6 +155,11 @@ pub fn verify(m: &Manifest) -> PublisherCheck {
         },
         (None, Some(_)) => PublisherCheck::Malformed {
             why: "carries publisher_sig but names no publisher_address".into(),
+        },
+        // Checked before any key is recovered: a signature over bytes that
+        // two manifests share proves nothing about which one was signed.
+        (Some(_), Some(_)) if ambiguous(m).is_some() => PublisherCheck::Malformed {
+            why: ambiguous(m).unwrap_or_default(),
         },
         (Some(claimed), Some(sig)) => match elo_vault::recover_signer(&statement(m), sig) {
             Ok(recovered) => {
@@ -266,6 +287,35 @@ mod tests {
         raw["publisher_sig"] = json!("0xnothex");
         let m = parse_manifest(&raw).expect("parse");
         assert!(matches!(verify(&m), PublisherCheck::Malformed { .. }));
+    }
+
+    /// Two different manifests, one statement: a line break carries a `repo:`
+    /// line out of `publisher` in one and out of `repo` in the other. A
+    /// signature over either must not pass as a signature over the other.
+    #[test]
+    fn a_line_break_in_a_signed_field_is_malformed_not_signed() {
+        let mut one = base();
+        one["publisher"] = json!("Elo Pros\nrepo:https://evil.example");
+        let mut two = base();
+        two["repo"] = json!("https://evil.example\nrepo:https://github.com/AnthonE/Gates");
+        let (one, two) = (parse_manifest(&one).unwrap(), parse_manifest(&two).unwrap());
+        assert_ne!(one.publisher, two.publisher, "two manifests…");
+        assert_eq!(statement(&one), statement(&two), "…and one statement: the ambiguity is real");
+
+        for (field, broken) in [("name", "Gates\nrepo:y"), ("publisher", "Elo\rPros"), ("repo", "a\nb")] {
+            let mut raw = base();
+            raw[field] = json!(broken);
+            let (signed, _) = signed_by(9, raw);
+            let got = verify(&parse_manifest(&signed).expect("parse"));
+            assert!(
+                matches!(&got, PublisherCheck::Malformed { why } if why.contains(field)),
+                "a line break in {field} must be refused by name, got {got:?}"
+            );
+        }
+        // Unsigned stays unsigned: there is no signature to be ambiguous.
+        let mut raw = base();
+        raw["name"] = json!("two\nlines");
+        assert_eq!(verify(&parse_manifest(&raw).unwrap()), PublisherCheck::Unsigned);
     }
 
     /// The statement is recomputed from the fields, so a statement smuggled

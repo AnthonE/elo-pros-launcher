@@ -55,7 +55,7 @@ elo dev — a listing's own desk: the row, the art, the updates
   --set k=v        a field to write; repeat it. A value that parses as JSON is
                    used as JSON, so --set tags='[\"survival\"]' is a list
   --from FILE      read the fields from a JSON object instead
-  --slot NAME      which slot the art is for: capsule | hero | media.src | record.art
+  --slot NAME      which slot the art is for: capsule | square | icon | hero | media.src | record.art
   --title T        the post's headline          --kind K   update|patch|release|news|event
   --body B         the post's text              --body-file F   …read it from a file
   --art URL        art for the post (upload it first)   --link URL   where it points
@@ -478,10 +478,9 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
             for p in posts {
                 println!(
                     "{:<11} {:<8} {}",
-                    p.get("at").and_then(Value::as_str).unwrap_or("")[..10.min(
-                        p.get("at").and_then(Value::as_str).unwrap_or("").len()
-                    )]
-                    .to_string(),
+                    // The date part, by character: `at` is the origin's text.
+                    p.get("at").and_then(Value::as_str).unwrap_or("")
+                        .chars().take(10).collect::<String>(),
                     p.get("kind").and_then(Value::as_str).unwrap_or("update"),
                     p.get("title").and_then(Value::as_str).unwrap_or("")
                 );

@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-23
-about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window."
+updated: 2026-10-25
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window. §10t is the same account on Solana: one set of words, two addresses, sends on either chain and moves between them. §10u is Skins: selling our items on OpenSea from `elo skins` and the window, the one typed-data signature. §10v is the October review of every crate: signing, the door, installs, the windows and the command line. §10w is speed: parallel installs, faster hashing and unlock, and no network on the window's thread."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -202,8 +202,7 @@ the depot file, look it up on a block explorer, and never trust the launcher,
 the CDN, or us. That is the platform's own contract — *a claim about a trace,
 recomputable by anyone* — pointed at a binary instead of a round.
 
-`depot.digest()` is the one implementation. A second one is a bug, the same
-way a second `channel_profile` would be (`CLAUDE.md` invariant 3).
+`depot.digest()` is the one implementation. A second one is a bug.
 
 ### 3b · The trust boundary, said plainly
 
@@ -228,6 +227,22 @@ tested:
 | `LD_LIBRARY_PATH` is allowed, and must resolve **inside the build** | game builds legitimately need it; letting it point out is letting the depot choose which libc you run |
 | an unknown `{placeholder}` in argv is refused, never passed through — **at install and again at launch** | a literal `{token}` reaching a game's argv shows up once, in production, on someone else's machine. And a depot that writes `{servers}` for `{server}` must fail while it is still a download — unchecked it installs, verifies clean, reads "up to date", and every Play of it dies in a dialog. The refusal names what the launcher fills and the near-miss it suspects, because the player it lands on cannot diagnose it |
 | the depot root must be https | and `open_url` refuses any scheme but http(s), so a catalog cannot hand the client a `file://` or a custom handler |
+
+### 3c · Branches — a beta is a second pointer
+
+Steam's betas, in the same shape as a release: `published.json` may carry
+
+```json
+{"linux-x86_64": "0.6.0-g…", "branches": {"beta": {"linux-x86_64": "0.7.0-rc1-g…"}}}
+```
+
+and `GET /api/launcher/manifest/<slug>?branch=beta` fills the native rows
+from the branch's pointers under every rule the default keeps (a readable
+depot; a review pass for a community build). The manifest names its `branch`
+and lists `branches`. `elo install <title> --branch beta` (and `update`,
+`status`) asks for it. A branch is public: a closed test is a playtest
+code's job (`/api/codes/<slug>/access/<wallet>`), checked by the game's own
+server, not a password on a download.
 
 ## 4 · Signing — reach a signer, never become one
 
@@ -417,14 +432,18 @@ and the manifest's browser row fills itself (`meter/launcher.py::_play_url`)
 — the client's Play button lights, zero launcher work. The wiring is live
 and dormant; it is not Gates' path.
 
-**A community game is web-only, and the launcher keeps it so** (2026-10-08,
-`GATES.md` §3b). `meter/launcher.py` never serves a depot build for a slug the
-community lane claimed — even one somehow dropped on disk — because a depot
-build runs as the player's own user, unsandboxed, beside the local keystore.
-Its manifest carries the browser row alone and Play opens the developer's
-`play_url`. Such
-a game reaches identity and ownership through the web SDK, `elo-1.js`
-(`SDK.md` §5b), not through this client.
+**A community game's desktop build ships only after a review** (web-only
+2026-10-08 to 2026-10-25; `GATES.md` §3b, `docs/store/DESKTOP-BUILDS.md`). A
+depot build runs as the player's own user, unsandboxed, beside the local
+keystore, so `meter/launcher.py` serves a community depot only with a current
+review pass bound to its exact digest (`depot_review.passed`) — never because
+a document is on disk or a pointer names it. A game with a pass gets a
+generated manifest (`_community_manifest`, `community: true`) whose native
+rows fill like any other and whose `withdrawn` lists the digests a client must
+refuse. ⚠ The client does not read `withdrawn` yet (`DESKTOP-BUILDS.md` §5).
+Without a pass the game has no manifest and Play opens its `play_url`, and it
+reaches identity and ownership through the web SDK, `elo-3.js` (`SDK.md`
+§5b).
 
 ⚠ **It is Gates' path since 2026-09-12, and the paragraph above is why
 nothing here had to move.** Gates compiles its Rust client for wasm32 —
@@ -674,6 +693,38 @@ not *offline* — and nothing offers a Join. A join link is re-checked against
 §6b's grammar when the list is parsed and again when it becomes an argv; a link
 that fails reads as *no link known*.
 
+## 6d · Mods — the Workshop, on disk
+
+A game that opens a workshop takes mods published from public GitHub repos
+(`meter/workshop.py`). A player subscribes with their wallet; the origin keeps
+the list and none of the files. Every file is a release asset of the author's
+own repo and carries a size and a sha256. The client downloads them and checks
+each one.
+
+| | |
+|---|---|
+| `elo mods <game> [--wallet 0x…]` | what that wallet subscribed to in the game: each mod's id, name, version, file count and size, and its repo. Then anything the origin holds back (taken down, hidden by the game's developer, gone from its repo) with why, a mod that needs one you are not subscribed to, and the game's warning when its mods run code. The wallet is `--wallet`, then `ELO_WALLET`, then the address this machine signs as, as for `elo friends` |
+| `elo mods sync <game>` | downloads each subscribed mod's files into `<mods folder>/<game>/<mod>/` and prints that folder. A file already there at its size and sha256 is kept; anything else streams to a temp file in the mod's folder, is checked for size and sha256, and only then takes its name. Bytes that differ are deleted and reported, never kept, and the command exits 1. Files a mod no longer lists, and folders of mods no longer subscribed or held back, are removed. `--dry-run` says what would be downloaded and removed |
+| `elo mods subscribe\|unsubscribe <game> <mod>` | one signed change, the friends change's three beats (§6c): prepare, sign, submit. The text (`action: workshop`) is rebuilt here from what was typed and signed only if the origin offered exactly that; `--dry-run` shows it |
+
+**Where they go.** The mods folder is `ELO_MODS`, else `~/.local/share/elo/mods`
+(`%LOCALAPPDATA%\elo\mods` on Windows), beside the games root and not inside
+it. Each game's folder has `mods.json`: the mods whose every file checked, in
+the order the player subscribed, each file with its path relative to that
+folder, its size and its sha256. A game can load from it with no network.
+
+**What a sync will not do.** The checks are `elo_depot::workshop`'s, in the
+crate that already decides where an install's files land. A file name is one
+plain name (the origin's alphabet, then the depot path rule: no folders, no
+`..`, no Windows device names or trailing dots), and two names that are one
+file on Windows or macOS refuse the mod. A url must be
+`https://github.com/<owner>/<repo>/releases/download/…` for the repo the mod
+is published from, so an answer cannot send the client to another host. A mod
+that fails a check is listed as *not taken by this launcher* and its folder
+is left alone. A mod folder that is a link out of the game's folder is not
+written through. A list that could not be read changes nothing on disk, and
+only folders named like a mod id are ever removed.
+
 ## 7 · What is dark, and why
 
 Nothing here is a finding — it is the baseline restating itself, and the
@@ -682,7 +733,7 @@ client prints it rather than hiding it.
 | surface | state | what would light it |
 |---|---|---|
 | the pass block in the Store | **gold, "NOT ARMED"** | a pass contract and a price (`GATES.md` §10 row 1) |
-| items, skins, keys in the Library | **dark** | a catalog arming |
+| items, skins, keys in the Library | **lit in Skins** (§10u): what this account holds in Gates skins and Elo Pros, with Sell, Cancel, Best offer and OpenSea per item. The Library itself still shows games only | — |
 | Servers | **lit** — Gates' manifest names `servers.url` (`/api/launcher/servers/gates`), so the window fetches the list, polls each shard's `status_url` for a live count, and offers Join and Invite per row (§6, §6b) | — |
 | Gates' Play button | **not dark any more** — the listing is `state: "live"` and a build is published, so the row draws lit. It still reads **gold, "In build"** on any origin with nothing published | `published.json` naming a build — the row is measured, not typed, so this row answers itself per origin |
 | native installs | **not dark any more** — two depots published and notarized 2026-08-10 (§8 rows 1b–2). Read the row, never this cell: `GET /api/launcher/manifests` → `builds[].depot_state`. ⚠ the `win-x86_64` build is **cross-compiled and has never been started on a real Windows machine** — it builds, links, hash-verifies and installs, and that is all anyone has seen it do; its manifest row says so, because a player reads that row | — |
@@ -1164,7 +1215,7 @@ family.
 **The client had three name rules and now has one.** A hive message's `who`, a
 kind:0 `display`, and a bare npub were each decided at the point of rendering.
 `elo-hive/src/who.rs` is the single resolver over `GET /api/who`, which takes
-a wallet, an npub, a vow id or a sworn name — and `Message::speaker()` and
+a wallet, an npub or a name — and `Message::speaker()` and
 `short_npub()` are both **deleted**, because a second place that decides what
 a name is, is the whole problem in miniature.
 
@@ -1172,11 +1223,9 @@ One name, and the evidence rides **on** it (`NameKind`), which is
 `ACHIEVEMENTS.md`'s claim-plus-evidence-kind applied to a handle rather than a
 badge. `~` marks a name nobody checked.
 
-⚠ **The remaining gap is the meter's, and the profile page carries it
-(`SITE-PLATFORM.md`):** the account is the wallet, and the wallet has no name or face of its
-own — every name belongs to a vow, so a wallet with two vows answers to two
-names. The client shows the register's pick **and says so** rather than
-presenting one of several as the name.
+`/who` keys everything on the wallet: the name and face are the wallet's own
+(`meter/faces.py`), and a held hive handle is the one checked name
+(`NameKind::Handle`).
 
 **The icons are generated, not drawn** (`launcher/art/make_icons.py`): a gate
 with an eye, one corner badge per window, read out of `theme.py` with `ast` so
@@ -1881,8 +1930,9 @@ shelf inherits the position of the window it replaces; the *size* is
 deliberately not carried, because a library that just lost a game would keep a
 well of empty olive where the game used to be.
 
-⚠ **What this pass did not fix:** the install still blocks the UI thread
-(above), and a resized window's height is not remembered across a Refresh.
+⚠ **What this pass did not fix:** the install still blocked the UI thread
+(above) — fixed in §10w — and a resized window's height is not remembered
+across a Refresh.
 
 ### 10q · Chat, in the window — read off the relay, not the origin
 
@@ -1927,7 +1977,7 @@ the browser's format codes before the name), and every line goes through
 
 **Faces.** Every message has a picture beside it, in the order the site's
 profile uses: the wallet's own picture (`/api/face`), the Elo Pros seat it
-holds, the vow's mark, and otherwise a tile with the speaker's letter. Each
+holds, and otherwise a tile with the speaker's letter. Each
 speaker is resolved once through `who::resolve` — the one identity rule — on a
 thread of its own, so a slow lookup never holds up the room's socket. Three
 rules: **only pictures on our own origin are fetched** (`Identity::origin_face`;
@@ -2054,7 +2104,9 @@ CLI. What makes it safe, each with the code that does it:
   an RPC cannot steer a signature onto another chain. Nothing here builds an
   EIP-7702 authorization or a typed-data permit, the two signatures most
   drains run on; if this account carries a 7702 delegation anyway, the wallet
-  says so in red, because this launcher did not sign it.
+  says so in red, because this launcher did not sign it. The one typed-data
+  signature it makes is a Seaport 1.6 listing (§10u), with a fixed domain and
+  a struct hashed in the vault; it cannot be a permit.
 
 Checked byte for byte against `eth_account`: the BIP-39 vectors, the derived
 keys and addresses, and four signed transactions (`elo-vault/tests/wallet.rs`).
@@ -2062,8 +2114,8 @@ keys and addresses, and four signed transactions (`elo-vault/tests/wallet.rs`).
 `examples/click.rs` presses the real Wallet buttons. Zero new packages:
 `pbkdf2`, `hmac`, `sha2` and `zeroize` were already in the tree.
 
-Not built yet: NFTs (the copy, items) in the Wallet, a QR code for receiving,
-and hardware-wallet signing.
+Not built yet: the copy in the Wallet (items are in Skins, §10u), a QR code
+for receiving, and hardware-wallet signing.
 
 ### 10s · Trading: `elo trade` and the Pairs window
 
@@ -2111,6 +2163,197 @@ and hardware-wallet signing.
 * **Pairs** in the window's menu: every market's price and 24h change, read
   when opened, with Trade opening that pair on the site. A list the launcher
   could not read says so and is never drawn as no markets.
+
+### 10t · Two chains, one account
+
+> Operator, 2026-10-23: *"did we make it like phantom and metamask where
+> solana/rh is kinda seamless? would be nice to do that i think. like on the
+> desktop launcher at least."*
+
+The recovery words now make two addresses, the way Phantom shows them: the
+`0x` one at `m/44'/60'/0'/0/0` and a Solana one at `m/44'/501'/0'/0'`. Typing
+the words into Phantom, Solflare or Backpack brings back the same Solana
+address. Both show from the moment an account is made, and **Wallet**, `elo
+account` and `elo wallet` list them together.
+
+* **The key** (`elo-vault/src/solana.rs`). SLIP-0010 from the BIP-39 seed,
+  Ed25519 signing by `ring` (already linked for TLS), the on-curve test for a
+  program address from `crypto-bigint` (already under `k256`): two dependency
+  edges, zero packages. The Solana half is its own V3 file beside the keystore
+  (`keystore.solana.json`, 0600, the same passphrase), with its base58
+  address in the clear so it shows while locked. An account made before this,
+  or adopted from a bare key, gets its half from **Add** on the Wallet's
+  Solana row or `elo account solana`: its own words (they must make this
+  account's `0x` address) or a Solana key as Phantom exports it. Checked byte
+  for byte against `bip_utils` and `solders`: derivations, token accounts,
+  and signed legacy and v0 transactions (`elo-vault/tests/solana.rs`).
+* **What it signs.** A Solana transaction, only with the passphrase for that
+  one transaction, and only when it asks this address to sign; one that
+  would still need someone else's signature is not signed at all. There is
+  no "sign this message" on Solana: an Ed25519 signature over bytes a page
+  chose is a signature over whatever transaction those bytes are.
+* **A send** (`elo-net/src/solana.rs`). The address you paste picks the
+  chain (`elo send 0.5 SOL <base58>`). Numbers come from Solana's RPC
+  (`ELO_SOLANA_RPC` overrides). Refused before review: a program, a token
+  account given as a wallet, the mint itself, too little for a fresh address
+  to exist, more than you hold. A coin's first send to someone opens their
+  token account, and the review says what that costs. Then the transaction
+  is **simulated**, and the review is built from the chain's own dry run: if
+  the simulation's pre- and post-balances take more SOL than the review says,
+  or move a different amount of the coin, nothing is signed. The same
+  first-time and lookalike notes as on Robinhood Chain, from one recipients
+  file that keeps both lists.
+* **Moving between the two** (`elo-net/src/xmove.rs`, `elo move`, the
+  Wallet's "move between your chains"). SOL → ETH, ETH → SOL, USDC → USDG,
+  USDG → USDC, always to this account's own address on the other chain, so
+  there is nothing to paste. Quoted through `/api/xquote` (LI.FI). From
+  Robinhood Chain the steps go through `trading::execute`: the allowlist, the
+  gas check, the log, an exact approval. From Solana the quote's transaction
+  must be paid for by this account, and its simulation may take the amount
+  plus 0.01 SOL and no other coin this account owns, lookup tables included.
+  It is never ELO and posts no rate between the chains' coins.
+
+Checked live against Solana mainnet (nothing signed): a SOL send and a USDC
+send planned and simulated from funded wallets, and real Relay quotes from
+`elopros.com/api/xquote` passed the move checks both ways.
+`elo-net/tests/solana.rs` holds the rules against a fake chain, and
+`examples/click.rs` sends SOL and adds a Solana half through the real buttons.
+
+Not built yet: Sign-In With Solana, trading Solana pairs from the launcher,
+and NFTs on either chain in the Wallet.
+
+### 10u · Skins: selling our items on OpenSea, from here
+
+> Operator, 2026-10-23: *"start thinking about how we tap into opensea too and
+> help people do all that jazz (even desktop launcher if its not annoying)"*,
+> then *"we can do whatever we need to do for desktop launcher."*
+
+* **`elo skins`** (`crates/elo-launcher/src/skins.rs`): what this account
+  holds in a collection and its open listings; `market` (floor and best
+  listings); `sell <id> <price> [--days N]`; `cancel <id|order>`; `buy
+  <order>`; `accept <id>` (the best offer); `open [id]` (OpenSea in the
+  browser). `--collection skins|pros|copies`, `--json`, `--dry-run`. The
+  window's menu gains **Skins**: the same, per item, with a price box and a
+  duration, for skins, characters and copies. `market` prints the last sales;
+  the review carries the item's own note (an unlock goes to the buyer, a copy
+  its licence). A refusal prints the origin's own sentence
+  (`Net::get_json_told`), never just its status code.
+* **The origin prepares, three places check.** `/api/collections/{key}/list/
+  prepare` builds the Seaport 1.6 order (paid to the seller plus OpenSea's
+  required fees, read from OpenSea, no house fee). `elo_net::skins::check_sell`
+  holds it to the item, collection and price typed, with fees only to the
+  recipients the origin named and under 10% together; the review is drawn from
+  that order; the vault (`elo-vault/src/seaport.rs`) refuses anything but one
+  item offered by this account and paid to it first in ETH, and hashes the
+  struct itself with Seaport's domain on chain 4663 compiled in. The meter
+  checks it again before posting it to OpenSea.
+* **The one typed-data signature.** §10r's rule stands for everything else: no
+  permit, no 7702, no generic `eth_signTypedData`. A listing asks for the
+  passphrase like a transaction, and is written to `activity.jsonl`.
+* **Transactions** (the one-time `setApprovalForAll` to OpenSea's operator, a
+  cancel, a buy, accepting an offer) run through `elo_net::trading::execute`:
+  the allowlist (our collections may approve Seaport or OpenSea's conduit and
+  nothing else), an approval already in place is skipped, gas is checked, and
+  each waits for its receipt. In the window they run on a thread and report
+  back to the status line.
+* A listing never moves the item: it stays in the wallet, and in game, until it
+  sells. Checked against `eth_account` byte for byte (`elo-vault/tests/
+  seaport.rs`: the same fixture digest as `meter/test_seaport.py`, the same
+  signature from the same key).
+
+### 10v · The October review: what a read of every crate found
+
+> Operator, 2026-10-25: *"Go over the desktop launcher and make sure it's all
+> good. this seems to function well but there's always polish and
+> improvements."*
+
+What changed, by what it protects. Each item has a test or a check in
+`examples/click.rs`.
+
+* **Signing.** An approval is allowed on its spender, so the guard now refuses
+  one that carries ETH (`guard::verdict`; `js/signguard.js` holds the same
+  rule). A move from Robinhood Chain is held to the amount typed, as the
+  Solana side already was (`xmove::evm_steps`). Only an `elo play` action takes
+  a counted grant; every other family is asked about each time, and the prompt
+  then offers "Just this one" only (`elo_broker::one_at_a_time`). A prompt
+  nobody answered closes when the game stops waiting, and is not remembered as
+  a refusal (`elo_broker::UNANSWERED`).
+* **The door.** A second launcher no longer takes a live socket from the
+  first; it gets `AddrInUse`, which is the "another copy is running" notice,
+  and a listener only deletes a socket file it made. A request line is capped
+  at `MAX_LINE`, and a line that is not UTF-8 is answered, not dropped.
+* **The vault and chat.** A keystore that asks for absurd scrypt work is
+  refused before it allocates. A chat note dated far ahead is not shown, and
+  `clock::ago` and `check_issued_at` cannot overflow on a stranger's number.
+* **Installs.** A repackaged build moves the old tree aside before the new one
+  goes in. Staging folders are never counted as installs. Verify reports
+  files the depot never listed, even when every hash matches, and does not
+  follow links.
+* **The windows.** A priced title with a build for this machine offers
+  **Install**: the copy is the licence to the servers, and a player holding
+  one had no way to install from the Store. Servers is read each time it is
+  opened. Escape on the lock screen no longer quits. A passphrase window is
+  emptied and deleted after use. A send whose broadcast did not answer clearly
+  says it may have gone and links the hash. A long notice scrolls. Streamer
+  mode hides the player's own address in Signing, consent, pairing and Friends.
+* **The command line.** `--help` works anywhere and `--` ends the flags.
+  `--json` prints one document and keeps the exit code text mode gives
+  (`status` exits 3 when the manifest itself could not be read). `elo pair
+  --json` no longer prints the pairing secret. `elo skins buy|cancel|accept`
+  shows each step and what it pays before the passphrase. The MCP `status`
+  tool checks for a newer build, as it said it did, and a line that is not
+  UTF-8 no longer ends the server.
+* **Copy.** Servers, Store, Signing, consent and the game-door notice say what
+  happens in plain words (no `servers.url`, "backend", "EIP-191" or "the game
+  door"), and the people are "we", never "elo".
+
+### 10w · Fast, and never frozen
+
+> Operator, 2026-10-25: *"just clean up. anything else you can to make it
+> sing. and yeah I love performance"*
+
+Measured against the live origin from a cloud container, so the absolute
+numbers are that link's; the ratios are the point.
+
+| | before | after |
+|---|---|---|
+| Install Gates (927 files, 584 MB) | 78 s warm, 3 min 36 s cold | 17–29 s |
+| Verify it | ~5.6 s | 1.1 s |
+| Unlock the keystore | 2.4 s | 1.3 s |
+| A click while the origin hangs | ignored for the read's 60 s | ~120 ms |
+
+* **Installs fetch six files at a time** (`install::PARALLEL_FETCHES`). An
+  install was round trips, not bytes: 6 s of CPU in 3 min 36 s. Every
+  destination is still resolved in depot order before a byte lands, every file
+  is still held to its sha256, and the first failure stops new fetches and
+  drops the staging tree. ureq keeps enough connections per host to reuse.
+* **Files hash with `ring`'s SHA-256**, BoringSSL's assembly: 310 MB/s against
+  105 for `sha2` built for size. An edge, no new package. Verify and the update
+  check's reuse plan hash across cores.
+* **The KDF is built for speed** in release (`[profile.release.package.*]`);
+  the rest of the binary stays built for size.
+* **Nothing reads the network on the window's thread**: startup (the shelf,
+  the library, the version check), every window's Refresh, Servers, Friends,
+  Pairs, Skins, pairing with a browser, and the profile editor's first read all
+  go through `load` / `off_thread`. The shelf's per-title reads and the
+  library's checks run in parallel. Skins reads the collection once, not once
+  per item. A window asked for before its read lands opens when it does.
+* **Install and Verify are jobs** (`wiring::Job`, `run_job`): the button
+  counts up (`Installing 42%`), the same title cannot install twice at once,
+  and Play waits for it. Games re-reads after an Update, and a row shows
+  Running for a game started anywhere (`watch_running`).
+* **The order runner merges, it does not overwrite.** A tick writes back only
+  the fields it changed, by id, over the book as it is on disk then, and looks
+  again before an order fires — so an order removed or paused in the window
+  stays that way. The Orders form survives the runner's rebuilds.
+* **A profile change signs only its own text**, rebuilt here and compared, as a
+  friends change already did (`profile::checked_profile_text`).
+* **Hardening:** keystores are written whole or not at all (temp, sync, hard
+  link); `import` refuses a leftover Solana half; only an absolute
+  `XDG_*` counts; depot names that alias on Windows or macOS (case, trailing
+  dots, `:`, device names, non-ASCII) are refused and file urls are
+  percent-encoded; slugs are lowercase; more code-loading variables are kept
+  from a depot's env; Ctrl-C at a passphrase gives the terminal its echo back.
 
 ## Reading order
 

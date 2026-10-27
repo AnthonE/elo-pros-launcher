@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-21
+updated: 2026-10-26
 about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
@@ -23,17 +23,30 @@ nothing about crypto beyond *a player has an Ethereum address.*
 | **the origin**, over plain HTTPS | public reads about any address | this page, §3 |
 
 **A browser game on its own domain swaps the first row** for the web SDK,
-`https://elopros.com/sdk/elo-1.js`: it connects the player's own wallet and
-signs them in to your server with the same SIWE message (§5).
+`https://elopros.com/sdk/elo-3.js`: it connects the player's own wallet
+(Ethereum or Solana), signs them in to your server with the same SIWE
+message, and draws their name and face (§5). A game built in an engine
+exports to the web the same way (§5a).
 
 **The SDK packages wrap both halves**, one per language: the Rust `elo-sdk`
 crate (`sdk/rust`), the Python `elo-sdk` package (`sdk/python`) and
 `@elopros/sdk` (`sdk/js`). Each has the launcher client, typed calls for the
 reads in §3 (friends and their signed changes, copies, items, faces, `who`,
-the leaderboard) and a writer for a wipe's payout file. They are not on the
-package registries yet: take them from
-`https://github.com/AnthonE/elo-pros-launcher/tree/main/sdk` (`sdk/README.md`
-is the index).
+the leaderboard), **a game server's half** — the sign-in check, the roster
+sweep and a nonce (§1) — and a writer for a wipe's payout file. They are not
+on the package registries yet; install from the mirror
+(`https://github.com/AnthonE/elo-pros-launcher/tree/main/sdk`,
+`sdk/README.md` is the index):
+
+```bash
+pip install "git+https://github.com/AnthonE/elo-pros-launcher#subdirectory=sdk/python"
+# Cargo.toml: elo-sdk = { git = "https://github.com/AnthonE/elo-pros-launcher" }
+# JavaScript: the <script> tag in §5, or npm install ./elo-pros-launcher/sdk/js from a clone
+```
+
+**A whole working example** — a page and a zero-dependency Node server that
+signs players in, checks their copy and sweeps the roster — is
+`sdk/js/examples/web-game/`. Run it with `node server.mjs`.
 
 Nothing here needs an API key, a partner agreement, or an account with us. Every
 read below is public and works from `curl`.
@@ -55,7 +68,16 @@ let p = elo.profile("").unwrap();
 println!("{}", p.label());       // "moss" if sworn, "~moss" if self-declared
 ```
 
-On your backend, with **no Elo-specific code at all**:
+On your backend, in **any language**, one call checks it — the domain, your
+nonce, freshness and the signature, smart wallets and Solana included:
+
+```bash
+curl -s https://elopros.com/api/signin/check -H 'content-type: application/json' \
+  -d '{"message": "…", "signature": "…", "domain": "shard-3.yourgame.example", "nonce": "…"}'
+# 200 {"ok": true, "address": "0x…", "chain": "evm", …} — proven. Now read anything in §3 about it.
+```
+
+Or with **no Elo-specific code at all**, since it is a standard message:
 
 ```js
 import { SiweMessage } from 'siwe'
@@ -99,6 +121,34 @@ against your own state; that is what `verify()` does and it is the whole check.
 for this domain, on this challenge*. It is not a payment, not a permission, and
 not a session — it is the input to whatever admission rule you write.
 
+### Checking it: `POST /api/signin/check`
+
+The same check for the launcher's `prove` and the web SDK's `signIn`, from a
+server in any language — Godot, Go, Rust, Python, Elixir — with no crypto
+library and no RPC endpoint of your own:
+
+| send | |
+|---|---|
+| `message`, `signature` | exactly what the player's client handed you |
+| `domain` | **required** — your host or `host:port`. Without it, a sign-in made on another site would pass |
+| `nonce` | **required** — the one you issued |
+| `uri`, `chain_id` | optional: the `URI:` and `Chain ID:` lines must equal them |
+| `max_age_s` | optional: how old `Issued At` may be (default 600, at most 86400) |
+
+| answer | means | do |
+|---|---|---|
+| `200` | `address` (EIP-55, or base58 for Solana) and `chain` are proven | admit, by your own rule |
+| `401` | not a valid sign-in; `code` names the field: `domain`, `nonce`, `stale`, `expired`, `not_yet`, `uri`, `chain_id`, `version`, `signature`, `format` | refuse, and ask for a new sign-in |
+| `400` | your request is malformed | your bug |
+| `503` | a smart wallet's chain could not be asked (`reachable: false`) | ask again — **never refuse a player on it** |
+
+**It stores nothing**: retire the nonce yourself the moment you send it, so a
+captured sign-in cannot be replayed. The SDKs wrap it — `checkSignIn` /
+`check_sign_in` — and add `newNonce` / `new_nonce` for the challenge (letters
+and digits, from the system's random source) and `checkRoster` /
+`check_roster` for the sweep in §3. viem's `verifySiweMessage` is the local
+alternative for an Ethereum sign-in on a Node server.
+
 ### What you do with the address
 
 Anything in §3. The common shapes:
@@ -124,36 +174,34 @@ sworn name bare and prefixes anything self-declared with `~`. **Use it, or use
 cheapest mistake on this page and the hardest to notice.
 
 ⚠ **Three states, not two.** `None`/`null` means *we could not look*; a profile
-with `sworn: false` and no handle means *we looked and nobody has sworn here*.
+with no name and no face means *we looked and nothing is set*.
 Drawing "anonymous" for the first invents a fact about a person. Check
 `reachable`.
-
-`identities` is how many vows one wallet holds. A wallet with 3 is one party
-with three identities, not three claimants.
 
 ---
 
 ## 3 · The origin — public reads about any address
 
 Every one of these is a plain `GET`, no auth, and every one is already a `link`
-in a `profile` reply so you rarely have to build the URL yourself.
+in a `profile` reply so you rarely have to build the URL yourself. The ones a
+page draws — `who`, items, achievements, the leaderboard, friends, faces and
+the copy reads — also answer a page on **your** origin (CORS `*`, no
+cookies), so a web game can call them straight from the browser.
 
 Base: `https://elopros.com`
 
 | what you want | endpoint | notes |
 |---|---|---|
-| **everything about one party** | `/api/who?handle=<address\|name\|npub\|vow_id>` | the join behind `profile`. 404 means *nobody has sworn*, which is a real answer |
+| **everything about one party** | `/api/who?handle=<address\|name\|npub>` | the join behind `profile`. A bare wallet always answers 200; 404 means an unknown name |
 | **achievements** | `/api/achievements/of/{wallet}` | `earned` plus **`uncheckable`** — read the second, see below |
 | what achievements exist | `/api/achievements` | the catalog and its evidence kinds |
 | **items (NFTs)** | `/api/items/of/{wallet}` — `?title=<slug>` keeps one game's | ERC-721 on 4663; Gates' contract is `EloItem:GATES`. ⚠ `reachable: false` means *could not look* — see below |
 | how an item's traits are derived | `/api/items/provenance` | published spec; needs no contract, recomputable by anyone |
 | **token balances** | `/api/holdings/{wallet}` | the reserve and each game's own coins, read by `balanceOf`. ⚠ a null balance is a **failed read**, never a zero |
-| **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
+| **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster (100 wallets a call; the SDKs' `checkRoster` pages it) | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
 | **friends** | `/api/friends/{wallet}` | who the player plays with and what each is playing now (with an `elo://join` link), the player's own AI agents (`buddies`) and pending asks. Public. A change is signed: `POST /api/friends/prepare`, then `POST /api/friends/act` (`docs/client/FRIENDS.md`) |
-| **reputation** | `/api/reputation/{address}` | soulbound; earned or slashed by outcomes, never bought |
 | a leaderboard | `/api/leaderboard/{slug}` | the boards your shard reports, ranked by its game score: this wipe's and the closed ones (`final: true`). `?kind=agent` or `?kind=human` ranks one side. The house ranks what the shard published and never re-scores it |
-| identity detail | `/api/vow/{vow_id}` | conduct, cadence, the public record |
-| an avatar | `/api/vow/{vow_id}/mark.svg` | deterministic, cacheable |
+| a face | `/api/face/{wallet}` · `/api/face/{wallet}/pic.png` | the wallet's own signed name and picture |
 
 ### Your game brings its own coins
 
@@ -222,15 +270,50 @@ payload.** Read the flag, never the count:
 raises returns nothing for both *"there is nothing there"* and *"we could not
 look."* Every endpoint above distinguishes them. Your UI should too.
 
+## 3b · Your server's key, and what it writes
+
+Your servers sign their writes with an Ed25519 key you name: on the dev desk
+(act `serverkeys`) or in `elo.json`:
+
+```json
+"server_keys": [{ "id": "eu-1", "pub": "<the 32-byte public key, base64>" }]
+```
+
+`openssl genpkey -algorithm ed25519 -out server.key` makes one;
+`openssl pkey -in server.key -pubout -outform DER | tail -c 32 | base64` is the
+public half. We keep only that half. Each request carries `X-Elo-Server:
+<game>/<key id>`, `X-Elo-Time`, a fresh `X-Elo-Nonce` and `X-Elo-Signature`
+over the text `GET /api/store/serverkeys/<game>` spells out; the SDKs' `ServerKey`
+builds all four, and `POST /api/serverkeys/check` tests them.
+
+| with the key | route |
+|---|---|
+| a player's saves (Steam Cloud) | `PUT`, `GET`, `DELETE /api/cloud/<game>/<wallet>/<slot>`; `GET /api/cloud/<game>/<wallet>` lists them |
+| stats, achievement unlocks, leaderboard scores | `POST /api/gamestats/<game>/report`, against what you declared (act `gamestats`, or `stats` in `elo.json`) |
+| your game's bug reports, in full | `POST /api/bugs/<game>/token`, then the token as a bearer |
+
+| at join, no key needed | route |
+|---|---|
+| who is in a party's lobby | `GET /api/lobbies/<id>` |
+| a server with room for a party | `GET /api/lobbies/pick/<game>?party=<n>` |
+| a player's Workshop mods, with sha256s to check | `GET /api/workshop/<game>/subscribed/<wallet>` |
+| is this wallet in your playtest | `GET /api/codes/<game>/access/<wallet>` |
+
+A line of rich presence ("Wave 5 · 3/4") rides the roster your server already
+publishes: add `"status"` to a row of `online.json`, and it shows beside the
+game on the player's profile and friends list.
+
 ---
 
 ## 4 · What Elo will not do for you
 
 Naming these up front is faster than discovering them:
 
-- **We do not store your players.** No save games, no per-title stats, no
-  key-value store. Your backend owns your game's state; we own identity and
-  what is on chain.
+- **We store only what your servers send us.** Cloud saves, stats,
+  achievements and scores land here when your servers write them with their
+  server key (§3b); nothing else about your game is kept, and the player can
+  read out and delete their own saves. Your backend still owns your game's
+  state; we own identity, what is on chain, and what your servers hand us.
 - **We do not proxy your shard list.** `servers` returns *your* URL and you
   serve the list. A launcher between a game and its own servers is a cache
   nobody asked for and a ranking nobody can see.
@@ -251,6 +334,11 @@ Naming these up front is faster than discovering them:
 its own repo, its own issues and its own agents; the only thing that lives in
 ours is its listing row.
 
+**List it from your repo, with no wallet.** Commit `elo.json` and a LICENSE,
+paste the repo into `https://elopros.com/dev-console.html#repo`, and list it
+when the checklist reads ready. The console writes the file for you, price and
+all; an agent gets the same from `dev` on `/mcp` (`docs/store/GAME-REPO.md` §9).
+
 **List it yourself — the community lane.** Free, one wallet signature, and the
 page is up (`docs/GATES.md` §3b). Use *list your game* on
 `https://elopros.com/manage.html#list`, or the API: `POST /api/store/claim/prepare`,
@@ -264,28 +352,68 @@ money lands in a sale split: **100% to you, 0% to us**. The house share is read
 from the claim terms, never assumed: `house_bps` in `GET /api/store/open`
 (`on_chain`), and in `you_get` on `GET /api/store/open/list/prepare`.
 
-A community game is **web-only**: the launcher opens its `play_url` and never
-serves it a depot build. Link the web SDK instead:
+**A game that asks for the player's wallet publishes its source**: a public
+GitHub repo with an open-source licence, set as `repo` on your listing, and
+`wallet: true` on the claim. We check it — the licence file read from GitHub
+with no login, and recognised — as you list, before you sell copies or set a
+coin, and when a desktop build's scan hears the launcher's signing socket or
+a wallet's requests; it is a posted term for a game's own sign-in
+(`terms.html#community`). Players can then read what your game asks their
+wallet to sign. **A game that never asks may keep its source closed**
+(`wallet: false`). Open source and not taken down is what puts the **clean**
+chip on your page (`GET /api/store/checks/{slug}`).
+
+A community game plays **on the web from the day it lists**: the store and the
+launcher open its `play_url`. **A desktop build** ships through the launcher
+after a review — sign and submit its depot on the dev desk, and an automatic
+scan and a person's review come before players can install it
+(`docs/store/DESKTOP-BUILDS.md`; the terms and any fee at
+`GET /api/launcher/review`). For the web, link the web SDK, pinned by its hash:
 
 ```html
-<script src="https://elopros.com/sdk/elo-1.js"></script>
+<script src="https://elopros.com/sdk/elo-3.js"
+        integrity="sha384-pKOcdX/DZSGO11b/QS2tFdcm6YFqcVCl0xc6IHDJKFBYRJCvY2JBNjbaVA3jIih/"
+        crossorigin="anonymous"></script>
 <script type="module">
-  const wallet = await Elo.connect();                       // the player's own wallet
-  await Elo.ensureChain();                                  // Robinhood Chain, 4663
+  const wallet = await Elo.connect();                       // the player's own wallet, Ethereum or Solana
   const { message, signature } = await Elo.signIn({ nonce }); // nonce from YOUR server
   const owned = await Elo.owns("your-slug", wallet);        // true | false | null
+  const me = await Elo.profile();                           // me.label, me.avatar — null: could not look
+  Elo.on("account", (who) => { /* the wallet switched accounts: sign in again */ });
 </script>
 ```
 
-Verify `message` + `signature` on your server with viem's
-`publicClient.verifySiweMessage({ message, signature })`: it checks plain keys
-and smart-contract wallets alike (Safe, Coinbase Smart Wallet, Robinhood's
-EIP-7702 wallets), where a bare `ecrecover` refuses every smart wallet. For
-phone wallets, pass your own WalletConnect project ID:
-`Elo.config({ walletconnectProjectId: "…" })`. `owns()` is for your UI; **the real gate is your server**, at join and
-on an interval: `POST /api/ticket/{slug}/check {"wallets": [...]}`. Kick on
-`false` only — `null` means the read failed, and a failed read never kicks a
-player.
+Check `message` + `signature` on your server with `POST /api/signin/check`
+(§1), passing your domain and the nonce — or, on Node, viem's
+`publicClient.verifySiweMessage({ message, signature, domain, nonce })`, which
+also checks smart-contract wallets (Safe, Coinbase Smart Wallet, Robinhood's
+EIP-7702 wallets) where a bare `ecrecover` refuses them. With no wallet in the
+browser, `connect()` throws `code: "no_wallet"`. For phone wallets, pass your
+own WalletConnect project ID: `Elo.config({ walletconnectProjectId: "…" })`.
+TypeScript types for `window.Elo` ship in the package (`@elopros/sdk/elo-3`).
+`owns()` is for your UI; **the real gate is your server**, at join and on an
+interval: `POST /api/ticket/{slug}/check {"wallets": [...]}`. Kick on `false`
+only — `null` means the read failed, and a failed read never kicks a player.
+`sdk/js/examples/web-game/` does all of it.
+
+### 5a · From an engine's web export
+
+An engine that exports to the web — Godot, Bevy, Defold, raylib through
+Emscripten, three.js — keeps the wallet in the page around the game. Load
+`elo-3.js` in the HTML shell the export writes, do the sign-in there, and
+hand the game what it needs: the address and your server's session.
+
+| engine | calling the page from the game |
+|---|---|
+| Godot 4 | `JavaScriptBridge.eval("Elo.address")`, or `JavaScriptBridge.get_interface("Elo")` and a callback for the promise |
+| Bevy / any Rust on wasm | `wasm-bindgen` imports, or `web_sys::window()` and `js_sys::Reflect::get` on `Elo` |
+| raylib, SDL or C++ through Emscripten | `EM_JS` / `EM_ASYNC_JS` functions that `await Elo.signIn(...)` |
+| Defold | `html5.run("…")`, or a native extension's JS bridge |
+
+The sign-in check stays on your game server (§1), whatever the engine. A
+desktop build of the same game reaches the launcher instead (`sdk/PROTOCOL.md`:
+newline-delimited JSON on a local socket, or a named pipe on Windows), and
+plays anonymously when there is none.
 
 **Get picked — an Elo Pros original.** Our own shelf is placed by hand, and a
 game there runs the whole stack: open source at listing, a coin launched on an

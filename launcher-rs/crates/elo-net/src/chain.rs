@@ -246,6 +246,10 @@ fn hex(b: &[u8]) -> String {
 }
 
 fn unhex(s: &str) -> Result<Vec<u8>, String> {
+    // ASCII first: the slices below are by byte, and an RPC's text is not ours.
+    if !s.is_ascii() {
+        return Err("not hex".into());
+    }
     if s.len() % 2 != 0 {
         return Err("odd-length hex".into());
     }

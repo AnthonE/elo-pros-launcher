@@ -14,7 +14,7 @@
 //! match elo {
 //!     Ok(mut ov) => {
 //!         let who = ov.address();                     // Option<String>
-//!         let msg = elo_overlay::play_message("duel", "vow_x", "ETH up 5", None);
+//!         let msg = elo_overlay::play_message("duel", "0xabc", "ETH up 5", None);
 //!         match ov.sign(&msg, "settling round 41") {
 //!             Ok(sig)                          => submit(&sig.signature),
 //!             Err(elo_overlay::SignError::Handoff(url)) => show_link(&url),
@@ -63,9 +63,8 @@ pub const SOCKET_ENV: &str = "ELO_LAUNCHER_SOCKET";
 /// A short one here turns "the player was reading the message" into a bug.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
-pub const FAMILIES: [&str; 13] = [
-    "braid", "card", "covenant", "doc", "familiar", "hive", "holder", "meter", "pact", "play",
-    "review", "store", "vow",
+pub const FAMILIES: [&str; 10] = [
+    "dev", "entitle", "hive", "link", "pair", "partners", "play", "repo", "review", "store",
 ];
 
 // ── a very small JSON, so this file needs no crates ─────────────────────────
@@ -320,8 +319,7 @@ use json::{Field, Value};
 /// a round that straddles midnight should sign the day it started, and a
 /// client that cannot express that would silently sign the wrong one.
 ///
-/// ⚠ The subject is the WALLET, and it was the vow_id until 2026-08-12: the
-/// signature recovers the signer, so a player does not swear a vow to act. The
+/// ⚠ The subject is the WALLET: the signature recovers the signer. The
 /// address is LOWERCASED here — a checksummed one is different bytes and would
 /// verify differently, which is the detail that bites a hand-rolled string.
 pub fn play_message(action: &str, wallet: &str, detail: &str, day: Option<&str>) -> String {
@@ -382,10 +380,11 @@ pub struct Proof {
 
 /// What the town says about one address — see [`Overlay::profile`].
 ///
-/// Every field is a claim about a stranger, and `sworn` is the only thing
-/// separating a checked name from a typed one.
+/// Every field is a claim about a stranger, and `checked` is the only thing
+/// separating a held hive handle from a typed name.
 ///
-/// `found == false` is a real answer: *we looked, there is no sworn identity*.
+/// `found == false` is a real answer: *we looked, and nothing is set for this
+/// address*.
 /// It is not the same as [`Overlay::profile`] returning `None`, which means we
 /// could not look at all.
 #[derive(Debug, Clone)]
@@ -396,7 +395,7 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// The SWORN name — in the locked index, and it costs ELO to change.
+    /// The hive handle — held by one wallet; it cannot be set by asserting it.
     pub fn handle(&self) -> Option<String> {
         self.raw.opt_str("handle")
     }
@@ -406,8 +405,9 @@ impl Profile {
         self.raw.opt_str("display_name")
     }
 
-    pub fn sworn(&self) -> bool {
-        self.raw.get("sworn").map(Value::as_bool).unwrap_or(false)
+    /// True when `handle` is a held hive handle.
+    pub fn checked(&self) -> bool {
+        self.raw.get("checked").map(Value::as_bool).unwrap_or(false)
     }
 
     pub fn address(&self) -> Option<String> {
@@ -419,30 +419,28 @@ impl Profile {
         self.raw.opt_str("avatar")
     }
 
-    /// How many vows this wallet holds. One party, several identities.
-    pub fn identities(&self) -> i64 {
-        self.raw
-            .get("identities")
-            .and_then(Value::as_i64)
-            .unwrap_or(1)
+    /// How many people answered to the name looked up. A self-declared name
+    /// can be shared; a wallet names one.
+    pub fn matches(&self) -> i64 {
+        self.raw.get("matches").and_then(Value::as_i64).unwrap_or(1)
     }
 
-    /// A path you fetch yourself — `achievements`, `holdings`, `reputation`,
-    /// `vow`, `tip`. One verb is one origin read, the way Steam splits
-    /// summaries from achievements.
+    /// A path you fetch yourself — `achievements`, `items`, `holdings`, `tip`.
+    /// One verb is one origin read, the way Steam splits summaries from
+    /// achievements.
     pub fn link(&self, what: &str) -> Option<String> {
         self.raw.get("links")?.opt_str(what)
     }
 
     /// The one string safe to draw without thinking about it.
     ///
-    /// A sworn name renders bare; anything self-declared gets `~`, the town's
+    /// A held handle renders bare; anything self-declared gets `~`, the
     /// marker for *this party said so and nobody checked* (`ACHIEVEMENTS.md`).
     /// A surface that shows a claimed name in the clothes of a checked one has
     /// lied for free, and it is the cheapest mistake to make and the hardest to
     /// notice.
     pub fn label(&self) -> String {
-        if self.sworn() {
+        if self.checked() {
             if let Some(h) = self.handle() {
                 return h;
             }
@@ -954,8 +952,8 @@ impl Overlay {
     ///
     /// ⚠ **Three states, and a game that collapses them tells a lie.** `None`
     /// means *we could not look*: the origin was unreachable, or this launcher
-    /// has no reader. [`Profile::found`] `== false` means *we looked and there
-    /// is no sworn identity*, which is a normal way to play. Drawing "no name"
+    /// has no reader. [`Profile::found`] `== false` means *we looked and
+    /// nothing is set for this address*, which is a normal way to play. Drawing "no name"
     /// for the first invents a fact about a stranger, and it is the cheapest
     /// mistake in this file to make.
     ///
@@ -1049,7 +1047,7 @@ mod tests {
     fn a_message_with_newlines_survives_the_encoder() {
         // The whole protocol carries multi-line messages; an encoder that
         // ate a newline would change what the player signs.
-        let msg = play_message("duel", "vow_x", "ETH up 5", Some("2026-08-04"));
+        let msg = play_message("duel", "0xabc", "ETH up 5", Some("2026-08-04"));
         let line = json::object(&[("op", Field::S("sign")), ("text", Field::S(&msg))]);
         let back = json::parse(&line).unwrap();
         assert_eq!(back.str_or_empty("text"), msg);

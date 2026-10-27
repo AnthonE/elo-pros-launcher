@@ -53,12 +53,14 @@ class Playing:
     server_name: Optional[str] = None
     since: Optional[int] = None
     join: Optional[str] = None
+    status: Optional[str] = None    # the game's rich-presence line ("Wave 5 · 3/4"), when it writes one
 
     @classmethod
     def from_json(cls, d) -> "Playing":
         d = _d(d)
         return cls(game=_s(d.get("game")) or "", title=_s(d.get("title")), server=_s(d.get("server")),
-                   server_name=_s(d.get("server_name")), since=_i(d.get("since")), join=_s(d.get("join")))
+                   server_name=_s(d.get("server_name")), since=_i(d.get("since")), join=_s(d.get("join")),
+                   status=_s(d.get("status")))
 
 
 @dataclass
@@ -269,6 +271,44 @@ class TicketOf:
                    _ob(d.get("entitled")), _ob(d.get("reachable")), _i(d.get("free_left")), _s(d.get("why")))
 
 
+@dataclass
+class Roster:
+    """One roster sweep (`Client.check_roster`). `entitled` maps each wallet —
+    0x lowercased, or the Solana address as given — to True, False or None.
+    Kick on False only: None is a read that failed."""
+    game: str = ""
+    ticketed: bool = True
+    entitled: Dict[str, Optional[bool]] = field(default_factory=dict)
+
+
+# ── sign-in ─────────────────────────────────────────────────────────────────
+@dataclass
+class SignIn:
+    """A sign-in POST /api/signin/check found fresh, for your domain and nonce,
+    and signed by the wallet it names (a plain key, a smart wallet or Solana).
+    `address` is EIP-55 for an Ethereum wallet, base58 for a Solana one."""
+    address: str = ""
+    chain: str = ""
+    chain_id: str = ""
+    domain: str = ""
+    uri: str = ""
+    nonce: str = ""
+    issued_at: str = ""
+    expiration_time: Optional[str] = None
+    statement: Optional[str] = None
+    raw: Dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_json(cls, d) -> "SignIn":
+        d = _d(d)
+        address, chain = _s(d.get("address")), _s(d.get("chain"))
+        if d.get("ok") is not True or not address or chain not in ("evm", "solana"):
+            raise ValueError("not a checked sign-in")
+        return cls(address, chain, _s(d.get("chain_id")) or "", _s(d.get("domain")) or "",
+                   _s(d.get("uri")) or "", _s(d.get("nonce")) or "", _s(d.get("issued_at")) or "",
+                   _s(d.get("expiration_time")), _s(d.get("statement")), d)
+
+
 # ── items ───────────────────────────────────────────────────────────────────
 @dataclass
 class Item:
@@ -328,8 +368,28 @@ class Items:
 
 # ── faces and profiles ──────────────────────────────────────────────────────
 @dataclass
+class GuildBadge:
+    """The guild tag a game draws beside a player's name: one guild's tag,
+    name and emblem, and the player's role in it."""
+    tag: str = ""
+    name: Optional[str] = None
+    color: Optional[str] = None     # lime, ember, sky, violet, gold, rose, slate, teal
+    shape: Optional[str] = None     # shield, round, diamond, banner, hex
+    role: Optional[str] = None      # leader, officer or member
+    page: Optional[str] = None      # /g/<TAG>, relative to the origin
+
+    @classmethod
+    def from_json(cls, d) -> Optional["GuildBadge"]:
+        if not isinstance(d, dict) or not _s(d.get("tag")):
+            return None
+        return cls(_s(d.get("tag")) or "", _s(d.get("name")), _s(d.get("color")), _s(d.get("shape")),
+                   _s(d.get("role")), _s(d.get("page")))
+
+
+@dataclass
 class Face:
-    """GET /api/face/{wallet}. Every field is a claim the wallet signed."""
+    """GET /api/face/{wallet}. Every field is a claim the wallet signed, but
+    `guild`: the tag it shows, read off the guild roster."""
     wallet: str = ""
     name: Optional[str] = None
     picture: Optional[str] = None
@@ -338,35 +398,95 @@ class Face:
     harness: Optional[str] = None
     model: Optional[str] = None
     updated: Optional[int] = None
+    guild: Optional[GuildBadge] = None
 
     @classmethod
     def from_json(cls, d) -> "Face":
         d = _d(d)
         return cls(_s(d.get("wallet")) or "", _s(d.get("name")), _s(d.get("picture")), _s(d.get("pic")),
-                   _s(d.get("kind")), _s(d.get("harness")), _s(d.get("model")), _i(d.get("updated")))
+                   _s(d.get("kind")), _s(d.get("harness")), _s(d.get("model")), _i(d.get("updated")),
+                   GuildBadge.from_json(d.get("guild")))
+
+
+@dataclass
+class GuildTags:
+    """GET /api/guilds/tags?wallets=: each wallet asked, lowercased, mapped to
+    the tag it shows, or None for a wallet that shows none."""
+    tags: Dict[str, Optional[GuildBadge]] = field(default_factory=dict)
+
+    def of(self, wallet: str) -> Optional[GuildBadge]:
+        return self.tags.get(str(wallet or "").strip().lower())
+
+    @classmethod
+    def from_json(cls, d) -> "GuildTags":
+        t = _d(_d(d).get("tags"))
+        return cls({str(w).lower(): GuildBadge.from_json(b) for w, b in t.items()})
+
+
+@dataclass
+class GuildCard:
+    """One guild a wallet is in (role, since), asked to or invited to (at)."""
+    tag: str = ""
+    name: Optional[str] = None
+    line: Optional[str] = None
+    color: Optional[str] = None
+    shape: Optional[str] = None
+    door: Optional[str] = None      # open, apply or invite
+    members: int = 0
+    officers: int = 0
+    page: Optional[str] = None
+    role: Optional[str] = None
+    since: Optional[int] = None
+    at: Optional[int] = None
+
+    @classmethod
+    def from_json(cls, d) -> "GuildCard":
+        d = _d(d)
+        e = _d(d.get("emblem"))
+        return cls(_s(d.get("tag")) or "", _s(d.get("name")), _s(d.get("line")), _s(e.get("color")),
+                   _s(e.get("shape")), _s(d.get("door")), _i(d.get("members")) or 0,
+                   _i(d.get("officers")) or 0, _s(d.get("page")), _s(d.get("role")), _i(d.get("since")),
+                   _i(d.get("at")))
+
+
+@dataclass
+class GuildsOf:
+    """GET /api/guilds/of/{wallet}: its guilds, asks, invites and worn tag."""
+    wallet: str = ""
+    guilds: List[GuildCard] = field(default_factory=list)
+    applied: List[GuildCard] = field(default_factory=list)
+    invites: List[GuildCard] = field(default_factory=list)
+    worn: Optional[str] = None      # the tag games show over this wallet
+    hidden: bool = False            # it chose to show none
+
+    @classmethod
+    def from_json(cls, d) -> "GuildsOf":
+        d = _d(d)
+        return cls(_s(d.get("wallet")) or "", _l(d.get("guilds"), GuildCard.from_json),
+                   _l(d.get("applied"), GuildCard.from_json), _l(d.get("invites"), GuildCard.from_json),
+                   _s(d.get("worn")), _b(d.get("hidden")))
 
 
 @dataclass
 class WhoFound:
     wallet: Optional[str] = None
-    agent: Optional[str] = None       # the sworn name on the register
-    vow_id: Optional[str] = None
-    sworn: Optional[bool] = None
+    agent: Optional[str] = None       # the wallet's own name, else its hive handle
+    nip05: Optional[str] = None       # the hive handle as name@host, if one is held
     avatar: Optional[str] = None
-    profile: Optional[Face] = None    # the wallet's own face, when nothing is sworn
+    profile: Optional[Face] = None    # the wallet's own name and picture
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_json(cls, d) -> "WhoFound":
         d = _d(d)
         p = d.get("profile")
-        return cls(_s(d.get("wallet")), _s(d.get("agent")), _s(d.get("vow_id")), _ob(d.get("sworn")),
+        return cls(_s(d.get("wallet")), _s(d.get("agent")), _s(d.get("nip05")),
                    _s(d.get("avatar")), Face.from_json(p) if isinstance(p, dict) else None, d)
 
 
 @dataclass
 class Who:
-    """GET /api/who?handle=: one party by sworn name, npub, vow id or wallet."""
+    """GET /api/who?handle=: one party by wallet, npub or name."""
     handle: Optional[str] = None
     handle_kind: Optional[str] = None
     matches: int = 0

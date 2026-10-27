@@ -80,7 +80,7 @@ pub fn lines(messages: &[Message], people: &BTreeMap<String, Person>, host: &str
             };
             let style = if m.house {
                 NameStyle::House
-            } else if kind == NameKind::Sworn {
+            } else if kind == NameKind::Handle {
                 NameStyle::Sworn
             } else {
                 NameStyle::Unchecked
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(l.name, "~Mara", "a profile name is the wallet's, still unchecked");
         assert_eq!(l.style, NameStyle::Unchecked);
         people.insert(msg.npub.clone(), Person {
-            name: "mara".into(), kind: NameKind::Sworn, wallet: None, picture: None,
+            name: "mara".into(), kind: NameKind::Handle, wallet: None, picture: None,
         });
         assert_eq!(lines(&[msg], &people, "h", 0)[0].style, NameStyle::Sworn);
     }

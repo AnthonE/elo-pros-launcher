@@ -187,6 +187,11 @@ pub fn ask_in_window(title: &str, prompt: &str) -> Option<Secret> {
         }
     }
     win.window.hide();
+    // Emptied and deleted rather than hidden, as the words window is: a
+    // hidden window keeps its field's text — a passphrase, or the words typed
+    // into Restore — in a live widget for the rest of the session.
+    win.field.set_value("");
+    fltk::window::Window::delete(win.window);
     // Taken, not cloned: a clone would leave a second copy to be dropped.
     let got = answer.borrow_mut().take();
     got
@@ -222,6 +227,32 @@ pub fn show_notice(kind: Note, title: &str, body: &str, action: Option<&str>) ->
     }
     win.window.hide();
     wants.get()
+}
+
+/// A signer's status line as a window should draw it. The vault's status
+/// leads with the full address, and streamer mode hides that address
+/// everywhere else, so it is hidden here too.
+pub fn status_shown(status: &str, address: Option<&str>) -> String {
+    match address {
+        Some(a) if !a.is_empty() => status.replace(a, &elo_depot::streamer::shown(a)),
+        _ => status.to_string(),
+    }
+}
+
+/// What to tell a player whose signed send did not go through.
+///
+/// Only the chain's own refusal (`the chain said: …`) proves nothing was sent.
+/// A timeout or a garbled reply can come after the node took the transaction,
+/// and telling that player "nothing was sent" invites a second send of the
+/// same money — so they get the link to look first. The hash is known before
+/// the broadcast, which is what makes the link possible.
+pub fn broadcast_failed(chain: &str, e: &str, look: &str) -> String {
+    if e.starts_with("the chain said:") {
+        format!("{chain} did not take it, so nothing was sent.\n\n{e}")
+    } else {
+        format!("{chain} did not answer clearly, so this may or may not have been sent.\n\n{e}\n\n\
+                 Look it up before sending again:\n{look}")
+    }
 }
 
 /// Start this program again and stop being it.
@@ -410,7 +441,16 @@ pub fn real_review() -> Review {
 }
 
 pub fn review_in_window(lines: &[(String, String)], notes: &[String]) -> bool {
-    let mut win = windows::send_review(lines, notes);
+    run_review(windows::send_review(lines, notes))
+}
+
+/// The same, for a listing, a cancel or an offer: its own heading and button.
+pub fn review_in_window_as(heading: &str, lines: &[(String, String)], notes: &[String], footer: &str,
+                           go: &str) -> bool {
+    run_review(windows::review(heading, lines, notes, footer, go))
+}
+
+fn run_review(mut win: windows::ReviewWindow) -> bool {
     let sent = Rc::new(std::cell::Cell::new(false));
     let (flag, mut w) = (Rc::clone(&sent), win.window.clone());
     win.send.set_callback(move |_| {
@@ -430,6 +470,17 @@ pub fn review_in_window(lines: &[(String, String)], notes: &[String]) -> bool {
     sent.get()
 }
 
+/// A coin the Wallet window can show and send, on either of the account's
+/// chains.
+#[derive(Clone, Debug)]
+pub enum WalletCoin {
+    Rh(elo_net::wallet::Coin),
+    Sol(elo_net::solana::SolCoin),
+}
+
+type Quote = dyn Fn(&elo_net::xmove::Route, &str, &str, &str) -> Result<serde_json::Value, String> + Send + Sync;
+type Follow = dyn Fn(&elo_net::xmove::Route, &str) -> Result<serde_json::Value, String> + Send + Sync;
+
 /// What the Wallet window reads and opens, injected so a harness can stand a
 /// fake chain behind the real controls.
 #[derive(Clone)]
@@ -442,11 +493,30 @@ pub struct WalletDesk {
     pub recipients: PathBuf,
     /// Open a url in the browser.
     pub open: Rc<dyn Fn(&str)>,
+    /// Solana's RPC, made on whichever thread does the reading.
+    pub sol_chain: Arc<dyn Fn() -> Box<dyn elo_net::chain::Rpc> + Send + Sync>,
+    /// Our Solana coins, mint → symbol (empty until one is recorded).
+    pub ours: Arc<dyn Fn() -> Vec<([u8; 32], String)> + Send + Sync>,
+    /// A move's quote from the origin: route, amount, Solana address, 0x address.
+    pub quote: Arc<Quote>,
+    /// Wait for a sent move to land: route, the source transaction.
+    pub follow: Arc<Follow>,
+}
+
+/// A chain that is never there — for a harness that does not reach one side.
+pub struct NoRpc;
+
+impl elo_net::chain::Rpc for NoRpc {
+    fn call(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value, String> {
+        Err("offline".into())
+    }
 }
 
 impl WalletDesk {
     pub fn real(host: &str, open: Rc<dyn Fn(&str)>) -> WalletDesk {
         let url = format!("{host}/api/holdings");
+        let pairs = format!("{host}/api/pairs");
+        let (h1, h2) = (host.to_string(), host.to_string());
         WalletDesk {
             chain: Arc::new(|| Box::new(elo_net::chain::HttpRpc::new())),
             listed: Arc::new(move || {
@@ -455,13 +525,24 @@ impl WalletDesk {
             }),
             recipients: elo_vault::recipients_path(),
             open,
+            sol_chain: Arc::new(|| Box::new(elo_net::solana::http())),
+            ours: Arc::new(move || {
+                elo_net::Net::new().get_json(&pairs).value.map(|v| elo_net::solana::ours(&v)).unwrap_or_default()
+            }),
+            quote: Arc::new(move |r, amount, sol, evm| {
+                elo_net::xmove::quote(&elo_net::chain::HttpRpc::new(), &h1, r, amount, sol, evm, 100)
+            }),
+            follow: Arc::new(move |r, tx| {
+                elo_net::xmove::follow(&elo_net::chain::HttpRpc::new(), &h2, r, tx, &|_| {})
+            }),
         }
     }
 }
 
 /// Run `work` on a thread and hand its answer to `done` on this one — the
-/// shape `show_profile` uses, so a dead RPC never freezes a window.
-fn off_thread<T: Send + 'static>(
+/// shape `show_profile` uses, so a dead RPC never freezes a window. `done`
+/// runs from a timer, never inside a widget callback.
+pub fn off_thread<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     done: impl FnOnce(T) + 'static,
 ) {
@@ -470,29 +551,119 @@ fn off_thread<T: Send + 'static>(
         let _ = tx.send(work());
     });
     let mut done = Some(done);
-    app::add_timeout3(0.1, move |h| match rx.try_recv() {
+    // A twentieth of a second: soon enough that a fast answer reads as instant.
+    app::add_timeout3(0.05, move |h| match rx.try_recv() {
         Ok(v) => {
             if let Some(d) = done.take() {
                 d(v);
             }
         }
-        Err(std::sync::mpsc::TryRecvError::Empty) => app::repeat_timeout3(0.1, h),
+        Err(std::sync::mpsc::TryRecvError::Empty) => app::repeat_timeout3(0.05, h),
         Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
     });
 }
 
+/// Long work for another thread — an install, a verify. It is told how far it
+/// has got as `(done, total)` bytes and answers with what the player is told.
+pub type Job = Box<dyn FnOnce(&dyn Fn(i64, i64)) -> Result<String, String> + Send>;
+
+/// Run a [`Job`] off this thread. `tick` hears its progress and `done` its
+/// answer, both on this thread, from a timer.
+///
+/// An install used to run inside the button's own callback: the whole client
+/// froze for the length of the download (minutes for a real game) behind a
+/// button that said `Installing…` and nothing else.
+pub fn run_job(
+    job: Job,
+    mut tick: impl FnMut(i64, i64) + 'static,
+    done: impl FnOnce(Result<String, String>) + 'static,
+) {
+    enum Said {
+        Progress(i64, i64),
+        Done(Result<String, String>),
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let progress = tx.clone();
+        let said = job(&move |d, t| {
+            let _ = progress.send(Said::Progress(d, t));
+        });
+        let _ = tx.send(Said::Done(said));
+    });
+    let mut done = Some(done);
+    app::add_timeout3(0.1, move |h| {
+        let mut last = None;
+        loop {
+            match rx.try_recv() {
+                Ok(Said::Progress(d, t)) => last = Some((d, t)),
+                Ok(Said::Done(r)) => {
+                    if let Some(f) = done.take() {
+                        f(r);
+                    }
+                    return;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+            }
+        }
+        if let Some((d, t)) = last {
+            tick(d, t);
+        }
+        app::repeat_timeout3(0.1, h);
+    });
+}
+
+/// `Installing 42%` on the button that started it. A button whose window was
+/// rebuilt while the work ran is left alone.
+fn say_progress(b: &mut fltk::button::Button, verb: &str, done: i64, total: i64) {
+    if b.was_deleted() || total <= 0 {
+        return;
+    }
+    b.set_label(&format!("{verb} {}%", done.clamp(0, total) * 100 / total));
+    b.redraw();
+}
+
 /// Paint a read onto the window, and remember its coins for the send row.
+/// `sol` is the Solana half's address and read, `None` when the account has
+/// no Solana address yet.
 pub fn paint_wallet(w: &windows::WalletWindow, snap: &elo_net::wallet::Snapshot,
-                    coins: &RefCell<Vec<elo_net::wallet::Coin>>) {
+                    sol: Option<([u8; 32], &elo_net::solana::Snapshot)>, coins: &RefCell<Vec<WalletCoin>>) {
     use elo_net::wallet::format_amount;
-    let mut text = String::new();
+    let mut text = format!("on {}\n", elo_net::chain::NAME);
+    let mut all: Vec<WalletCoin> = Vec::new();
     for (c, h) in &snap.coins {
         let line = match h {
-            Ok(r) => format!("{:>30} {:<6} {}", format_amount(*r, c.decimals), c.sym, c.what),
-            Err(e) => format!("{:>30} {:<6} could not read: {e}", "?", c.sym),
+            Ok(r) => format!("{:>28} {:<6} {}", format_amount(*r, c.decimals), c.sym, c.what),
+            Err(e) => format!("{:>28} {:<6} could not read: {e}", "?", c.sym),
         };
         text.push_str(&elo_hive::render::safe_line(&line));
         text.push('\n');
+        all.push(WalletCoin::Rh(c.clone()));
+    }
+    text.push_str(&format!("\non {}\n", elo_vault::solana::NAME));
+    match sol {
+        None => text.push_str("  no Solana address yet — Add, beside it above, makes the one your recovery words make\n"),
+        Some((me, sn)) => {
+            let line = match &sn.sol {
+                Ok(l) => format!("{:>28} {:<6} pays every fee on Solana", format_amount(*l as u128, 9), "SOL"),
+                Err(e) => format!("{:>28} {:<6} could not read: {e}", "?", "SOL"),
+            };
+            text.push_str(&elo_hive::render::safe_line(&line));
+            text.push('\n');
+            all.push(WalletCoin::Sol(elo_net::solana::sol_coin(&me)));
+            match &sn.coins {
+                Ok(cs) => for (c, amt) in cs {
+                    let line = format!("{:>28} {:<6} {}", format_amount(*amt as u128, c.decimals), c.sym, c.what);
+                    text.push_str(&elo_hive::render::safe_line(&line));
+                    text.push('\n');
+                    all.push(WalletCoin::Sol(c.clone()));
+                },
+                Err(e) => {
+                    text.push_str(&elo_hive::render::safe_line(&format!("{:>28} {:<6} could not read: {e}", "?", "coins")));
+                    text.push('\n');
+                }
+            }
+        }
     }
     if let Some(mut b) = w.balances.buffer() {
         b.set_text(&text);
@@ -500,9 +671,14 @@ pub fn paint_wallet(w: &windows::WalletWindow, snap: &elo_net::wallet::Snapshot,
     let mut warning = w.warning.clone();
     let (said, ink) = if let Some(x) = &snap.warning {
         (x.clone(), theme::RED)
-    } else if snap.unreachable() {
-        ("Could not read the chain, so nothing above is a balance. Refresh to try again.".into(),
+    } else if snap.unreachable() && sol.is_none_or(|(_, s)| s.unreachable()) {
+        ("Could not read either chain, so nothing above is a balance. Refresh to try again.".into(),
          theme::RED)
+    } else if snap.unreachable() {
+        ("Could not read Robinhood Chain, so its lines are not balances. Refresh to try again.".into(),
+         theme::RED)
+    } else if sol.is_some_and(|(_, s)| s.unreachable()) {
+        ("Could not read Solana, so its lines are not balances. Refresh to try again.".into(), theme::RED)
     } else {
         (snap.note.clone().unwrap_or_default(), theme::GOLD)
     };
@@ -512,21 +688,25 @@ pub fn paint_wallet(w: &windows::WalletWindow, snap: &elo_net::wallet::Snapshot,
     let mut choice = w.coin.clone();
     let was = choice.value();
     choice.clear();
-    for (c, _) in &snap.coins {
+    for c in &all {
         // A menu label treats `/`, `&` and `_` as structure; a symbol is the
         // contract's own text, so only its letters and digits are drawn.
-        let label: String = c.sym.chars().filter(|ch| ch.is_ascii_alphanumeric()).collect();
-        choice.add_choice(if label.is_empty() { "?" } else { &label });
+        let (sym, chain) = match c {
+            WalletCoin::Rh(c) => (&c.sym, "Robinhood"),
+            WalletCoin::Sol(c) => (&c.sym, "Solana"),
+        };
+        let label: String = sym.chars().filter(|ch| ch.is_ascii_alphanumeric()).collect();
+        choice.add_choice(&format!("{} ({chain})", if label.is_empty() { "?" } else { &label }));
     }
-    choice.set_value(if was >= 0 && (was as usize) < snap.coins.len() { was } else { 0 });
-    *coins.borrow_mut() = snap.coins.iter().map(|(c, _)| c.clone()).collect();
+    choice.set_value(if was >= 0 && (was as usize) < all.len() { was } else { 0 });
+    *coins.borrow_mut() = all;
     if let Some(mut win) = w.balances.window() {
         win.redraw();
     }
 }
 
 /// The Wallet window's controls. Returns what opening the window should do:
-/// read the chain afresh, because a balance is a measurement and an old one
+/// read both chains afresh, because a balance is a measurement and an old one
 /// shown as current is the thing this client refuses.
 pub fn wire_wallet(
     w: &windows::WalletWindow,
@@ -537,7 +717,7 @@ pub fn wire_wallet(
     review: Review,
     then: Then,
 ) -> Rc<dyn Fn()> {
-    let coins: Rc<RefCell<Vec<elo_net::wallet::Coin>>> = Rc::default();
+    let coins: Rc<RefCell<Vec<WalletCoin>>> = Rc::default();
     let who = {
         let signer = Arc::clone(signer);
         move || -> Option<[u8; 20]> {
@@ -545,35 +725,71 @@ pub fn wire_wallet(
             elo_vault::parse_address(&a).ok()
         }
     };
+    let sol_who = {
+        let signer = Arc::clone(signer);
+        move || -> Option<[u8; 32]> {
+            let a = signer.lock().ok()?.sol_address()?;
+            elo_vault::solana::parse_address(&a).ok()
+        }
+    };
 
     let refresh: Rc<dyn Fn()> = {
-        let (w, coins, desk, who) = (w.clone(), Rc::clone(&coins), desk.clone(), who.clone());
+        let (w, coins, desk, who, sol_who) = (w.clone(), Rc::clone(&coins), desk.clone(), who.clone(), sol_who.clone());
         Rc::new(move || {
             let Some(me) = who() else { return };
+            let me_sol = sol_who();
             // An account made in Account after this window was built: show it
             // and turn the controls on in place, with no restart.
             let mut addr = w.address.clone();
             addr.set_label(&elo_depot::streamer::shown(&elo_vault::to_checksum(&me)));
             addr.set_label_color(theme::INK);
             addr.set_label_font(fltk::enums::Font::Courier);
-            for b in [&w.copy, &w.explorer, &w.refresh, &w.review] {
+            let mut sa = w.sol_address.clone();
+            match me_sol {
+                Some(k) => {
+                    sa.set_label(&elo_depot::streamer::shown(&elo_vault::solana::base58_encode(&k)));
+                    sa.set_label_color(theme::INK);
+                    sa.set_label_font(fltk::enums::Font::Courier);
+                    sa.set_label_size(12);
+                    let mut c = w.sol_copy.clone();
+                    c.set_label("Copy");
+                    c.activate();
+                    w.sol_explorer.clone().activate();
+                }
+                None => {
+                    let mut c = w.sol_copy.clone();
+                    c.set_label("Add…");
+                    c.set_tooltip("your recovery words make this account's Solana address");
+                    c.activate();
+                    sa.set_label("none yet — Add makes it from your recovery words");
+                    sa.set_label_color(theme::MUTED);
+                    sa.set_label_font(fltk::enums::Font::Helvetica);
+                    sa.set_label_size(11);
+                }
+            }
+            for b in [&w.copy, &w.explorer, &w.refresh, &w.review, &w.move_review] {
                 b.clone().activate();
             }
             w.coin.clone().activate();
             w.amount.clone().activate();
             w.to.clone().activate();
+            w.route.clone().activate();
+            w.move_amount.clone().activate();
             let mut st = w.status.clone();
-            st.set_label("reading the chain…");
-            let (chain, listed) = (Arc::clone(&desk.chain), Arc::clone(&desk.listed));
+            st.set_label("reading both chains…");
+            let (chain, listed, sol_chain, ours) =
+                (Arc::clone(&desk.chain), Arc::clone(&desk.listed), Arc::clone(&desk.sol_chain), Arc::clone(&desk.ours));
             let (w2, coins2) = (w.clone(), Rc::clone(&coins));
             off_thread(
                 move || {
                     let rpc = chain();
                     let list = listed();
-                    elo_net::wallet::snapshot(&*rpc, list.as_ref().map_err(String::as_str), &me)
+                    let rh = elo_net::wallet::snapshot(&*rpc, list.as_ref().map_err(String::as_str), &me);
+                    let sol = me_sol.map(|k| (k, elo_net::solana::snapshot(&*sol_chain(), &k, &ours())));
+                    (rh, sol)
                 },
-                move |snap| {
-                    paint_wallet(&w2, &snap, &coins2);
+                move |(snap, sol)| {
+                    paint_wallet(&w2, &snap, sol.as_ref().map(|(k, s)| (*k, s)), &coins2);
                     let mut st = w2.status.clone();
                     st.set_label("");
                 },
@@ -593,7 +809,40 @@ pub fn wire_wallet(
             if let Some(me) = who() {
                 app::copy(&elo_vault::to_checksum(&me));
                 let mut st = st.clone();
-                st.set_label("copied — check it where you paste it");
+                st.set_label("copied your Robinhood Chain address — check it where you paste it");
+            }
+        });
+    }
+    {
+        // Copy, or — for an account made before Solana, or adopted from a
+        // bare key — Add: the recovery words (which must make THIS account's
+        // 0x address) or a Phantom-exported key, then the passphrase that
+        // encrypts both halves. Nothing touches the network.
+        let mut b = w.sol_copy.clone();
+        let (sol_who, st, signer, refresh) = (sol_who.clone(), w.status.clone(), Arc::clone(signer), Rc::clone(&refresh));
+        let (ask, tell) = (Rc::clone(&ask), Rc::clone(&tell));
+        b.set_callback(move |_| {
+            if let Some(me) = sol_who() {
+                app::copy(&elo_vault::solana::base58_encode(&me));
+                let mut st = st.clone();
+                st.set_label("copied your Solana address — check it where you paste it");
+                return;
+            }
+            let Some(words) = ask("Add your Solana address",
+                                  "Your recovery words, or a Solana private key:") else { return };
+            let Some(pass) = ask("Add your Solana address", "This account's passphrase:") else { return };
+            let added = match signer.lock() {
+                Ok(mut s) => s.add_solana(&pass, &words),
+                Err(_) => Err("the account is busy — try again".into()),
+            };
+            drop((words, pass));
+            match added {
+                Ok(addr) => {
+                    tell(Told::Done, &format!("Your Solana address:\n{addr}\n\nThe same account, on Solana, \
+                                               encrypted with the same passphrase."));
+                    refresh();
+                }
+                Err(e) => tell(Told::Refused, &e),
             }
         });
     }
@@ -606,10 +855,22 @@ pub fn wire_wallet(
             }
         });
     }
+    {
+        let mut b = w.sol_explorer.clone();
+        let (sol_who, open) = (sol_who.clone(), Rc::clone(&desk.open));
+        b.set_callback(move |_| {
+            if let Some(me) = sol_who() {
+                open(&elo_net::solana::address_url(&elo_vault::solana::base58_encode(&me)));
+            }
+        });
+    }
 
     {
         let mut b = w.review.clone();
-        let (w, signer, coins, refresh) = (w.clone(), Arc::clone(signer), Rc::clone(&coins), Rc::clone(&refresh));
+        let (w, signer, coins, refresh, who, sol_who) =
+            (w.clone(), Arc::clone(signer), Rc::clone(&coins), Rc::clone(&refresh), who.clone(), sol_who.clone());
+        let (ask, tell, review, then, desk) =
+            (Rc::clone(&ask), Rc::clone(&tell), Rc::clone(&review), Rc::clone(&then), desk.clone());
         b.set_callback(move |btn| {
             let Some(me) = who() else { return };
             let idx = w.coin.value();
@@ -617,21 +878,16 @@ pub fn wire_wallet(
                 return tell(Told::Refused, "Pick a coin first — Refresh reads them.");
             };
             let (to, amount) = (w.to.value(), w.amount.value());
-            let known = elo_net::wallet::known_recipients(&desk.recipients);
             let mut st = w.status.clone();
             st.set_label("checking with the chain…");
             let mut btn = btn.clone();
             btn.deactivate();
-            let chain = Arc::clone(&desk.chain);
-            let after = {
-                let (w, signer, desk, ask, tell, review, then, refresh) =
-                    (w.clone(), Arc::clone(&signer), desk.clone(), Rc::clone(&ask), Rc::clone(&tell),
-                     Rc::clone(&review), Rc::clone(&then), Rc::clone(&refresh));
-                move |planned: Result<elo_net::wallet::Plan, String>| {
+            let mut done = {
+                let (w, refresh) = (w.clone(), Rc::clone(&refresh));
+                move |sent: bool| {
                     btn.activate();
                     let mut st = w.status.clone();
                     st.set_label("");
-                    let sent = finish_send(planned, &signer, &desk, &ask, &tell, &review, &then);
                     if sent {
                         let (mut a, mut t) = (w.amount.clone(), w.to.clone());
                         a.set_value("");
@@ -640,16 +896,247 @@ pub fn wire_wallet(
                     }
                 }
             };
+            match coin {
+                WalletCoin::Rh(coin) => {
+                    let known = elo_net::wallet::known_recipients(&desk.recipients);
+                    let chain = Arc::clone(&desk.chain);
+                    let (signer, desk, ask, tell, review, then) =
+                        (Arc::clone(&signer), desk.clone(), Rc::clone(&ask), Rc::clone(&tell),
+                         Rc::clone(&review), Rc::clone(&then));
+                    off_thread(
+                        move || elo_net::wallet::plan(&*chain(), &me, &coin, &to, &amount, &known),
+                        move |planned| done(finish_send(planned, &signer, &desk, &ask, &tell, &review, &then)),
+                    );
+                }
+                WalletCoin::Sol(coin) => {
+                    let Some(me_sol) = sol_who() else {
+                        done(false);
+                        return tell(Told::Refused, "This account has no Solana address yet — the Solana row's Add makes it.");
+                    };
+                    let known = elo_net::solana::known_recipients(&desk.recipients);
+                    let chain = Arc::clone(&desk.sol_chain);
+                    let (signer, desk, ask, tell, review, then) =
+                        (Arc::clone(&signer), desk.clone(), Rc::clone(&ask), Rc::clone(&tell),
+                         Rc::clone(&review), Rc::clone(&then));
+                    off_thread(
+                        move || elo_net::solana::plan(&*chain(), &me_sol, &coin, &to, &amount, &known),
+                        move |planned| done(finish_sol_send(planned, &signer, &desk, &ask, &tell, &review, &then)),
+                    );
+                }
+            }
+        });
+    }
+
+    {
+        let mut b = w.move_review.clone();
+        let (w, signer, refresh) = (w.clone(), Arc::clone(signer), Rc::clone(&refresh));
+        let (who, sol_who) = (who.clone(), sol_who.clone());
+        b.set_callback(move |btn| {
+            let Some(me) = who() else { return };
+            let Some(me_sol) = sol_who() else {
+                return tell(Told::Refused, "A move needs this account's Solana address — the Solana row's \
+                                            Add makes it from your recovery words.");
+            };
+            let idx = w.route.value();
+            let Some(r) = (idx >= 0).then(|| elo_net::xmove::ROUTES.get(idx as usize).copied()).flatten() else {
+                return tell(Told::Refused, "Pick which way to move first.");
+            };
+            let amount = w.move_amount.value().trim().to_string();
+            let raw = match elo_net::wallet::parse_amount(&amount, r.decimals) {
+                Ok(0) => return tell(Told::Refused, "Type an amount above zero."),
+                Ok(x) => x,
+                Err(e) => return tell(Told::Refused, &e),
+            };
+            let (evm_s, sol_s) = (elo_vault::to_checksum(&me), elo_vault::solana::base58_encode(&me_sol));
+            let mut st = w.move_status.clone();
+            st.set_label("asking for a route…");
+            let mut btn = btn.clone();
+            btn.deactivate();
+            let (quote, sol_chain) = (Arc::clone(&desk.quote), Arc::clone(&desk.sol_chain));
+            let ctx = MoveCtx { w: w.clone(), signer: Arc::clone(&signer), desk: desk.clone(), ask: Rc::clone(&ask),
+                                tell: Rc::clone(&tell), review: Rc::clone(&review), then: Rc::clone(&then),
+                                refresh: Rc::clone(&refresh) };
             off_thread(
-                move || {
-                    let rpc = chain();
-                    elo_net::wallet::plan(&*rpc, &me, &coin, &to, &amount, &known)
+                move || -> Result<Checked, String> {
+                    let q = quote(&r, &amount, &sol_s, &evm_s).map_err(|e| format!("No route right now: {e}"))?;
+                    let lines = elo_net::xmove::review(&r, &q, &sol_s, &evm_s);
+                    if r.from_solana() {
+                        let raw = u64::try_from(raw).map_err(|_| "That amount is larger than any balance.".to_string())?;
+                        let leg = elo_net::xmove::check_solana(&*sol_chain(), &q, &r, &me_sol, raw)?;
+                        Ok(Checked { r, lines, sol: Some(leg), steps: None })
+                    } else {
+                        let steps = elo_net::xmove::evm_steps(&q, &r, raw)?;
+                        Ok(Checked { r, lines, sol: None, steps: Some(steps) })
+                    }
                 },
-                after,
+                move |checked| {
+                    btn.activate();
+                    finish_move(checked, me, ctx);
+                },
             );
         });
     }
     refresh
+}
+
+/// A move whose source transaction passed its checks, ready to review.
+struct Checked {
+    r: elo_net::xmove::Route,
+    lines: Vec<(String, String)>,
+    sol: Option<elo_net::xmove::SolLeg>,
+    steps: Option<serde_json::Value>,
+}
+
+struct MoveCtx {
+    w: windows::WalletWindow,
+    signer: Shared,
+    desk: WalletDesk,
+    ask: Ask,
+    tell: Tell,
+    review: Review,
+    then: Then,
+    refresh: Rc<dyn Fn()>,
+}
+
+/// The review, the passphrase, then the source chain's transaction — signed
+/// here, sent and followed off this thread so the window keeps drawing while
+/// the coins cross.
+fn finish_move(checked: Result<Checked, String>, me: [u8; 20], cx: MoveCtx) {
+    let mut st = cx.w.move_status.clone();
+    st.set_label("");
+    let c = match checked {
+        Ok(c) => c,
+        Err(e) => return (cx.tell)(Told::Refused, &format!("{e}\n\nNothing was signed.")),
+    };
+    let mut notes = Vec::new();
+    if let Some(leg) = &c.sol {
+        notes.push(format!("The chain's own dry run: {} SOL leaves your Solana account, fees included.",
+                           elo_net::wallet::format_amount(leg.spent as u128, 9)));
+    }
+    notes.push("A move cannot be undone. ELO itself never moves between chains, and no rate between them is implied.".into());
+    if !(cx.review)(&c.lines, &notes) {
+        return;
+    }
+    let what = c.lines[0].1.clone();
+    let Some(pass) = (cx.ask)("Move", &format!("Your passphrase, to move {what}:")) else { return };
+    let r = c.r;
+    let sent: Result<Box<dyn FnOnce() -> Result<String, String> + Send>, String> = if let Some(leg) = c.sol {
+        let mut tx = leg.tx;
+        let signed = match cx.signer.lock() {
+            Ok(s) => s.sign_solana_transaction(&pass, &mut tx),
+            Err(_) => Err("the account is busy — try again".into()),
+        };
+        drop(pass);
+        signed.map(|()| {
+            let chain = Arc::clone(&cx.desk.sol_chain);
+            Box::new(move || elo_net::solana::send(&*chain(), &tx)
+                .map_err(|e| broadcast_failed("Solana", &e, &elo_net::solana::tx_url(&tx.id()))))
+                as Box<dyn FnOnce() -> Result<String, String> + Send>
+        })
+    } else {
+        let steps = c.steps.expect("an EVM move has steps");
+        let signer = Arc::clone(&cx.signer);
+        Ok(Box::new(move || {
+            let rpc = elo_net::chain::HttpRpc::new();
+            let settings = elo_net::guard::Settings::load(&elo_net::guard::settings_path());
+            let sign = |tx: &elo_vault::tx::Tx| signer.lock()
+                .map_err(|_| "the account is busy — try again".to_string())?.sign_transaction(&pass, tx);
+            elo_net::trading::execute(&steps, &rpc, &me, &settings, &elo_net::guard::activity_path(),
+                                      "wallet move", &sign, &|_| {})
+                .map_err(|e| format!("Nothing was moved.\n\n{e}"))
+        }))
+    };
+    let send = match sent {
+        Ok(f) => f,
+        Err(e) => return (cx.tell)(Told::Refused, &format!("Nothing was sent.\n\n{e}")),
+    };
+    st.set_label("moving — the coins cross in a few seconds…");
+    let follow = Arc::clone(&cx.desk.follow);
+    let MoveCtx { w, desk, tell, then, refresh, .. } = cx;
+    off_thread(
+        move || {
+            let tx = send()?;
+            Ok::<_, String>((tx.clone(), follow(&r, &tx)))
+        },
+        move |out| {
+            let mut st = w.move_status.clone();
+            st.set_label("");
+            match out {
+                Err(e) => tell(Told::Refused, &e),
+                Ok((tx, landed)) => {
+                    w.move_amount.clone().set_value("");
+                    refresh();
+                    let (body, link) = match &landed {
+                        Ok(s) => (format!("Moved {what}.\n\nIt arrived on {}.", elo_net::xmove::chain_name(r.to_chain)),
+                                  s.get("receiving_link").and_then(serde_json::Value::as_str).map(str::to_string)),
+                        Err(e) => (format!("Sent {what}. {e}\n{tx}"), None),
+                    };
+                    let link = link.unwrap_or_else(|| if r.from_solana() { elo_net::solana::tx_url(&tx) }
+                                                      else { elo_net::chain::tx_url(&tx) });
+                    if then(&body, "View on explorer") {
+                        (desk.open)(&link);
+                    }
+                }
+            }
+        },
+    );
+}
+
+/// A Solana send after its plan: the review, the passphrase, the signature,
+/// the broadcast. Returns whether it went out.
+fn finish_sol_send(
+    planned: Result<elo_net::solana::Plan, String>,
+    signer: &Shared,
+    desk: &WalletDesk,
+    ask: &Ask,
+    tell: &Tell,
+    review: &Review,
+    then: &Then,
+) -> bool {
+    let plan = match planned {
+        Ok(p) => p,
+        Err(e) => {
+            tell(Told::Refused, &e);
+            return false;
+        }
+    };
+    let lines = match elo_net::solana::review(&plan) {
+        Ok(l) => l,
+        Err(e) => {
+            tell(Told::Refused, &e);
+            return false;
+        }
+    };
+    if !review(&lines, &plan.notes) {
+        return false;
+    }
+    let what = lines[0].1.clone();
+    let Some(pass) = ask("Send", &format!("Your passphrase, to send {what}:")) else {
+        return false;
+    };
+    let mut tx = plan.tx.clone();
+    let signed = match signer.lock() {
+        Ok(s) => s.sign_solana_transaction(&pass, &mut tx),
+        Err(_) => Err("the account is busy — try again".into()),
+    };
+    drop(pass);
+    if let Err(e) = signed {
+        tell(Told::Refused, &format!("Nothing was sent.\n\n{e}"));
+        return false;
+    }
+    let sig = match elo_net::solana::send(&*(desk.sol_chain)(), &tx) {
+        Ok(s) => s,
+        Err(e) => {
+            tell(Told::Refused, &broadcast_failed("Solana", &e, &elo_net::solana::tx_url(&tx.id())));
+            return false;
+        }
+    };
+    let _ = elo_net::solana::remember_recipient(&desk.recipients, &plan.to);
+    if then(&format!("Sent {what} to\n{}\n\nIt lands in a few seconds.\n{sig}",
+                     elo_vault::solana::base58_encode(&plan.to)), "View on explorer") {
+        (desk.open)(&elo_net::solana::tx_url(&sig));
+    }
+    true
 }
 
 /// Everything after a plan comes back: the review, the passphrase, the
@@ -698,7 +1185,8 @@ fn finish_send(
     };
     let rpc = (desk.chain)();
     if let Err(e) = elo_net::chain::send_raw(&*rpc, &signed.raw_hex()) {
-        tell(Told::Refused, &format!("The chain did not take it, so nothing was sent.\n\n{e}"));
+        tell(Told::Refused, &broadcast_failed("The chain", &e,
+                                              &elo_net::chain::tx_url(&signed.hash_hex())));
         return false;
     }
     let _ = elo_net::wallet::remember_recipient(&desk.recipients, &plan.to);
@@ -730,7 +1218,7 @@ pub fn wire_signing(
         b.set_callback(move |_| {
             if let Ok(mut s) = signer.lock() {
                 s.lock();
-                status.set_label(&s.status());
+                status.set_label(&status_shown(&s.status(), s.address().as_deref()));
                 app::redraw();
             }
         });
@@ -749,7 +1237,7 @@ pub fn wire_signing(
         let mut s = signer.lock().expect("signer lock");
         match s.unlock(&pass) {
             Ok(()) => {
-                status.set_label(&s.status());
+                status.set_label(&status_shown(&s.status(), s.address().as_deref()));
                 app::redraw();
                 tell(
                     Told::Done,
@@ -776,12 +1264,24 @@ pub fn wire_signing(
 /// What a shelf row needs done, decided here so the window stays free of I/O
 /// and the binary stays free of policy.
 pub trait Storefront {
-    /// Fetch and hash-verify a title's published build. Long — the caller
-    /// blocks the UI thread on it, deliberately: an install with a spinner
-    /// this client cannot draw is worse than one that plainly holds still.
+    /// Fetch and hash-verify a title's published build. Long: the windows
+    /// run it as [`Storefront::install_job`], off their thread.
     fn install(&self, slug: &str) -> Result<String, String>;
     /// Re-hash everything a build's depot names.
     fn verify(&self, slug: &str, build: &str) -> Result<String, String>;
+    /// [`Storefront::install`] as a [`Job`]: whatever only this thread can
+    /// answer (is the game running? is it already installing?) is asked now,
+    /// and the rest runs on another. The default does all of it here and
+    /// hands the answer back, which is all a fake needs.
+    fn install_job(&self, slug: &str) -> Job {
+        let said = self.install(slug);
+        Box::new(move |_| said)
+    }
+    /// [`Storefront::verify`] as a [`Job`], the same way.
+    fn verify_job(&self, slug: &str, build: &str) -> Job {
+        let said = self.verify(slug, build);
+        Box::new(move |_| said)
+    }
     /// Start what is installed.
     fn play(&self, slug: &str) -> Result<String, String>;
     /// Is a game this launcher started for `slug` still running?
@@ -802,11 +1302,16 @@ pub trait Storefront {
 /// guessed: a row saying *"an update is published"* over a Play button is the
 /// exact defect `tests/rows.rs` exists for, and wiring it as Play would have
 /// re-introduced it one layer down.
+///
+/// `after_update` is called once an update lands, for the same reason as the
+/// Store's: the row was built against the old build, and its Verify would ask
+/// about a build the update just removed.
 pub fn wire_games(
     games_w: &crate::windows::GamesWindow,
     front: Rc<dyn Storefront>,
     tell: Tell,
     then: Then,
+    after_update: Rc<dyn Fn()>,
 ) {
     for row in &games_w.rows {
         let (slug, build) = (row.slug.clone(), row.build.clone());
@@ -821,43 +1326,74 @@ pub fn wire_games(
         if !updating.get() && front.running(&slug) {
             hold_while_running(&act, Rc::clone(&front), slug.clone());
         }
+        // A game started from anywhere else — the Store's "Play now", a
+        // friend's Join — shows here as Running too, without a re-read.
+        watch_running(&act, Rc::clone(&front), slug.clone());
+        let after = Rc::clone(&after_update);
         act.set_callback(move |b| {
-            let update = updating.get();
             b.deactivate();
-            b.set_label(if update { "Updating…" } else { "Starting…" });
-            app::redraw();
-            app::flush();
-            let done = if update {
-                front_c.install(&slug)
-            } else {
-                front_c.play(&slug)
-            };
-            match done {
-                Ok(said) if update => {
-                    updating.set(false);
-                    b.set_label("Play");
-                    b.activate();
-                    // An update finishes on the row the player is already
-                    // looking at, so the offer is the same one the Store makes:
-                    // the step after "it updated" is playing it.
-                    if then_c(&said, "Play now") {
-                        match front_c.play(&slug) {
-                            Ok(_) => hold_while_running(b, Rc::clone(&front_c), slug.clone()),
-                            Err(e) => tell_c(Told::Refused, &e),
-                        }
+            if !updating.get() {
+                b.set_label("Starting…");
+                app::redraw();
+                app::flush();
+                match front_c.play(&slug) {
+                    Ok(_) => hold_while_running(b, Rc::clone(&front_c), slug.clone()),
+                    Err(e) => {
+                        // Said on the control the player pressed AND in a
+                        // window. A failure reported only to a console nobody
+                        // is reading has not been reported.
+                        b.set_label("Failed");
+                        b.activate();
+                        tell_c(Told::Refused, &e);
                     }
                 }
-                Ok(_) => hold_while_running(b, Rc::clone(&front_c), slug.clone()),
-                Err(e) => {
-                    // Said on the control the player pressed AND in a window.
-                    // A failure reported only to a console nobody is reading
-                    // has not been reported.
-                    b.set_label("Failed");
-                    b.activate();
-                    tell_c(Told::Refused, &e);
-                }
+                app::redraw();
+                return;
             }
+            b.set_label("Updating…");
             app::redraw();
+            let mut shown = b.clone();
+            let (mut b, front_c, tell_c, then_c) =
+                (b.clone(), Rc::clone(&front_c), Rc::clone(&tell_c), Rc::clone(&then_c));
+            let (updating, after, slug) = (Rc::clone(&updating), Rc::clone(&after), slug.clone());
+            run_job(
+                front_c.install_job(&slug),
+                move |done, total| say_progress(&mut shown, "Updating", done, total),
+                move |said| {
+                    let alive = !b.was_deleted();
+                    match said {
+                        Ok(said) => {
+                            updating.set(false);
+                            if alive {
+                                b.set_label("Play");
+                                b.activate();
+                            }
+                            after();
+                            // An update finishes on the row the player is
+                            // already looking at, so the offer is the same one
+                            // the Store makes: the step after "it updated" is
+                            // playing it.
+                            if then_c(&said, "Play now") {
+                                match front_c.play(&slug) {
+                                    Ok(_) if alive => {
+                                        hold_while_running(&b, Rc::clone(&front_c), slug.clone())
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => tell_c(Told::Refused, &e),
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if alive {
+                                b.set_label("Failed");
+                                b.activate();
+                            }
+                            tell_c(Told::Refused, &e);
+                        }
+                    }
+                    app::redraw();
+                },
+            );
         });
 
         let (slug, build) = (row.slug.clone(), build);
@@ -867,21 +1403,48 @@ pub fn wire_games(
             b.deactivate();
             b.set_label("Hashing…");
             app::redraw();
-            app::flush();
-            match front_c.verify(&slug, &build) {
-                Ok(said) => {
+            let (mut b, tell_c) = (b.clone(), Rc::clone(&tell_c));
+            run_job(front_c.verify_job(&slug, &build), |_, _| {}, move |said| {
+                if !b.was_deleted() {
                     b.set_label("Verify");
-                    tell_c(Told::Done, &said);
+                    b.activate();
                 }
-                Err(e) => {
-                    b.set_label("Verify");
-                    tell_c(Told::Refused, &e);
+                match said {
+                    Ok(said) => tell_c(Told::Done, &said),
+                    Err(e) => tell_c(Told::Refused, &e),
                 }
-            }
-            b.activate();
-            app::redraw();
+                app::redraw();
+            });
         });
     }
+}
+
+/// Keep a Games row's button honest about a game started from elsewhere:
+/// `Running` and off while it runs, `Play` again when it exits. Stops when the
+/// button's window is rebuilt. Touches only a button showing Play or Running,
+/// so an `Updating 40%` or a `Failed` is never painted over.
+fn watch_running(b: &fltk::button::Button, front: Rc<dyn Storefront>, slug: String) {
+    let mut b = b.clone();
+    app::add_timeout3(RUNNING_POLL, move |handle| {
+        if b.was_deleted() {
+            return;
+        }
+        let running = front.running(&slug);
+        match b.label().as_str() {
+            "Play" if running => {
+                b.set_label("Running");
+                b.deactivate();
+                b.redraw();
+            }
+            "Running" if !running => {
+                b.set_label("Play");
+                b.activate();
+                b.redraw();
+            }
+            _ => {}
+        }
+        app::repeat_timeout3(RUNNING_POLL, handle);
+    });
 }
 
 /// How often a Running button checks whether its game has exited, in seconds.
@@ -942,27 +1505,42 @@ pub fn wire_store(
                 b.deactivate();
                 b.set_label("Installing…");
                 app::redraw();
-                app::flush();
-                match front_c.install(&slug) {
-                    Ok(said) => {
-                        b.set_label("Installed");
-                        // The shelves are re-read BEFORE the notice, not after:
-                        // if the player takes the Play offer, the library it
-                        // starts from has to be the one holding this install.
-                        after();
-                        if then_c(&said, "Play now") {
-                            if let Err(e) = front_c.play(&slug) {
+                let mut shown = b.clone();
+                let (mut b, front_c, tell_c, then_c, after, slug) =
+                    (b.clone(), Rc::clone(&front_c), Rc::clone(&tell_c), Rc::clone(&then_c),
+                     Rc::clone(&after), slug.clone());
+                run_job(
+                    front_c.install_job(&slug),
+                    move |done, total| say_progress(&mut shown, "Installing", done, total),
+                    move |said| {
+                        let alive = !b.was_deleted();
+                        match said {
+                            Ok(said) => {
+                                if alive {
+                                    b.set_label("Installed");
+                                }
+                                // The shelves are re-read BEFORE the notice,
+                                // not after: if the player takes the Play
+                                // offer, the library it starts from has to be
+                                // the one holding this install.
+                                after();
+                                if then_c(&said, "Play now") {
+                                    if let Err(e) = front_c.play(&slug) {
+                                        tell_c(Told::Refused, &e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if alive {
+                                    b.set_label("Install");
+                                    b.activate();
+                                }
                                 tell_c(Told::Refused, &e);
                             }
                         }
-                    }
-                    Err(e) => {
-                        b.set_label("Install");
-                        b.activate();
-                        tell_c(Told::Refused, &e);
-                    }
-                }
-                app::redraw();
+                        app::redraw();
+                    },
+                );
             }
             Act::Buy | Act::Page => {
                 let url = front_c.page_url(&slug);
@@ -1036,15 +1614,16 @@ pub fn ask_consent(signer: &Shared, ask: &crate::consent::Ask) -> Option<u32> {
 
     centre(&mut win.window);
     win.window.show();
-    while win.window.shown() {
-        // `wait` returning false is the app shutting down. Breaking here is
-        // what stops a closing launcher from parking the door thread forever
-        // on a window that will never be answered.
-        if !app::wait() {
-            break;
-        }
+    // Woken at least four times a second, because the game can stop waiting
+    // (`consent::PROMPT_LIMIT`) while the player is away: the prompt closes
+    // then, rather than taking an answer nobody will read.
+    while win.window.shown() && !ask.gave_up.get() {
+        let _ = app::wait_for(0.25);
     }
     win.window.hide();
+    if ask.gave_up.get() {
+        return None;
+    }
     answer.get()
 }
 
@@ -1297,12 +1876,6 @@ pub fn wire_signin(
     });
 }
 
-/// How often the pairing poll looks. Slower than a spinner and faster than a
-/// person: the visitor is switching to a browser, connecting a wallet and
-/// reading a message, so a two-second beat is well inside their own tempo and
-/// costs the origin one small GET.
-const PAIR_POLL: f64 = 2.0;
-
 /// Lend the launcher the wallet in a browser — the GUI half of `elo pair`
 /// (`docs/client/SIGN-IN.md` §8; the origin is `meter/browser_signer.py`).
 ///
@@ -1368,94 +1941,91 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
         if waiting.get() {
             return;
         }
-        let net = elo_net::Net::new();
-        let (code, secret, _) = match elo_net::pairing::start(&net, &host) {
-            Ok(got) => got,
-            Err(e) => return tell(Told::Refused, &e),
-        };
-        let show = if code.len() == 8 {
-            format!("{}-{}", &code[..4], &code[4..])
-        } else {
-            code.clone()
-        };
-        let mut note = note.clone();
-        // Both the code AND its warning belong to the row now, so this label
-        // is status only and stays empty until there is something to report.
-        note.set_label("");
-        if let Some(mut r) = row.clone() {
-            r.code.set_value(&show);
-            // A second press mints a second code, so the button goes back to
-            // "Copy" — leaving "Copied" there would name the old one.
-            r.copy.set_label("Copy");
-            r.show();
-        }
         let mut btn = btn.clone();
         btn.deactivate();
         waiting.set(true);
         app::redraw();
-
-        let (host, waiting) = (host.clone(), Rc::clone(&waiting));
-        let tell = Rc::clone(&tell);
-        // The poller outlives this press, so it takes its own handles to the
-        // three widgets rather than borrowing the ones this closure keeps for
-        // the NEXT press.
-        let row = row.clone();
-        let shown = shown.clone();
-        let began = std::time::Instant::now();
-        app::add_timeout3(PAIR_POLL, move |handle| {
-            match elo_net::pairing::poll_claim(&net, &host, &code, &secret) {
-                elo_net::pairing::Claim::Paired(p) => {
-                    let path = elo_vault::pairing_path();
-                    match elo_net::pairing::save(&path, &p) {
-                        Ok(()) => {
-                            show_pairing(&shown, &p.address);
-                            // The code is spent. Take the row away rather than
-                            // leave a stale code sitting under a Copy button
-                            // that would hand someone eight dead characters.
-                            if let Some(mut r) = row.clone() {
-                                r.code.set_value("");
-                                r.hide();
-                            }
-                            tell(Told::Done, &format!(
-                                "Paired with {}.\n\nThe launcher will ask that browser \
-                                 to sign, one message at a time. Nothing that can sign \
-                                 was written to this machine.",
-                                p.address
-                            ));
-                        }
-                        // The pairing is real at the origin and we could not
-                        // remember it. Say exactly that — "pairing failed"
-                        // would send someone to redo a thing that worked.
-                        Err(e) => tell(Told::Refused, &format!(
-                            "The browser claimed the code, but the pairing could not be \
-                             written to disk: {e}"
-                        )),
-                    }
-                    btn.activate();
-                    waiting.set(false);
-                    app::redraw();
-                }
-                elo_net::pairing::Claim::Gone(why) => {
-                    note.set_label("");
-                    tell(Told::Refused, &why);
-                    btn.activate();
-                    waiting.set(false);
-                    app::redraw();
-                }
-                elo_net::pairing::Claim::Pending => {
-                    if began.elapsed() >= elo_net::pairing::CLAIM_TIMEOUT {
-                        note.set_label("");
-                        tell(Told::Refused, "Nobody claimed the code in time. Press again \
-                                             for a fresh one.");
+        // Both requests — the code, then the long wait for a browser to claim
+        // it — run off this thread. The wait used to poll from a timer here,
+        // one blocking request every two seconds for up to ten minutes, so a
+        // slow origin froze the whole client between polls.
+        let (host_c, tell_c, waiting_c) = (host.clone(), Rc::clone(&tell), Rc::clone(&waiting));
+        let (note, row, shown) = (note.clone(), row.clone(), shown.clone());
+        let host_start = host_c.clone();
+        off_thread(
+            move || elo_net::pairing::start(&elo_net::Net::new(), &host_start),
+            move |started| {
+                let (code, secret, _) = match started {
+                    Ok(got) => got,
+                    Err(e) => {
                         btn.activate();
-                        waiting.set(false);
-                        app::redraw();
-                    } else {
-                        app::repeat_timeout3(PAIR_POLL, handle);
+                        waiting_c.set(false);
+                        return tell_c(Told::Refused, &e);
                     }
+                };
+                let mut note = note.clone();
+                // Both the code AND its warning belong to the row now, so this
+                // label is status only and stays empty until there is something
+                // to report.
+                note.set_label("");
+                if let Some(mut r) = row.clone() {
+                    r.code.set_value(&elo_net::pairing::show_code(&code));
+                    // A second press mints a second code, so the button goes
+                    // back to "Copy" — leaving "Copied" there would name the
+                    // old one.
+                    r.copy.set_label("Copy");
+                    r.show();
                 }
-            }
-        });
+                app::redraw();
+                let host = host_c.clone();
+                off_thread(
+                    move || elo_net::pairing::await_claim(&elo_net::Net::new(), &host, &code,
+                                                          &secret, || {}),
+                    move |claimed| {
+                        match claimed {
+                            Ok(p) => match elo_net::pairing::save(&elo_vault::pairing_path(), &p) {
+                                Ok(()) => {
+                                    show_pairing(&shown, &p.address);
+                                    // The code is spent. Take the row away
+                                    // rather than leave a stale code under a
+                                    // Copy button.
+                                    if let Some(mut r) = row.clone() {
+                                        r.code.set_value("");
+                                        r.hide();
+                                    }
+                                    tell_c(Told::Done, &format!(
+                                        "Paired with {}.\n\nThe launcher will ask that browser \
+                                         to sign, one message at a time. Nothing that can sign \
+                                         was written to this machine.",
+                                        elo_depot::streamer::shown(&p.address)
+                                    ));
+                                }
+                                // The pairing is real at the origin and we could
+                                // not remember it. Say exactly that — "pairing
+                                // failed" would send someone to redo a thing
+                                // that worked.
+                                Err(e) => tell_c(Told::Refused, &format!(
+                                    "The browser claimed the code, but the pairing could not \
+                                     be written to disk: {e}"
+                                )),
+                            },
+                            Err(why) => {
+                                note.set_label("");
+                                tell_c(Told::Refused, &if why == "nobody claimed the code in time" {
+                                    "Nobody claimed the code in time. Press again for a fresh one."
+                                        .to_string()
+                                } else {
+                                    why
+                                });
+                            }
+                        }
+                        btn.activate();
+                        waiting_c.set(false);
+                        app::redraw();
+                    },
+                );
+            },
+        );
     });
 }
 
@@ -1467,8 +2037,11 @@ pub fn wire_pair(account_w: &AccountWindow, host: &str, tell: Tell) {
 /// games play anonymously"* over a launcher that was handing games the paired
 /// address.
 pub fn show_pairing(account_w: &AccountWindow, address: &str) {
-    let safe = crate::chrome::defuse(address);
-    if account_w.make.is_some() {
+    let safe = crate::chrome::defuse(&elo_depot::streamer::shown(address));
+    // "No account here" is the Make button still SHOWING, not merely built:
+    // [`adopt`] hides it once an account is made, and testing `is_some` wrote
+    // a later browser pairing's address over the new account's.
+    if account_w.make.as_ref().is_some_and(|b| b.visible()) {
         let (mut a, mut n) = (account_w.address.clone(), account_w.note.clone());
         a.set_label(&safe);
         a.set_label_color(theme::INK);
@@ -1555,7 +2128,7 @@ pub fn serve_relock(
             let relocked = match signer.lock() {
                 Ok(mut s) if relock_due(s.idle(), since_play, after) => {
                     s.lock();
-                    status.set_label(&s.status());
+                    status.set_label(&status_shown(&s.status(), s.address().as_deref()));
                     app::redraw();
                     true
                 }
@@ -1578,7 +2151,7 @@ pub fn serve_relock(
                 }
                 let mut st = status.clone();
                 if let Ok(s) = signer.lock() {
-                    st.set_label(&s.status());
+                    st.set_label(&status_shown(&s.status(), s.address().as_deref()));
                 }
                 app::redraw();
             }
@@ -1671,9 +2244,17 @@ pub fn lock_screen(signer: &Shared, why: &str) -> Gate {
     // Quit is a real quit. It is the only other way out of this window, and
     // the window manager's close box does the same thing rather than dropping
     // the player into an unlocked-looking client.
+    //
+    // ⚠ But not on Escape. FLTK runs a window's callback for Escape too, and
+    // Escape is the key a player presses to dismiss the prompt before this
+    // one — the main menu's own callback says the same (`elo-gui.rs`).
     let mut quit = win.quit.clone();
     quit.set_callback(|_| std::process::exit(0));
-    win.window.set_callback(|_| std::process::exit(0));
+    win.window.set_callback(|_| {
+        if app::event() == fltk::enums::Event::Close {
+            std::process::exit(0);
+        }
+    });
 
     let signer_c = Arc::clone(signer);
     let (flag, field, mut status, mut w) = (
@@ -1726,6 +2307,9 @@ pub fn lock_screen(signer: &Shared, why: &str) -> Gate {
         }
     }
     win.window.hide();
+    // The passphrase does not outlive the screen (see `ask_in_window`).
+    win.field.set_value("");
+    fltk::window::Window::delete(win.window);
     if browser.get() {
         Gate::Browser
     } else if done.get() {
@@ -1768,12 +2352,12 @@ fn adopt(
     how: Arrived,
 ) {
     let address = new_signer.address().unwrap_or_default();
-    let status = new_signer.status();
+    let status = status_shown(&new_signer.status(), Some(&address));
     *signer.lock().expect("signer lock") = new_signer;
 
     let mut addr = account_w.address.clone();
     let mut note = account_w.note.clone();
-    addr.set_label(&address);
+    addr.set_label(&elo_depot::streamer::shown(&address));
     addr.set_label_color(theme::INK);
     note.set_label("made on this machine, and transmitted nowhere");
     // Both doors close: this window never offers to replace a key, and the
@@ -1809,6 +2393,12 @@ fn adopt(
         let mut b = b;
         b.activate();
     }
+    // And the lines that said there was no account come down with them: the
+    // status line above now names the address, and "no account on this
+    // machine yet" beside a live Unlock was the window contradicting itself.
+    for f in &signing_w.until_account {
+        f.clone().hide();
+    }
     app::redraw();
 
     let (heading, backup) = match how {
@@ -1826,7 +2416,7 @@ fn adopt(
         &format!(
             "{heading}\n\n{address}\n\n{backup}\n\
              The keystore is at {}.\n\n\
-             The passphrase cannot be reset — nobody else has it, including elo.\n\n\
+             The passphrase cannot be reset — nobody else has it, including us.\n\n\
              Signing can unlock it now; no restart is needed.",
             keystore.display()
         ),
@@ -1965,6 +2555,8 @@ pub fn set_profile(
     let (Some(at), false) = (at, text.is_empty()) else {
         return Err("the origin's reply named nothing to sign".into());
     };
+    // Before the prompt: a text that is not this change costs no passphrase.
+    crate::profile::checked_profile_text(text, &wallet, at, name, sha.as_deref())?;
 
     let prompt = format!("About to sign exactly this, and nothing else:\n\n{text}");
     let Some(pass) = ask("Change your profile", &prompt) else {
@@ -2045,9 +2637,10 @@ pub fn paint_profile(face: &fltk::frame::Frame, name: &fltk::frame::Frame,
                 face.set_image(None::<fltk::image::PngImage>);
                 tile(&mut face, s.name.as_deref(), 28);
             }
-            let line = match &s.name {
-                Some(n) => format!("profile name: {}", elo_hive::render::safe_line(n)),
-                None => "no profile name or picture yet — Edit profile sets them".into(),
+            let line = match (&s.name, drawn) {
+                (Some(n), _) => format!("profile name: {}", elo_hive::render::safe_line(n)),
+                (None, true) => "no profile name yet — Edit profile sets one".into(),
+                (None, false) => "no profile name or picture yet — Edit profile sets them".into(),
             };
             name.set_label(&crate::chrome::defuse(&line));
         }
@@ -2076,18 +2669,31 @@ pub fn wire_profile(account_w: &AccountWindow, signer: &Shared, host: &str, ask:
                     tell: Tell) {
     let Some(mut edit) = account_w.edit_profile.clone() else { return };
     let (signer, host, acct) = (Arc::clone(signer), host.to_string(), account_w.clone());
-    edit.set_callback(move |_| {
+    edit.set_callback(move |b| {
         let wallet = signer.lock().ok().and_then(|s| s.address());
         let Some(wallet) = wallet else { return };
-        let current = crate::profile::read(&crate::profile::RealFaceHttp, &host, &wallet).ok();
-        let Some(change) = edit_profile_in_window(current.as_ref()) else { return };
-        match set_profile(&signer, &host, &change, &ask, &crate::profile::RealFaceHttp) {
-            Ok(done) => {
-                tell(Told::Done, &done);
-                show_profile(&acct, &host, &wallet);
-            }
-            Err(e) => tell(Told::Refused, &e),
-        }
+        // The current profile is read off this thread; the editor opens when
+        // it lands, so a slow origin is a moment's wait on a pressed button,
+        // not a frozen client.
+        let mut b = b.clone();
+        b.deactivate();
+        let (signer, host, acct, ask, tell) =
+            (Arc::clone(&signer), host.clone(), acct.clone(), Rc::clone(&ask), Rc::clone(&tell));
+        let (read_host, read_wallet) = (host.clone(), wallet.clone());
+        off_thread(
+            move || crate::profile::read(&crate::profile::RealFaceHttp, &read_host, &read_wallet).ok(),
+            move |current| {
+                b.activate();
+                let Some(change) = edit_profile_in_window(current.as_ref()) else { return };
+                match set_profile(&signer, &host, &change, &ask, &crate::profile::RealFaceHttp) {
+                    Ok(done) => {
+                        tell(Told::Done, &done);
+                        show_profile(&acct, &host, &wallet);
+                    }
+                    Err(e) => tell(Told::Refused, &e),
+                }
+            },
+        );
     });
 }
 
@@ -3034,8 +3640,15 @@ mod tests {
 
     #[test]
     fn the_prompt_shows_the_exact_text_and_a_cancel_signs_nothing() {
+        use sha2::{Digest, Sha256};
         let (signer, path) = address_only();
-        let text = "elo play\naction: profile\nwallet: 0x2444…\ndetail: {\"at\":1,\"name\":\"Mara\"}";
+        let mut pic = crate::profile::tests_png(128);
+        pic.extend(b"rest of the file");
+        let sha = elo_depot::digest::hex_lower(&Sha256::digest(&pic));
+        // `meter/faces.py`'s own shape, which the client now rebuilds and
+        // compares before it asks for anything.
+        let text = format!("elo play\naction: profile\nwallet: {ACCOUNT}\nday: 2026-10-25\n\
+                            detail: {{\"at\":1,\"name\":\"Mara\",\"picture_sha256\":\"{sha}\"}}");
         let d = desk(Some(serde_json::json!({"sign_this": text, "at": 1})));
         let seen = Rc::new(RefCell::new(String::new()));
         let s2 = Rc::clone(&seen);
@@ -3043,14 +3656,20 @@ mod tests {
             *s2.borrow_mut() = prompt.to_string();
             None
         });
-        let mut pic = crate::profile::tests_png(128);
-        pic.extend(b"rest of the file");
         let change = crate::profile::Change { name: Some("  Mara ".into()), picture: Some(pic.clone()) };
         let e = set_profile(&signer, "https://x", &change, &ask, &d).unwrap_err();
         assert!(e.contains("Cancelled"), "{e}");
-        assert!(seen.borrow().ends_with(text), "the prompt carries the signed text verbatim");
+        assert!(seen.borrow().ends_with(&text), "the prompt carries the signed text verbatim");
+
+        // An origin offering any other text is refused before the prompt.
+        let other = text.replace("action: profile", "action: grant");
+        let d2 = desk(Some(serde_json::json!({"sign_this": other, "at": 1})));
+        seen.borrow_mut().clear();
+        let e = set_profile(&signer, "https://x", &change, &ask, &d2).unwrap_err();
+        assert!(e.contains("something other than this change"), "{e}");
+        assert!(seen.borrow().is_empty(), "no passphrase was asked for a text that is not this change");
+
         // What was prepared: the trimmed name and the picture's own sha256.
-        use sha2::{Digest, Sha256};
         let asked = d.asked.borrow()[0].clone();
         assert_eq!(asked["name"], "Mara");
         assert_eq!(asked["picture_sha256"], elo_depot::digest::hex_lower(&Sha256::digest(&pic)));

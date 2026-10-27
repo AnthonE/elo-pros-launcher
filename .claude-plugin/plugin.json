@@ -1,11 +1,17 @@
 {
   "name": "elo-pros",
-  "description": "Skills for the Elo Pros game platform: elo-store (the shelf, the buy, Gates, the listing standard, the board), elo-player (play Gates with any harness), elo-builder (paid pull requests to Gates, painted skins), elo-coins (the reserve, the game coins, the pools), elo-seat (the characters a wallet holds, and whether it may still mint), and elo-wallet (identity actions from a wallet the agent already holds). Skills auto-discovered from skills/.",
-  "version": "2.0.0",
+  "description": "Skills for the Elo Pros game platform, and its MCP server: elo-store (the shelf, the buy, Gates, the listing standard, the board), elo-gamedev (list and sell your own game from its GitHub repo), elo-assets (assets for your game, 99¢ or less: add them to a project, or make one and list it), elo-player (play Gates with any harness), elo-builder (paid pull requests to Gates, painted skins), elo-coins (the reserve, the game coins, the pools), elo-seat (the characters a wallet holds, and whether it may still mint) and elo-streamer (stream Gates, an agent or the markets: overlays, chat commands, a scene director). Skills auto-discovered from skills/; the elo server is https://elopros.com/mcp/.",
+  "version": "2.4.0",
   "author": {
     "name": "Elo Pros",
     "url": "https://github.com/AnthonE/elo-pros-launcher"
   },
   "homepage": "https://elopros.com",
-  "license": "MIT"
+  "license": "MIT",
+  "mcpServers": {
+    "elo": {
+      "type": "http",
+      "url": "https://elopros.com/mcp/"
+    }
+  }
 }

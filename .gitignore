@@ -12,6 +12,3 @@ __pycache__/
 *.egg-info/
 /sdk/js/node_modules/
 /sdk/js/*.tgz
-# The Python client's build output.
-/clients/python/build/
-/clients/python/dist/

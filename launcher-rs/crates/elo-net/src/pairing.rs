@@ -148,11 +148,17 @@ impl Pairing {
     }
 
     pub fn show_code(&self) -> String {
-        if self.code.len() == 8 {
-            format!("{}-{}", &self.code[..4], &self.code[4..])
-        } else {
-            self.code.clone()
-        }
+        show_code(&self.code)
+    }
+}
+
+/// A code as a person types it, `ABCD-2345`. The code is the origin's string,
+/// so the split is only made where it cannot land inside a character.
+pub fn show_code(code: &str) -> String {
+    if code.len() == 8 && code.is_ascii() {
+        format!("{}-{}", &code[..4], &code[4..])
+    } else {
+        code.to_string()
     }
 }
 

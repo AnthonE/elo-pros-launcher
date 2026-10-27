@@ -73,17 +73,17 @@ pub fn looks_like_address(value: &str) -> bool {
 /// A join, not a judgement — this reshapes and never decides. Two things it is
 /// careful about:
 ///
-/// **Sworn and self-declared are kept apart.** `handle` is the NIP-05 name out
-/// of the locked index; `display_name` is whatever its owner typed into a face.
-/// Merging them into one "name" would let anyone wear a checked name for free,
-/// so they stay separate and `sworn` says which is which.
+/// **Checked and self-declared are kept apart.** `handle` is the NIP-05 name
+/// of a hive handle, held by one wallet; `display_name` is whatever the wallet
+/// typed into its own profile. Merging them into one "name" would let anyone
+/// wear a checked name for free, so they stay separate and `checked` says
+/// which is which.
 ///
-/// **One wallet can hold several vows.** `/who` answers with the first and
-/// reports the count; `identities` carries it through so a game can say "one of
-/// 3" rather than implying the wallet has exactly one identity.
+/// **A name can be shared.** `/who` answers a self-declared name with how many
+/// people use it; `matches` carries that through so a game can say "one of 3"
+/// rather than implying the name is unique.
 ///
-/// Pinned to `sdk/testdata/who_fixture.json` by `tests/cross_language.rs`, and
-/// the same fixture is checked against the live wire by `sdk/test_sdk.py`.
+/// Pinned to `sdk/testdata/who_fixture.json` by `tests/cross_language.rs`.
 pub fn flatten_who(body: &Value, address: &str) -> Value {
     let found = body.get("found").cloned().unwrap_or(json!({}));
     let subject = body.get("subject").cloned().unwrap_or(json!({}));
@@ -91,7 +91,6 @@ pub fn flatten_who(body: &Value, address: &str) -> Value {
     let s = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_string);
 
     let nip05 = s(found.get("nip05"));
-    let sandbox = found.get("sandbox").and_then(Value::as_bool).unwrap_or(false);
     let wallet = s(found.get("wallet"))
         .or_else(|| s(subject.get("wallet")))
         .unwrap_or_else(|| address.to_string());
@@ -100,45 +99,36 @@ pub fn flatten_who(body: &Value, address: &str) -> Value {
     // §traps: declare routes bare, write urls with `/api/`).
     let link = |p: Option<String>| -> Value {
         match p {
-            Some(p) if !p.is_empty() => json!(format!("/api/{}", p.trim_start_matches('/'))),
+            Some(p) if !p.is_empty() => json!(format!("/api/{}", p.trim_start_matches('/').trim_start_matches("api/"))),
             _ => Value::Null,
         }
     };
-    let identities = subject
-        .get("identities")
-        .and_then(Value::as_i64)
-        .or_else(|| body.get("matches").and_then(Value::as_i64))
-        .unwrap_or(1);
+    let matches = body.get("matches").and_then(Value::as_i64).unwrap_or(1);
 
     json!({
         "address": wallet,
         // the checked half
         "handle": nip05.clone(),
-        "sworn": nip05.is_some() && !sandbox,
+        "checked": nip05.is_some(),
         "npub": s(found.get("npub")),
-        "vow_id": s(found.get("vow_id")),
         // the self-declared half — a claim, and labelled as one
         "display_name": s(found.get("agent")),
         "face": found.get("face").cloned().unwrap_or(Value::Null),
         "avatar": link(s(found.get("avatar"))),
-        // derived by the origin, and only ever certain for what the house hosts
         "kind": s(found.get("kind")),
-        "sandbox": sandbox,
         "in_the_hive": reach.get("in_the_hive").and_then(Value::as_bool).unwrap_or(false),
-        // a wallet is one party; the vows are what it swore
-        "identities": identities,
+        // how many people answered to this handle
+        "matches": matches,
         "authoritative": body.get("authoritative").and_then(Value::as_bool).unwrap_or(true),
         // the reads a game makes ITSELF, the way Steam splits
         // GetPlayerSummaries from GetPlayerAchievements. One verb, one read.
         "links": {
             "achievements": link(Some(format!("achievements/of/{wallet}"))),
             // The item shelf. It answers `configured: false` until a creator
-            // deploys a ScryItem — an honest dark surface, not a broken read,
-            // and a game should render the difference.
+            // deploys an item contract — an honest dark surface, not a broken
+            // read, and a game should render the difference.
             "items": link(Some(format!("items/of/{wallet}"))),
             "holdings": link(Some(format!("holdings/{wallet}"))),
-            "reputation": link(s(found.pointer("/reputation/at"))),
-            "vow": link(s(found.pointer("/conduct/vow"))),
             "tip": link(s(reach.get("tip"))),
         },
     })
@@ -580,8 +570,11 @@ pub fn check_issued_at(secs: i64) -> Result<(), Refusal> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let drift = secs - now;
-    if drift.abs() > ISSUED_AT_SKEW_SECS {
+    // `abs_diff`, not `(secs - now).abs()`: a caller's i64::MIN overflows the
+    // subtraction, and in a release build `i64::MIN.abs()` is still negative —
+    // which passed the check.
+    let drift = secs.saturating_sub(now);
+    if secs.abs_diff(now) > ISSUED_AT_SKEW_SECS as u64 {
         return Err(Refusal::new(format!(
             "prove: issued_at is {drift}s from this machine's clock — more than \
              the {ISSUED_AT_SKEW_SECS}s either side a real challenge can be. \

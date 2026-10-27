@@ -1,0 +1,17 @@
+{
+  "about": "GET /api/ticket/{game}/message hands back tickets.entitle_message(game, wallet) for today (UTC); the wallet is lowercased, the game is the path's own spelling.",
+  "cases": [
+    {
+      "game": "gates",
+      "wallet": "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01",
+      "day": "2025-10-20",
+      "text": "elo entitle\ngame: gates\nwallet: 0xabcdef0123456789abcdef0123456789abcdef01\nday: 2025-10-20"
+    },
+    {
+      "game": "gates",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "day": "2026-01-01",
+      "text": "elo entitle\ngame: gates\nwallet: 0x1111111111111111111111111111111111111111\nday: 2026-01-01"
+    }
+  ]
+}

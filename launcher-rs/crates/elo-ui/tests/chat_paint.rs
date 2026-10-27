@@ -117,7 +117,7 @@ fn faces_sit_beside_every_message_and_a_bad_picture_is_a_tile(c: &windows::ChatW
     house.house = true;
     let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#123456"/></svg>"##;
     let person = |pic: Option<&[u8]>| Person {
-        name: "someone".into(), kind: NameKind::Sworn,
+        name: "someone".into(), kind: NameKind::Handle,
         wallet: None, picture: pic.map(|b| std::sync::Arc::new(b.to_vec())),
     };
     let view = View {

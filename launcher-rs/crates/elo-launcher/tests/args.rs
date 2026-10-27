@@ -200,3 +200,29 @@ fn a_titles_shard_list_reaches_its_argv_and_a_players_flags_do_not_reach_it() {
     // so it is refused rather than quietly ignored.
     assert!(args::parse(&argv("play gates --servers https://evil.example/list")).is_err());
 }
+
+#[test]
+fn help_is_a_switch_anywhere_never_an_unknown_flag() {
+    // `elo --help` and `elo install --help` used to exit 2 with
+    // "unknown flag --help", which is the wrong answer to the one question
+    // every newcomer asks first.
+    assert!(args::parse(&argv("--help")).unwrap().has("--help"));
+    let a = args::parse(&argv("install gates --help")).unwrap();
+    assert_eq!(a.verb, "install");
+    assert!(a.has("--help"));
+}
+
+#[test]
+fn a_bare_double_dash_ends_the_flags() {
+    // A chat line or a message to sign can start with dashes; after `--` it
+    // is text, not an unknown flag.
+    let a = args::parse(&argv("chat say -- --brb back in five")).unwrap();
+    assert_eq!(a.verb, "chat");
+    assert_eq!(a.positional, ["say", "--brb", "back", "in", "five"]);
+    assert!(a.switches.is_empty());
+    // And flags before it still count.
+    let a = args::parse(&argv("chat say --room gates -- --json")).unwrap();
+    assert_eq!(a.flag("--room"), Some("gates"));
+    assert_eq!(a.positional, ["say", "--json"]);
+    assert!(!a.has("--json"));
+}

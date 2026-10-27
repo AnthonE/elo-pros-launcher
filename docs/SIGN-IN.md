@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-22
+updated: 2026-10-23
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
@@ -182,7 +182,7 @@ elo-broker --test cross_language`, `watchtower/test_site.py`.
   and the CLI attach (`elo signin`, in a terminal) is the surface built for
   that. A code works once, so the watch wants its own code, typed there. A
   GUI watch would ride the consent-window machinery — owed, not started.
-- **`terminal.html` (the coins pane) and `vow.html` include `js/launcher-signin.js`** — the
+- **`terminal.html` (the coins pane) and `profile.html` include `js/launcher-signin.js`** — the
   remaining signing pages adopt by adding the script tag and letting their
   address come from `Deck.launcher.pairing()`.
 - **no deep link, on purpose** (§1). Re-read before "fixing".

@@ -131,31 +131,36 @@ fn flatten_who_matches_the_golden_shape() {
 }
 
 #[test]
-fn the_sworn_and_the_self_declared_never_merge() {
-    // The one distinction a profile may not blur. A face is typed by its owner;
-    // a handle is in the locked index and cost SCRY to change. A surface that
-    // shows the first in the clothes of the second has lied for free.
+fn the_checked_and_the_self_declared_never_merge() {
+    // The one distinction a profile may not blur. A profile name is typed by
+    // its owner; a hive handle is held by one wallet. A surface that shows the
+    // first in the clothes of the second has lied for free.
     let who = serde_json::json!({
-        "found": {"agent": "impostor", "nip05": null, "sandbox": false,
+        "found": {"agent": "impostor", "nip05": null,
                   "wallet": "0x1111111111111111111111111111111111111111"},
     });
     let flat = elo_broker::protocol::flatten_who(&who, "0x1111111111111111111111111111111111111111");
     assert_eq!(flat["display_name"], "impostor");
     assert!(flat["handle"].is_null(), "a typed name must never land in `handle`");
-    assert_eq!(flat["sworn"], false);
+    assert_eq!(flat["checked"], false);
 }
 
 #[test]
-fn a_sandbox_identity_is_never_sworn() {
-    // A sandbox vow has a name but no wallet behind it. Reporting it as sworn
-    // would let a free identity wear a paid one's clothes.
+fn an_older_origins_vow_fields_are_ignored() {
+    // An origin that still sends the retired vow fields must not leak them
+    // into what a game reads.
     let who = serde_json::json!({
-        "found": {"nip05": "moss", "sandbox": true,
+        "found": {"agent": "x", "vow_id": "1a43", "sandbox": true,
+                  "conduct": {"vow": "/vow/1a43"}, "reputation": {"at": "/reputation/0x1"},
                   "wallet": "0x1111111111111111111111111111111111111111"},
+        "subject": {"identities": 3},
     });
     let flat = elo_broker::protocol::flatten_who(&who, "0x1111111111111111111111111111111111111111");
-    assert_eq!(flat["handle"], "moss");
-    assert_eq!(flat["sworn"], false, "a sandbox identity is not sworn");
+    for k in ["vow_id", "sandbox", "identities", "sworn"] {
+        assert!(flat.get(k).is_none(), "{k} is not part of the profile");
+    }
+    assert!(flat["links"].get("vow").is_none() && flat["links"].get("reputation").is_none());
+    assert_eq!(flat["matches"], 1, "the count is /who's `matches`, never a vow count");
 }
 
 #[test]
@@ -178,14 +183,10 @@ fn every_link_carries_the_api_prefix_the_edge_strips() {
 }
 
 #[test]
-fn a_wallet_with_several_vows_says_so() {
-    // One party, several identities — not several claimants. A game that reads
-    // this as "1" would present one vow as the whole of somebody.
-    let fx = fixture();
-    let address = fx["address"].as_str().unwrap();
-    let flat = elo_broker::protocol::flatten_who(&fx["who"], address);
-    assert!(
-        flat["identities"].as_i64().unwrap_or(0) >= 1,
-        "identities must carry the count through"
-    );
+fn a_shared_name_carries_its_count_through() {
+    // A self-declared name is not unique. A game that reads this as "1" would
+    // present one of several people as the only one.
+    let who = serde_json::json!({"matches": 3, "found": {"agent": "Mara", "wallet": "0x1"}});
+    let flat = elo_broker::protocol::flatten_who(&who, "0x1");
+    assert_eq!(flat["matches"], 3, "matches must carry the count through");
 }

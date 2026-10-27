@@ -94,6 +94,12 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<Done, DepotError> {
 /// Whose list to read: `--wallet`, then `ELO_WALLET`, then the address this
 /// machine signs as. Reading the signer's address costs no passphrase.
 pub fn whose(a: &Args, host: &str) -> Result<String, DepotError> {
+    whose_for(a, host, "whose friends?")
+}
+
+/// [`whose`], for any verb that reads a wallet's public list (`elo mods`
+/// too); `ask` opens the sentence said when no wallet is found.
+pub fn whose_for(a: &Args, host: &str, ask: &str) -> Result<String, DepotError> {
     let typed = a
         .flag("--wallet")
         .map(str::to_string)
@@ -104,10 +110,10 @@ pub fn whose(a: &Args, host: &str) -> Result<String, DepotError> {
             .ok()
             .and_then(|s| s.address())
             .ok_or_else(|| {
-                DepotError::new(
-                    "whose friends? — pass --wallet 0x…, set ELO_WALLET, or give this \
-                     machine a wallet (`elo pair` or `elo account new`)",
-                )
+                DepotError::new(format!(
+                    "{ask} — pass --wallet 0x…, set ELO_WALLET, or give this \
+                     machine a wallet (`elo pair` or `elo account new`)"
+                ))
             })?,
     };
     if !roster::is_wallet(&wallet) {
@@ -381,7 +387,7 @@ pub fn done_line(word: &str, called: &str, now_friends: bool) -> String {
 }
 
 /// A refusal in the origin's own words, made safe to print.
-fn told(got: Fetched<Value>) -> Result<Value, DepotError> {
+pub(crate) fn told(got: Fetched<Value>) -> Result<Value, DepotError> {
     if got.ok {
         return Ok(got.value.unwrap_or(Value::Null));
     }
@@ -396,7 +402,7 @@ fn told(got: Fetched<Value>) -> Result<Value, DepotError> {
 
 /// A multi-line text from the origin, each line made safe on its own — the
 /// text to sign has real newlines, and only those survive.
-fn safe_text(s: &str) -> String {
+pub(crate) fn safe_text(s: &str) -> String {
     s.lines().map(safe_line).collect::<Vec<_>>().join("\n")
 }
 

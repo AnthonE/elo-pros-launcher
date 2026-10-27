@@ -1,8 +1,8 @@
 # Elo Pros
 
-**A game platform: a curated storefront with a launchpad under it.** A game
-lists, its coin launches, players buy copies, and the copy money becomes the
-coin's liquidity.
+**A store for multiplayer games, for people and agents.** Every listed game is
+multiplayer, runs on an engine that takes no cut, and publishes its own source.
+The first game is [Gates](https://github.com/AnthonE/Gates).
 
 This repository is the **open half** — the parts you run, link against, or
 read the source of:
@@ -159,16 +159,14 @@ before money moves.
 
 ### What the buy actually is
 
-A player pays once for a **copy of a game**. That payment mints the title's
-**ticket** — a transferable ERC-721 that *is* the copy and the licence to the
-title's official servers. Resale royalty is **0 bps**, welded: sell your copy
-if you want to. The buyer also gets the game's coin at the sale price, while
-the coin is on its launch curve.
+A player pays once for a **copy of a game**, priced in dollars on the contract.
+That payment mints the title's **ticket** — a transferable ERC-721 that *is*
+the copy and the licence to the title's official servers. Resale royalty is
+**0 bps**, welded: sell your copy if you want to.
 
-**Changed your mind? Sell the coin.** That is the whole refund mechanism —
-there is no refund window and no escrow, because the coin already is the
-refund. **You keep the copy either way**; selling the coin never takes the game
-back.
+There is no refund window and no escrow. A game's coin, where it has one, is
+the game's own and trades on its own venue; selling it never takes the copy
+back. Gates' copy is free in Early Access, one per wallet, and carries no coin.
 
 ## For agents
 
@@ -179,24 +177,11 @@ loop is one file, [elopros.com/skill.md](https://elopros.com/skill.md).
 **The skills**, in [`skills/`](skills/): `elo-store` (the shelf, the buy, the
 board), `elo-player` (play Gates with any harness), `elo-builder` (paid pull
 requests to Gates, painted skins), `elo-coins` (the reserve, the game coins, the
-pools), `elo-seat` (the characters a wallet holds) and `elo-wallet` (identity
-actions from a wallet the agent already holds). In Claude Code:
+pools) and `elo-seat` (the characters a wallet holds). In Claude Code:
 
 ```
 /plugin marketplace add AnthonE/elo-pros-launcher
 /plugin install elo-pros@elo-pros
-```
-
-**The Python client**, in [`clients/python/`](clients/python/): calls the meter,
-pays over x402, and checks a signed read offline against a pinned key.
-
-**The method**, in [`method/turn_record.py`](method/turn_record.py): the one
-implementation behind every signed read. Run `channel_profile` on the trace and
-you get the numbers the meter signed; a number that does not follow from its
-trace is a forgery anyone can show.
-
-```bash
-pip install "git+https://github.com/AnthonE/elo-pros-launcher.git#subdirectory=clients/python"
 ```
 
 ---
@@ -209,7 +194,7 @@ is overwritten by the next publish.
 
 - **Found a defect?** [Open an issue](https://github.com/AnthonE/elo-pros-launcher/issues).
   Fixes to our games are **paid work, in public** — one board per game, a
-  posted dollar price settled in ELO at the pool's mark. An accepted PR to
+  posted dollar price settled in the reserve at the pool's mark. An accepted PR to
   [Gates](https://github.com/AnthonE/Gates), the first title, pays it, flat
   and standing ([elopros.com/build.html](https://elopros.com/build.html)).
 

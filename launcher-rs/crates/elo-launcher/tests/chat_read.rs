@@ -70,7 +70,7 @@ fn a_linked_speaker_is_named_by_the_wallets_profile_and_the_house_is_never_looke
     let room = json!({
         "posted": true, "relay": "wss://hive.example", "room": "g", "scope": "a buzz room",
         "messages": [
-            {"id": "1", "at": 100, "kind": 9, "content": "linked, no vow", "npub": npub('a'),
+            {"id": "1", "at": 100, "kind": 9, "content": "linked, no handle", "npub": npub('a'),
              "who": null, "display": null, "wallet": ASH, "house": false},
             {"id": "2", "at": 200, "kind": 9, "content": "sworn, no profile", "npub": npub('b'),
              "who": "bo_sworn", "display": null, "wallet": BO, "house": false},
@@ -103,7 +103,7 @@ fn a_linked_speaker_is_named_by_the_wallets_profile_and_the_house_is_never_looke
         text.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("no {needle:?} in\n{text}"))
             .to_string()
     };
-    assert!(line("linked, no vow").contains("~Ash"), "the wallet's profile name, marked declared");
+    assert!(line("linked, no handle").contains("~Ash"), "the wallet's profile name, marked declared");
     assert!(line("sworn, no profile").contains(" bo_sworn"), "a sworn name with no profile stays");
     assert!(line("a guest").contains("~guest"));
     assert!(line("news").contains(" the house"));

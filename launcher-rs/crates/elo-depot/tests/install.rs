@@ -174,6 +174,37 @@ fn verify_notices_missing_changed_and_extra_files() {
 }
 
 #[test]
+fn a_clean_verify_still_names_files_the_depot_never_listed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (files, served) = fixture();
+    let at = install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    std::fs::write(at.join("stowaway.dll"), b"not in the depot").unwrap();
+    // A link back to the folder itself is reported, not walked forever.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&at, at.join("loop")).unwrap();
+    let v = verify(&at);
+    assert!(v.ok, "every listed hash still matches");
+    assert!(v.line().contains("not in the depot"), "{}", v.line());
+    assert!(v.extra.contains(&"stowaway.dll".to_string()), "{:?}", v.extra);
+}
+
+#[test]
+fn a_repackaged_build_replaces_the_old_one_and_leaves_no_staging_behind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (files, served) = fixture();
+    let at = install(&depot_for("1", &files), tmp.path(), &serving(served.clone(), None), None, None).unwrap();
+    std::fs::write(at.join("stowaway.dll"), b"from the old tree").unwrap();
+    let again = install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    assert_eq!(at, again);
+    assert!(!again.join("stowaway.dll").exists(), "the old tree was replaced, not merged");
+    assert!(verify(&again).ok);
+    let left: Vec<String> = std::fs::read_dir(again.parent().unwrap()).unwrap().flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(left, ["1"], "only the build itself is left in its title's folder");
+    assert_eq!(elo_depot::installed(tmp.path()).len(), 1);
+}
+
+#[test]
 fn a_directory_without_a_receipt_is_not_an_install() {
     // It is someone else's folder, and the launcher does not claim it, count
     // it, or delete it — which is what stops a mistyped install root from
@@ -691,4 +722,56 @@ fn a_supervised_launch_measures_real_elapsed_time() {
     let done = &session::load(state.path())[0];
     assert!(!done.is_running());
     assert_eq!(done.playtime(), Some(elapsed.as_secs() as i64));
+}
+
+/// A depot is hundreds of files and they are fetched several at a time: every
+/// file exactly once, every one hashed, and progress reaching the total.
+#[test]
+fn many_files_are_each_fetched_once_and_progress_reaches_the_total() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let tmp = tempfile::tempdir().unwrap();
+    let names: Vec<&'static str> = (0..40)
+        .map(|i| &*Box::leak(format!("assets/f{i:02}.bin").into_boxed_str()))
+        .collect();
+    let bodies: Vec<&'static [u8]> = (0..40)
+        .map(|i| &*Box::leak(vec![i as u8; 100 + i].into_boxed_slice()))
+        .collect();
+    let files: Vec<FileRow> = names.iter().zip(&bodies).map(|(p, b)| (*p, *b, false)).collect();
+    let d = depot_for("1", &files);
+    let fetched = AtomicUsize::new(0);
+    let fetch = |url: &str, dest: &Path| -> Result<(), DepotError> {
+        fetched.fetch_add(1, Ordering::SeqCst);
+        let name = url.rsplit('/').next().unwrap();
+        let i: usize = name[1..3].parse().unwrap();
+        std::fs::write(dest, bodies[i]).map_err(DepotError::from)
+    };
+    let mut last = (0, 0);
+    let mut calls = 0;
+    let mut tick = |done: i64, total: i64, _: &str, _: bool| {
+        calls += 1;
+        last = (done, total);
+    };
+    let at = install(&d, tmp.path(), &fetch, None, Some(&mut tick)).unwrap();
+    assert_eq!(fetched.load(Ordering::SeqCst), 40, "each file once");
+    assert_eq!(calls, 40, "one progress call per file");
+    assert_eq!(last.0, last.1, "progress ends at the total");
+    assert!(verify(&at).ok);
+}
+
+/// One bad file among many: refused, nothing installed, no staging left —
+/// however many other fetches were in flight when it failed.
+#[test]
+fn one_bad_file_among_many_installs_nothing_and_leaves_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let names: Vec<&'static str> = (0..30)
+        .map(|i| &*Box::leak(format!("f{i:02}").into_boxed_str()))
+        .collect();
+    let files: Vec<FileRow> = names.iter().map(|p| (*p, b"same bytes" as &[u8], false)).collect();
+    let d = depot_for("1", &files);
+    let served: Vec<Served> = names.iter().map(|p| (p.to_string(), b"same bytes".to_vec())).collect();
+    let err = install(&d, tmp.path(), &serving(served, Some("f17")), None, None).unwrap_err();
+    assert!(err.to_string().contains("hash mismatch"), "{err}");
+    assert!(installed(tmp.path()).is_empty());
+    let left = std::fs::read_dir(tmp.path().join("t")).map(|r| r.count()).unwrap_or(0);
+    assert_eq!(left, 0, "the title's folder holds nothing after a failed install");
 }

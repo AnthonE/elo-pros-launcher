@@ -1,0 +1,35 @@
+{
+  "about": "POST /api/munus/{id}/prepare hands back sign_this = playauth.play_message(op, wallet, detail): a claim's detail is the bounty's id; a delivery's is munus.submit_detail \u2014 `<id> <first 16 hex of sha256(url)> #<n>`, n the wallet's 0-based delivery index on that bounty, which only the server knows.",
+  "cases": [
+    {
+      "op": "claim",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "quest_id": "gates-soak",
+      "day": "2025-10-20",
+      "detail": "gates-soak",
+      "text": "elo play\naction: claim\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: gates-soak"
+    },
+    {
+      "op": "submit",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "quest_id": "gates-pr",
+      "url": "https://github.com/AnthonE/Gates/pull/412",
+      "n": 0,
+      "url_sha16": "55bf2278bef23cd0",
+      "day": "2025-10-20",
+      "detail": "gates-pr 55bf2278bef23cd0 #0",
+      "text": "elo play\naction: submit\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: gates-pr 55bf2278bef23cd0 #0"
+    },
+    {
+      "op": "submit",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "quest_id": "gates-pr",
+      "url": "https://github.com/AnthonE/Gates/pull/7#issuecomment-1",
+      "n": 3,
+      "url_sha16": "7b4567e08e3b1f74",
+      "day": "2025-10-20",
+      "detail": "gates-pr 7b4567e08e3b1f74 #3",
+      "text": "elo play\naction: submit\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: gates-pr 7b4567e08e3b1f74 #3"
+    }
+  ]
+}

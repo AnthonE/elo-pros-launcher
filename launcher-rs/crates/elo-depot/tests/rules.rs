@@ -270,6 +270,101 @@ fn a_bad_slug_is_refused() {
     }
 }
 
+/// `games/GATES` is `games/gates` on a disk that ignores case, so a manifest
+/// spelled `GATES` would install over the real build. A link may be typed in
+/// any case — `check_slug` lowercases it — and lands on the one spelling a
+/// manifest is allowed.
+#[test]
+fn a_slug_is_lowercase_ascii_and_a_link_finds_it_in_any_case() {
+    for slug in ["GATES", "Gates", "gatés", "gates\u{212a}"] {
+        assert!(parse_manifest(&json!({"slug": slug})).is_err(), "should refuse slug {slug:?}");
+    }
+    let m = parse_manifest(&json!({"slug": "gates-2_x"})).expect("lowercase parses");
+    for typed in ["GATES-2_X", "Gates-2_x", "gates-2_x"] {
+        assert_eq!(elo_depot::deeplink::check_slug(typed).unwrap(), m.slug, "{typed:?}");
+    }
+}
+
+/// Each is a second spelling of another name on Windows or macOS, so a depot
+/// listing one could overwrite a file it also lists, or a device.
+#[test]
+fn a_name_another_disk_would_rename_is_refused() {
+    for bad in [
+        "run.", "run ", "data./x.pak", "data /x.pak", // Windows trims both
+        "run:evil", "data/x.pak:zone", "a:b",          // NTFS streams, drives
+        "nul", "NUL.txt", "con", "Aux.dll", "com1", "lpt9.log", "data/prn", "CON .txt",
+        "caf\u{e9}.pak", "cafe\u{301}.pak",            // NFC and NFD: one file on macOS
+    ] {
+        assert!(safe_relpath(bad).is_err(), "should refuse {bad:?}");
+    }
+    // The near misses are ordinary names.
+    for ok in ["nullable.dll", "console/x", "com10", "lpt", "a.b.c", ".hidden", "run.sh"] {
+        assert!(safe_relpath(ok).is_ok(), "should accept {ok:?}");
+    }
+}
+
+#[test]
+fn duplicate_files_are_refused_by_the_name_the_disk_sees() {
+    use elo_depot::path::alias_key;
+    assert_eq!(alias_key("Data/GAME.EXE"), alias_key("data/game.exe"));
+    assert_eq!(alias_key("game.exe."), alias_key("game.exe"));
+    assert_eq!(alias_key("dir. /game.exe "), alias_key("dir/game.exe"));
+    assert_ne!(alias_key("a/b"), alias_key("ab"));
+
+    let sha = "0".repeat(64);
+    let d = depot_with(json!({
+        "files": [
+            {"path": "run", "sha256": sha, "bytes": 1},
+            {"path": "data/game.exe", "sha256": sha, "bytes": 1},
+            {"path": "DATA/Game.Exe", "sha256": sha, "bytes": 1},
+        ],
+        "launch": {"exec": "run"}
+    }));
+    let err = parse_depot(&d, false).unwrap_err();
+    assert!(err.0.contains("twice"), "{}", err.0);
+}
+
+/// The receipt is written after every file and over any file of its name,
+/// so a depot shipping one installs a file that can never verify.
+#[test]
+fn a_depot_may_not_ship_the_install_receipt() {
+    let sha = "0".repeat(64);
+    for receipt in [elo_depot::RECEIPT_NAME, ".ELO-INSTALL.JSON"] {
+        let d = depot_with(json!({
+            "files": [
+                {"path": "run", "sha256": sha, "bytes": 1},
+                {"path": receipt, "sha256": sha, "bytes": 1},
+            ],
+            "launch": {"exec": "run"}
+        }));
+        let err = parse_depot(&d, false).unwrap_err();
+        assert!(err.0.contains("receipt"), "{receipt}: {}", err.0);
+    }
+    // Only the build's own root holds a receipt; deeper, it is any file.
+    let d = depot_with(json!({
+        "files": [
+            {"path": "run", "sha256": sha, "bytes": 1},
+            {"path": "save/.elo-install.json", "sha256": sha, "bytes": 1},
+        ],
+        "launch": {"exec": "run"}
+    }));
+    assert!(parse_depot(&d, false).is_ok());
+}
+
+/// A file URL is percent-encoded segment by segment. Joined raw, `#` began a
+/// fragment the server never sees, `?` a query, and a space was no URL.
+#[test]
+fn a_file_url_is_percent_encoded_and_keeps_its_slashes() {
+    let d = parse_depot(&depot_with(json!({"root": "https://cdn.example/d/"})), false).expect("parses");
+    assert_eq!(d.file_url("data/x.pak"), "https://cdn.example/d/data/x.pak");
+    assert_eq!(d.file_url("a-b_c.1~"), "https://cdn.example/d/a-b_c.1~", "unreserved stays as is");
+    assert_eq!(
+        d.file_url("my maps/#1?final%.pak"),
+        "https://cdn.example/d/my%20maps/%231%3Ffinal%25.pak"
+    );
+    assert_eq!(d.file_url("a+b&c=d;e"), "https://cdn.example/d/a%2Bb%26c%3Dd%3Be");
+}
+
 #[test]
 fn the_shipped_gates_example_parses() {
     // The example depot with every field filled. It is parsed here so the

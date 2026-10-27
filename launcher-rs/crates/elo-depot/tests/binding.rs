@@ -180,6 +180,14 @@ fn a_depot_may_not_set_any_loader_variable_in_any_case() {
         // Each names code an interpreter or plugin loader the game starts runs.
         "GST_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS",
         "JDK_JAVA_OPTIONS", "BASH_ENV", "ENV", "PYTHONSTARTUP", "LUA_PATH", "LUA_CPATH_5_4",
+        // The runtimes games are built on: Mono and .NET (Unity, Godot-C#),
+        // the CLR profiler, SDL's dynamic API, and the driver loaders.
+        "MONO_PATH", "MONO_CONFIG", "mono_env_options", "DOTNET_STARTUP_HOOKS",
+        "DOTNET_ADDITIONAL_DEPS", "CORECLR_PROFILER", "CORECLR_PROFILER_PATH",
+        "CORECLR_ENABLE_PROFILING", "COR_PROFILER", "Cor_Profiler_Path", "COR_ENABLE_PROFILING",
+        "SDL_DYNAMIC_API", "LIBVA_DRIVERS_PATH", "GBM_BACKENDS_PATH", "OCL_ICD_FILENAMES",
+        "VK_DRIVER_FILES", "VK_ADD_DRIVER_FILES", "VK_ADD_LAYER_PATH", "VK_INSTANCE_LAYERS",
+        "__EGL_VENDOR_LIBRARY_DIRS", "PYTHONPATH", "PERL5OPT", "RUBYOPT",
     ] {
         i.launch_env = BTreeMap::from([(bad.to_string(), "/tmp/evil".to_string())]);
         let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new());

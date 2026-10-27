@@ -4,7 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { ActError, Client, friendsSignText } from "../index.js";
+import { ActError, BUDDY_ACTION, Client, claimText, dayOf, entitleText, friendsSignText, playMessage, submitDetail,
+  submitText } from "../index.js";
 import { fx } from "./_testdata.js";
 
 const ME = "0x1111111111111111111111111111111111111111";
@@ -70,6 +71,9 @@ test("bad input sends nothing", async () => {
   await assert.rejects(c.friend(ME, "poke", THEM, () => "0x"), (e) => e.code === "bad_input");
   await assert.rejects(c.friend(ME, "ask", ME, () => "0x"), (e) => e.code === "bad_input");
   assert.equal((await c.friends("0x123")).status, 0);
+  assert.equal((await c.guildsOf("0x123")).kind, "refused");
+  assert.equal((await c.guildTags([])).kind, "refused");
+  assert.equal((await c.guildTags(["0x" + "1".repeat(40), "nope"])).kind, "refused");
   assert.equal((await c.leaderboard("gates", { kind: "robot" })).kind, "refused");
 });
 
@@ -94,4 +98,129 @@ test("a refusal and a dead origin are different answers", async () => {
   const dead = await stub(() => [200, {}]);
   await dead.close();
   assert.equal((await new Client(dead.origin, { timeoutMs: 2000 }).friends(ME)).kind, "could_not_look");
+});
+
+const today = () => dayOf(Math.floor(Date.now() / 1000));
+/* buddy.detail_of's bytes, as Python writes them (5.0, not 5) */
+const buddyText = (op, argsJson, at) => playMessage(BUDDY_ACTION, ME, `{"args":${argsJson},"at":${at},"op":"${op}"}`, today());
+
+async function runBuddy(op, offeredJson, asked, opts) {
+  const offered = buddyText(op, offeredJson, AT);
+  const acted = [];
+  const s = await stub((path, body) => {
+    if (path === "/api/buddy/prepare") return [200, { sign_this: offered, at: AT, op }];
+    if (path === "/api/buddy/act") { acted.push(body); return [200, { ok: true, done: { op }, you: {} }]; }
+    return [404, { error: "no" }];
+  });
+  const signed = [];
+  try {
+    const got = await new Client(s.origin).buddy(ME, op, asked, (t) => { signed.push(t); return "0xsig"; }, opts);
+    return { got, signed, acted, offered, seen: s.seen };
+  } finally {
+    await s.close();
+  }
+}
+
+test("a buddy change is signed once, as cleaned, and acted", async () => {
+  const { got, signed, acted, offered } = await runBuddy("gift", `{"to":"${THEM}","usd":5.0}`, { to: THEM, usd: "5" });
+  assert.equal(got.kind, "answer");
+  assert.deepEqual(signed, [offered]);
+  assert.deepEqual(acted, [{ wallet: ME, op: "gift", args: { to: THEM, usd: "5" }, at: AT, signature: "0xsig" }]);
+});
+
+test("a gift to someone else, or for more, is never signed", async () => {
+  for (const json of [`{"to":"0x${"88".repeat(20)}","usd":5.0}`, `{"to":"${THEM}","usd":50.0}`,
+    `{"memo":"x","to":"${THEM}","usd":5.0}`]) {
+    await assert.rejects(runBuddy("gift", json, { to: THEM, usd: 5 }), (e) => e.code === "mismatch", json);
+  }
+});
+
+test("a picture signs its sha", async () => {
+  const png = new TextEncoder().encode("\x89PNG fake");
+  const { createHash } = await import("node:crypto");
+  const sha = createHash("sha256").update(png).digest("hex");
+  const { got, acted } = await runBuddy("face", `{"id":"a1","pic_sha":"${sha}"}`, { id: "a1" }, { picturePng: png });
+  assert.equal(got.kind, "answer");
+  assert.deepEqual(acted[0].args, { id: "a1", pic_sha: sha });
+  assert.ok(acted[0].picture_b64);
+  const c = new Client("http://127.0.0.1:9");
+  await assert.rejects(c.buddy(ME, "poke", {}, () => "0x"), (e) => e.code === "bad_input");
+  await assert.rejects(c.buddy(ME, "pause", { id: "a" }, () => "0x", { picturePng: png }), (e) => e.code === "bad_input");
+});
+
+const URL_ = "https://github.com/AnthonE/Gates/pull/412";
+
+async function runBoard(op, detail) {
+  const offered = playMessage(op, ME, detail, today());
+  const acted = [];
+  const s = await stub((path, body) => {
+    if (path === "/api/munus/gates-pr/prepare") return [200, { op, quest_id: "gates-pr", detail, sign_this: offered }];
+    if (path === `/api/munus/gates-pr/${op}`) { acted.push(body); return [200, { ok: true, index: 2 }]; }
+    return [404, { error: "no" }];
+  });
+  const signed = [];
+  try {
+    const c = new Client(s.origin);
+    const sign = (t) => { signed.push(t); return "0xsig"; };
+    const got = op === "submit" ? await c.boardSubmit(ME, "gates-pr", URL_, sign, { note: "hi" })
+      : await c.boardClaim(ME, "gates-pr", sign);
+    return { got, signed, acted, offered };
+  } finally {
+    await s.close();
+  }
+}
+
+test("a delivery signs this bounty and this url, and nothing else", async () => {
+  const { got, signed, acted } = await runBoard("submit", await submitDetail("gates-pr", URL_, 2));
+  assert.equal(got.kind, "answer");
+  assert.deepEqual(signed, [await submitText(ME, "gates-pr", URL_, 2, today())]);
+  assert.deepEqual(acted, [{ wallet: ME, signature: "0xsig", url: URL_, note: "hi" }]);
+  for (const d of [await submitDetail("gates-pr", URL_ + "1", 0), await submitDetail("gates-soak", URL_, 0), "gates-pr"]) {
+    await assert.rejects(runBoard("submit", d), (e) => e.code === "mismatch", d);
+  }
+  const claim = await runBoard("claim", "gates-pr");
+  assert.deepEqual(claim.signed, [claimText(ME, "gates-pr", today())]);
+  await assert.rejects(runBoard("claim", "gates-soak"), (e) => e.code === "mismatch");
+});
+
+test("the entitle text is rebuilt, signed, and the grant comes back", async () => {
+  const sent = [];
+  const s = await stub((path, body) => {
+    if (path === `/api/ticket/gates/message?wallet=${ME}`) return [200, { message: entitleText("gates", ME, today()) }];
+    if (path === "/api/ticket/gates/entitle") { sent.push(body); return [200, { grant: "g.1", expires_at: 1 }]; }
+    return [404, { error: "no" }];
+  });
+  try {
+    const got = await new Client(s.origin).entitle("gates", "0x" + ME.slice(2).toUpperCase(), () => "0xsig");
+    assert.equal(got.value.grant, "g.1");
+    assert.deepEqual(sent, [{ wallet: ME, signature: "0xsig" }]);
+  } finally {
+    await s.close();
+  }
+  const bad = await stub(() => [200, { message: entitleText("gates", THEM, today()) }]);
+  try {
+    await assert.rejects(new Client(bad.origin).entitle("gates", ME, () => assert.fail("signed")),
+      (e) => e.code === "mismatch");
+  } finally {
+    await bad.close();
+  }
+});
+
+test("each read asks its path", async () => {
+  const s = await stub(() => [200, { ok: true }]);
+  try {
+    const c = new Client(s.origin);
+    for (const got of [await c.home(ME, { since: 5 }), await c.home(), await c.floor(), await c.buddyOffer(),
+      await c.buddies(ME), await c.board(), await c.ticketBuy("gates", { wallet: ME, rail: "free" })]) {
+      assert.equal(got.kind, "answer");
+    }
+  } finally {
+    await s.close();
+  }
+  assert.deepEqual(s.seen, [`/api/home?wallet=${ME}&since=5`, "/api/home", "/api/agents/floor", "/api/buddy",
+    `/api/buddy/${ME}`, "/api/munus?game=gates", `/api/ticket/gates/prepare?rail=free&wallet=${ME}`]);
+  const c = new Client("http://127.0.0.1:9");
+  assert.equal((await c.home("0x12")).status, 0);
+  assert.equal((await c.home(ME, { since: -1 })).status, 0);
+  assert.equal((await c.board("../x")).status, 0);
 });

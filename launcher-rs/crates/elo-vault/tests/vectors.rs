@@ -129,6 +129,20 @@ fn an_unsupported_document_is_refused_with_a_reason() {
             "an unsupported kdf should say what CAN open it: {e}");
 }
 
+/// The file names scrypt's cost, so a hostile or corrupt one is refused
+/// before a byte is allocated — n = 2^40 used to abort the process on unlock.
+#[test]
+fn a_keystore_asking_for_absurd_scrypt_work_is_refused_not_run() {
+    let acct = Account::generate().expect("entropy");
+    let good = keystore::encrypt(&acct.secret(), "p", &acct.address()).expect("encrypt");
+    for (k, v) in [("n", 1u64 << 40), ("r", 1 << 20), ("p", 100_000), ("r", 0)] {
+        let mut bad = good.clone();
+        bad["crypto"]["kdfparams"][k] = serde_json::json!(v);
+        let e = keystore::decrypt(&bad, "p").expect_err("must refuse");
+        assert!(e.contains("more work than any"), "{k}={v}: {e}");
+    }
+}
+
 /// A signature this crate produces must be the shape the external signer's own
 /// check accepts — the two halves of the client agreeing about what a
 /// signature looks like.

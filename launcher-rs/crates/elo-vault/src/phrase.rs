@@ -7,7 +7,8 @@
 //! disk and a passphrase goes with a memory; twelve words on paper survive
 //! both. They are BIP-39 words at BIP-44's Ethereum path, `m/44'/60'/0'/0/0`,
 //! so typing them into MetaMask, Rabby or a hardware wallet brings back the
-//! same address. That is the exit, and `tests/vectors.rs` checks it against
+//! same address — and Solana's path, `m/44'/501'/0'/0'`, brings back the
+//! same Solana address in Phantom (`solana.rs`). That is the exit, and `tests/vectors.rs` checks it against
 //! `eth_account`'s own derivation and two vectors every wallet already knows.
 //!
 //! # Nothing new is hand-rolled
@@ -165,6 +166,13 @@ impl Phrase {
     pub fn account(&self) -> Result<Account, String> {
         let key = derive(self.seed().as_ref(), &PATH)?;
         Account::from_secret(key.as_ref())
+    }
+
+    /// The Solana account the same words derive, at
+    /// [`crate::solana::PATH`] — what Phantom shows for them.
+    pub fn solana(&self) -> Result<crate::solana::SolAccount, String> {
+        let key = crate::solana::derive(self.seed().as_ref(), &crate::solana::PATH)?;
+        crate::solana::SolAccount::from_secret(key.as_ref())
     }
 
     /// Three different word positions (1-based, ascending) to ask back.

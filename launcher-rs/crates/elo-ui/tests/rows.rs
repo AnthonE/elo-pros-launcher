@@ -83,7 +83,7 @@ fn every_menu_entry_names_a_window_that_exists() {
          correct — but a window for each now exists, so mark them built or \
          remove them: {unbuilt:?}"
     );
-    assert_eq!(MENU.len(), 11, "the menu changed size — was that deliberate? (Pairs and Orders joined it 2026-10-23)");
+    assert_eq!(MENU.len(), 12, "the menu changed size — was that deliberate? (Pairs and Orders joined it 2026-10-23, Skins after)");
     for (name, blurb, _) in MENU.iter() {
         assert!(!blurb.is_empty(), "{name} needs a sentence — the menu is \
                 buttons-with-a-sentence, which is why it needs no nav bar");
@@ -150,8 +150,13 @@ fn every_shelf_state_offers_the_control_its_sentence_implies() {
     assert_eq!(shelf(Price::Free, true, false).act(), Act::Install);
     // Free but nothing published for this platform: drawn, off, and named.
     assert_eq!(shelf(Price::Free, false, false).act(), Act::Unpublished);
-    // Priced: the buy is a wallet signing, which happens in a browser.
-    assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, false).act(), Act::Buy);
+    // Priced, with a build for this machine: installing is not buying. The
+    // copy is the licence to the servers, so a player holding one installs
+    // here, and Page… is where a copy is bought.
+    assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, false).act(), Act::Install);
+    // Priced and nothing to install yet: the buy is a wallet signing, which
+    // happens in a browser.
+    assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, false, false).act(), Act::Buy);
     // Already on this disk: never a second copy.
     assert_eq!(shelf(Price::Free, true, true).act(), Act::Installed);
     assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, true).act(), Act::Installed);

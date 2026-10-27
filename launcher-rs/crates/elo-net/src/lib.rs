@@ -15,9 +15,12 @@ pub mod guard;
 pub mod orders;
 pub mod pairing;
 pub mod proxy;
+pub mod skins;
+pub mod solana;
 pub mod tls;
 pub mod trading;
 pub mod wallet;
+pub mod xmove;
 
 use elo_depot::{shardlist, DepotError, Fetcher};
 use serde_json::Value;
@@ -239,6 +242,11 @@ impl Net {
                 .timeout_global(Some(t))
                 .user_agent(USER_AGENT)
                 .tls_config(tls::ureq_config())
+                // Enough kept open for an install's parallel fetches to reuse
+                // their connections (`elo_depot::install::PARALLEL_FETCHES`);
+                // ureq's default of 3 would make half of them handshake again
+                // for every file.
+                .max_idle_connections_per_host(elo_depot::install::PARALLEL_FETCHES + 2)
         };
         let base = || at(TIMEOUT);
         Net {
@@ -514,6 +522,33 @@ impl Net {
         }
     }
 
+    /// A GET whose REFUSAL survives — the read-side twin of
+    /// [`Net::post_json_told`]. The origin's prepare routes answer a 422 with
+    /// the sentence that matters ("#9 is not in 0x…"); `get_json` would turn
+    /// that into "the origin answered 422". `ok` still means 2xx.
+    pub fn get_json_told(&self, url: &str) -> Fetched<Value> {
+        let response = match self.get_as(url, Lane::Full, None, MAX_REDIRECTS, false) {
+            Ok(r) => r,
+            Err(e) => return Fetched::unreachable(format!("{e}")),
+        };
+        let code = response.status().as_u16();
+        let mut text = String::new();
+        if let Err(e) = response.into_body().into_reader().take(MAX_DOC_BYTES).read_to_string(&mut text) {
+            return Fetched { value: None, ok: false, reachable: true, status: Some(code),
+                             why: format!("could not read the reply: {e}") };
+        }
+        let value: Option<Value> = serde_json::from_str(&text).ok();
+        let good = (200..300).contains(&code);
+        let why = match (&value, good) {
+            (_, true) if value.is_none() => "the reply is not JSON".to_string(),
+            (_, true) => String::new(),
+            (Some(v), false) => v.get("error").and_then(Value::as_str).map(str::to_string)
+                .unwrap_or_else(|| format!("the origin answered {code}")),
+            (None, false) => format!("the origin answered {code}"),
+        };
+        Fetched { ok: good && value.is_some(), reachable: true, status: Some(code), value, why }
+    }
+
     pub fn get_json(&self, url: &str) -> Fetched<Value> {
         let response = match self.get(url, Lane::Full, None, MAX_REDIRECTS) {
             Ok(r) => r,
@@ -552,6 +587,19 @@ impl Net {
         deadline: Option<Duration>,
         hops: u32,
     ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        self.get_as(url, lane, deadline, hops, true)
+    }
+
+    /// [`Net::get`], with the choice of whether a 4xx/5xx is an error or an
+    /// answer to read (`get_json_told`). The hops and the grant are the same.
+    fn get_as(
+        &self,
+        url: &str,
+        lane: Lane,
+        deadline: Option<Duration>,
+        hops: u32,
+        status_is_error: bool,
+    ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
         let mut at = url.to_string();
         for _ in 0..=hops {
             let agent = match (lane, proxy::should_bypass(&at, &self.no_proxy)) {
@@ -561,8 +609,9 @@ impl Net {
                 (Lane::Full, _) => self.agent_for(&at),
             };
             let mut req = match deadline {
-                Some(d) => agent.get(&at).config().max_redirects(0).timeout_global(Some(d)).build(),
-                None => agent.get(&at).config().max_redirects(0).build(),
+                Some(d) => agent.get(&at).config().max_redirects(0).http_status_as_error(status_is_error)
+                    .timeout_global(Some(d)).build(),
+                None => agent.get(&at).config().max_redirects(0).http_status_as_error(status_is_error).build(),
             };
             if let Some(g) = self.grant_for(&at) {
                 req = req.header("x-elo-grant", g);
@@ -575,7 +624,11 @@ impl Net {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|l| redirect_target(&at, l));
+                .and_then(|l| redirect_target(&at, l))
+                // Never from https down to http: a check that a document must
+                // be https reads the FIRST url, and a downgrade on a later hop
+                // would hand whoever is on the wire the bytes it vouches for.
+                .filter(|n| !(at.starts_with("https://") && n.starts_with("http://")));
             match next {
                 Some(n) => at = n,
                 // A 3xx with nowhere to go (a 304, a broken header) is the

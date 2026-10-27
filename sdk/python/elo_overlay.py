@@ -9,7 +9,7 @@ that could — see `sdk/PROTOCOL.md` and `docs/client/SDK.md`.
     elo = Overlay(game="gates", version="0.1.0")
     if elo.connect():
         who = elo.address()                       # 0x… or None
-        out = elo.sign(play_message("duel", vow_id, "ETH up 5"))
+        out = elo.sign(play_message("duel", who, "ETH up 5"))
         if out.ok:
             post(signature=out.signature)
         elif out.handoff:
@@ -37,8 +37,8 @@ PROTOCOL = 1
 SOCKET_ENV = "ELO_LAUNCHER_SOCKET"
 DEFAULT_TIMEOUT = 300.0        # a consent prompt waits for a person
 
-FAMILIES = ("braid", "card", "covenant", "doc", "familiar", "hive", "holder",
-            "meter", "pact", "play", "review", "store", "vow")
+FAMILIES = ("dev", "entitle", "hive", "link", "pair", "partners", "play", "repo",
+            "review", "store")
 
 
 def default_socket() -> str:
@@ -195,10 +195,11 @@ class Result:
 @dataclass
 class Profile:
     """What the town says about one address. Every field is a claim about a
-    stranger, and `sworn` is the only thing separating a checked name from a
-    typed one.
+    stranger, and `checked` is the only thing separating a held hive handle
+    from a typed name.
 
-    `found=False` is a real answer — *we looked, there is no sworn identity*.
+    `found=False` is a real answer — *we looked, and nothing is set for this
+    address*.
     It is not the same as `Overlay.profile()` returning `None`, which means we
     could not look at all.
     """
@@ -208,7 +209,7 @@ class Profile:
 
     @property
     def handle(self) -> str | None:
-        """The SWORN name — in the locked index, and it costs ELO to change."""
+        """The hive handle — held by one wallet; it cannot be set by asserting it."""
         return self.raw.get("handle")
 
     @property
@@ -217,8 +218,9 @@ class Profile:
         return self.raw.get("display_name")
 
     @property
-    def sworn(self) -> bool:
-        return bool(self.raw.get("sworn"))
+    def checked(self) -> bool:
+        """True when `handle` is a held hive handle."""
+        return bool(self.raw.get("checked"))
 
     @property
     def avatar(self) -> str | None:
@@ -230,21 +232,22 @@ class Profile:
         return self.raw.get("address")
 
     @property
-    def identities(self) -> int:
-        """How many vows this wallet holds. One party, several identities."""
-        return int(self.raw.get("identities") or 1)
+    def matches(self) -> int:
+        """How many people answered to the name looked up. A self-declared
+        name can be shared; a wallet names one."""
+        return int(self.raw.get("matches") or 1)
 
     @property
     def label(self) -> str:
         """The one string safe to draw without thinking about it.
 
-        A sworn name renders bare; anything self-declared gets `~`, the
-        town's marker for *this party said so and nobody checked*
+        A held handle renders bare; anything self-declared gets `~`, the
+        marker for *this party said so and nobody checked*
         (`ACHIEVEMENTS.md`). A surface that shows a claimed name in the
         clothes of a checked one has lied for free, and it is the cheapest
         mistake to make and the hardest to notice.
         """
-        if self.sworn and self.handle:
+        if self.checked and self.handle:
             return self.handle
         name = self.display_name or ""
         if name:
@@ -253,8 +256,8 @@ class Profile:
         return f"{addr[:6]}…{addr[-4:]}" if len(addr) >= 10 else "anonymous"
 
     def link(self, what: str) -> str | None:
-        """A path you fetch yourself — `achievements`, `holdings`,
-        `reputation`, `vow`, `tip`. One verb is one origin read, the way Steam
+        """A path you fetch yourself — `achievements`, `items`, `holdings`,
+        `tip`. One verb is one origin read, the way Steam
         splits summaries from achievements."""
         return (self.raw.get("links") or {}).get(what)
 
@@ -272,11 +275,8 @@ def play_message(action: str, wallet: str, detail: str, day: str | None = None) 
     straddles midnight should sign the day it started, and a client that
     cannot express that would silently sign the wrong one.
 
-    ⚠ **The subject is the WALLET, and it was the vow_id until 2026-08-12.** A
-    game does not send its players to swear a vow before they can act: the
-    signature recovers the signer, so the wallet is the identity and the vow is
-    a name you may add later. The server still accepts the old vow-keyed text
-    from a caller that has one — build this one.
+    ⚠ **The subject is the WALLET**: the signature recovers the signer, so the
+    wallet is the identity.
 
     ⚠ **The address is LOWERCASE in the text.** A checksummed address is
     different bytes and verifies differently. This is the one detail that will
@@ -438,9 +438,9 @@ class Overlay:
 
         ⚠ **Three states, and a game that collapses them tells a lie.**
         `None` means *we could not look* — the origin was unreachable, or this
-        launcher has no reader. A `Profile` with `sworn=False` and no `handle`
-        means *we looked and there is no sworn identity*, which is a normal way
-        to play. Drawing "no name" for the first invents a fact about a
+        launcher has no reader. A `Profile` with `found=False` means *we
+        looked and nothing is set for this address*, which is a normal way to
+        play. Drawing "no name" for the first invents a fact about a
         stranger. Check `reachable` on the raw reply if you need to tell a
         network problem from an anonymous player.
 
@@ -525,6 +525,6 @@ if __name__ == "__main__":                                  # a live smoke check
         raise SystemExit(1)
     print(json.dumps({"hello": ov.hello, "address": ov.address()}, indent=2))
     if len(sys.argv) > 1 and sys.argv[1] == "--sign":
-        out = ov.sign(play_message("answer", "vow_demo", "a" * 8))
+        out = ov.sign(play_message("answer", ov.address() or "", "a" * 8))
         print(json.dumps(out.raw, indent=2))
     ov.close()

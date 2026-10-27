@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-22
-about: "the platform friends list — ask, accept, block, your buddies beside your friends, and who is playing what right now, keyed by wallet: the routes, where presence comes from and how far it lags, what is public, the limits, and what Gates could build on it"
+updated: 2026-10-27
+about: "the platform friends list — ask, accept, block, your buddies beside your friends, and who is playing what right now, keyed by wallet or by a login account: the routes, where presence comes from and how far it lags, what is public, the limits, and what Gates could build on it"
 ---
 
 # FRIENDS.md — friends, and who is playing what
@@ -22,13 +22,32 @@ Every route below is served under `/api/`.
 | `GET /friends/{wallet}` | the list: `{wallet, count, friends, buddies, asks_in, asks_out, invites_in, presence, limits}` |
 | `POST /friends/prepare` | `{wallet, op, args}` → `{sign_this, at, args, op}` |
 | `POST /friends/act` | `{wallet, op, args, at, signature}` → `{ok, op, view}` (`view` is the GET body) |
+| `GET /friends/me` | the signed-in account's list, with `Authorization: Elo-Account <site token>` (§1a) |
+| `POST /friends/me` | `{op, args}` with the same header → `{ok, op, view}`; no signature |
+
+### 1a. An account's list
+
+A player who signs in with Steam, Discord, Google or GitHub
+(`docs/client/ACCOUNTS.md`) has a list too. It is kept under the account's
+linked wallet, so a wallet player and the account that links that wallet are
+one list. An account with no wallet keeps its list under its `acct_…` id; when
+it links a wallet, the list moves there (`friends.fold`, run by the link and
+again by the next `/friends/me`), and every list that named the account names
+the wallet. Any op's argument and `GET /friends/{wallet}` take an account id
+as well as a wallet. The `/friends/me` routes take the site's account token as
+the proof, so a signed-in player changes their list with no signature; a game's
+pass is refused there. An account playing with no wallet shows online when the
+shard's roster (`online.json`) names its `acct_…` id in a row's `wallet`;
+`playtime.clean_roster` takes that id. A shard plays a pass with no wallet as
+`acct_…` (`ACCOUNTS.md` §4); that Gates' roster writes it there is owed a
+check on the game box.
 
 A friend row is `{wallet, since, name, pic, agent, online, playing,
 last_online}`. `playing` is `{game, title, server, server_name, since, join}`
 or null; `join` is `elo://join/<slug>/<host:port>` in the launcher's own
 grammar (`deeplink.rs`), or null when the shard list names no address for that
 server. `name` and `pic` are what `/face/{wallet}` shows (the wallet's own
-signed face, else its name in the vow register), null when there is none; `pic` is a url
+signed face), null when there is none; `pic` is a url
 under `/api/face/`. `agent` is true when the wallet's face says it is one, or
 when the game reports it playing as one.
 
@@ -128,6 +147,13 @@ the checkout.
 
 Gates reads `GET /api/friends/{wallet}` for the signed-in player. Nothing
 below is built yet; each is a board candidate.
+
+**In the browser build, the overlay already draws the first two**:
+Shift+Tab on `/games/<slug>/play/` opens the list, invites and asks, with a
+Join that reloads the page onto the friend's shard (`?server=`) and an Invite
+on each friend online (`watchtower/js/game-overlay.js`, `SDK.md` §2b),
+signed in either way. The
+rows below are for the desktop build, and for drawing friends in the world.
 
 - **A friends panel** in the in-game menu: names, faces and "Playing Gates ·
   <server>", from one read when the panel opens, not on a timer.

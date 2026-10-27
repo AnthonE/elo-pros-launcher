@@ -107,6 +107,8 @@ model! {
         pub since: Option<i64>,
         /// `elo://join/<slug>/<host:port>`, which the launcher opens.
         pub join: Option<String>,
+        /// The game's rich-presence line ("Wave 5 · 3/4"), when it writes one.
+        pub status: Option<String>,
     }
 }
 
@@ -245,6 +247,42 @@ model! {
     }
 }
 
+/// One roster sweep ([`crate::Client::check_roster`]): each wallet — 0x
+/// lowercased, or the Solana address as given — to `Some(true)`,
+/// `Some(false)` or `None`. Kick on `Some(false)` only: `None` is a read that
+/// failed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Roster {
+    pub game: String,
+    /// False for a free title: every wallet is entitled.
+    pub ticketed: bool,
+    pub entitled: BTreeMap<String, Option<bool>>,
+}
+
+// ── sign-in ─────────────────────────────────────────────────────────────────
+
+model! {
+    /// `POST /api/signin/check`: a sign-in found fresh, for your domain and
+    /// nonce, and signed by the wallet it names — a plain key, a smart wallet
+    /// or a Solana key.
+    pub struct SignIn {
+        pub ok: bool,
+        /// EIP-55 for an Ethereum wallet, base58 for a Solana one
+        /// (case-sensitive: store it as given).
+        pub address: String,
+        /// `evm` or `solana`.
+        pub chain: String,
+        /// `4663` for Robinhood Chain; `mainnet` for a Solana sign-in.
+        pub chain_id: String,
+        pub domain: String,
+        pub uri: String,
+        pub nonce: String,
+        pub issued_at: String,
+        pub expiration_time: Option<String>,
+        pub statement: Option<String>,
+    }
+}
+
 // ── items ───────────────────────────────────────────────────────────────────
 
 model! {
@@ -315,6 +353,92 @@ model! {
         pub harness: Option<String>,
         pub model: Option<String>,
         pub updated: Option<i64>,
+        /// The guild tag this wallet shows, the same badge as
+        /// [`crate::Client::guild_tags`]; `None` when it shows none.
+        pub guild: Option<GuildBadge>,
+    }
+}
+
+// ── guilds ──────────────────────────────────────────────────────────────────
+
+model! {
+    /// The guild tag a game draws beside a player's name: one guild's tag,
+    /// name and emblem, and the player's role in it.
+    pub struct GuildBadge {
+        /// 2 to 5 letters or digits, like `OWL`.
+        pub tag: String,
+        pub name: Option<String>,
+        /// The emblem's colour: lime, ember, sky, violet, gold, rose, slate, teal.
+        pub color: Option<String>,
+        /// The emblem's shape: shield, round, diamond, banner, hex.
+        pub shape: Option<String>,
+        /// `leader`, `officer` or `member`.
+        pub role: Option<String>,
+        /// The guild's page, relative to the origin (`/g/OWL`).
+        pub page: Option<String>,
+    }
+}
+
+model! {
+    /// `GET /api/guilds/tags?wallets=`: each wallet asked, lowercased, mapped
+    /// to the tag it shows, or `None` for a wallet that shows none.
+    pub struct GuildTags {
+        pub tags: BTreeMap<String, Option<GuildBadge>>,
+        pub how: Option<String>,
+    }
+}
+
+impl GuildTags {
+    /// The badge `wallet` shows, if any (any case).
+    pub fn of(&self, wallet: &str) -> Option<&GuildBadge> {
+        self.tags
+            .get(&wallet.trim().to_ascii_lowercase())
+            .and_then(Option::as_ref)
+    }
+}
+
+model! {
+    /// A guild's emblem: a shape and a colour, drawn by the client.
+    pub struct GuildEmblem {
+        pub shape: Option<String>,
+        pub color: Option<String>,
+    }
+}
+
+model! {
+    /// One guild a wallet is in, asked to, or invited to.
+    pub struct GuildCard {
+        pub tag: String,
+        pub name: Option<String>,
+        pub line: Option<String>,
+        pub emblem: GuildEmblem,
+        /// `open`, `apply` or `invite`.
+        pub door: Option<String>,
+        pub founded: Option<i64>,
+        pub members: u64,
+        pub officers: u64,
+        pub page: Option<String>,
+        /// This wallet's role, on a guild it is in.
+        pub role: Option<String>,
+        /// When it joined, on a guild it is in.
+        pub since: Option<i64>,
+        /// When it asked or was invited, on an ask or an invite.
+        pub at: Option<i64>,
+    }
+}
+
+model! {
+    /// `GET /api/guilds/of/{wallet}`: the guilds a wallet is in, its asks,
+    /// the invites waiting on it, and the tag it shows.
+    pub struct GuildsOf {
+        pub wallet: String,
+        pub guilds: Vec<GuildCard>,
+        pub applied: Vec<GuildCard>,
+        pub invites: Vec<GuildCard>,
+        /// The tag games show over this wallet, if any.
+        pub worn: Option<String>,
+        /// It chose to show no tag.
+        pub hidden: bool,
     }
 }
 
@@ -328,10 +452,10 @@ model! {
 }
 
 model! {
-    /// `GET /api/who?handle=`: one party by name, npub, vow id or wallet.
+    /// `GET /api/who?handle=`: one party by wallet, npub or name.
     pub struct Who {
         pub handle: Option<String>,
-        /// `wallet`, `name`, `npub` or `vow`.
+        /// `wallet`, `npub` or `name`.
         pub handle_kind: Option<String>,
         pub matches: u64,
         pub authoritative: bool,
@@ -347,16 +471,15 @@ model! {
 pub struct WhoFound {
     #[serde(deserialize_with = "lenient")]
     pub wallet: Option<String>,
-    /// The sworn name on the register, if any.
+    /// The name `/who` picked: the wallet's own name, else its hive handle.
     #[serde(deserialize_with = "lenient")]
     pub agent: Option<String>,
+    /// The hive handle as `name@host`, held by this wallet, if any.
     #[serde(deserialize_with = "lenient")]
-    pub vow_id: Option<String>,
-    #[serde(deserialize_with = "lenient")]
-    pub sworn: Option<bool>,
+    pub nip05: Option<String>,
     #[serde(deserialize_with = "lenient")]
     pub avatar: Option<String>,
-    /// The wallet's own face, on a wallet with nothing sworn.
+    /// The wallet's own name and picture.
     #[serde(deserialize_with = "lenient")]
     pub profile: Option<Face>,
     #[serde(flatten)]

@@ -1,7 +1,7 @@
 {
   "name": "@elopros/sdk",
-  "version": "0.1.0",
-  "description": "The Elo Pros platform SDK: friends and buddies, tickets, items, faces, leaderboards and payout files over the platform API, the signed texts rebuilt locally, and the browser web SDK (elo-1.js).",
+  "version": "0.2.0",
+  "description": "The Elo Pros platform SDK: friends and buddies, tickets, items, faces, leaderboards and payout files over the platform API, a game server's sign-in check and roster sweep, the signed texts rebuilt locally, and the browser web SDK (elo-3.js; elo-1.js and elo-2.js kept).",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -11,12 +11,23 @@
       "default": "./index.js"
     },
     "./elo-1.js": "./elo-1.js",
+    "./elo-2.js": "./elo-2.js",
+    "./elo-3.js": {
+      "types": "./elo-3.d.ts",
+      "default": "./elo-3.js"
+    },
+    "./elo-3": {
+      "types": "./elo-3.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "index.d.ts",
     "elo-1.js",
+    "elo-2.js",
+    "elo-3.js",
+    "elo-3.d.ts",
     "examples/",
     "README.md"
   ],
@@ -41,6 +52,8 @@
   },
   "license": "MIT",
   "sideEffects": [
-    "./elo-1.js"
+    "./elo-1.js",
+    "./elo-2.js",
+    "./elo-3.js"
   ]
 }

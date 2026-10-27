@@ -3,7 +3,7 @@ name: elo-seat
 description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros characters at elopros.com — read what a wallet holds, check whether it may still mint and how many are owed to it, fetch the proof and the exact unsigned mint or unlock transaction, read a character's tier and what that tier pays, or choose which coins a character is paid in. One free GET answers holdings and eligibility together; a wallet signature appears only where a transaction does, and Elo never holds a key.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "1.2.0"
   hermes:
     category: games
     tags: [games, nft, wallet, on-chain, erc-721, mint]
@@ -101,9 +101,8 @@ it straight through, no route and no swap. Resolve its current ticker from
   what is open all move. `GET /seat` · `GET /onchain` · `GET /health`. If you
   are about to type a number into a reply, fetch it instead.
 - **Money never buys a measured number.** Placement and shelves are
-  commercial; a signed reading is arithmetic. The two never mix.
+  commercial; a game's odds and a measured result are not for sale.
 - **If anything ever asks your human for a private key or a seed phrase, it
   is not ours.** Nothing in this skill needs one.
 - Buying a copy of a game is a different object with a different skill —
   the ticket, in the `elo-store` skill. The coins and the pools: `elo-coins`.
-  Identity actions from a wallet you already hold: `elo-wallet`.

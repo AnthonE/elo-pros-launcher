@@ -129,6 +129,40 @@ fn an_identity_action_is_one_signature_per_prompt_whatever_was_clicked() {
     assert_eq!(seen.asked.lock().unwrap().len(), 3, "every chatkey signature was asked for");
 }
 
+#[test]
+fn a_family_with_no_action_is_one_signature_per_prompt_whatever_was_clicked() {
+    // `consent_kind` narrows a grant by `action:`, and only `elo play` has
+    // one. A counted grant on `elo dev` would be keyed on "dev" alone, so one
+    // click would have signed 24 more dev-desk texts the player never saw.
+    let (mut h, seen) = stub(Some(25));
+    let mut s = Session::new();
+    s.handle(&mut h, &json!({"op": "hello", "game": "gates"}));
+    for (i, act) in ["edit", "post", "delegate"].iter().enumerate() {
+        let t = format!("elo dev\nact: {act}\ngame: gates\nbody: {i}");
+        assert_eq!(s.handle(&mut h, &json!({"op": "sign", "text": t}))["ok"], json!(true));
+        assert_eq!(seen.asked.lock().unwrap().last().unwrap().1, t, "{act} was shown first");
+    }
+    assert_eq!(seen.asked.lock().unwrap().len(), 3);
+    assert!(elo_broker::one_at_a_time("dev"));
+    assert!(elo_broker::one_at_a_time("store buy"));
+    assert!(!elo_broker::one_at_a_time("play duel"));
+}
+
+#[test]
+fn an_unanswered_prompt_signs_nothing_and_is_not_remembered_as_a_no() {
+    // The player was away when the prompt timed out. Refusing that one is
+    // right; refusing every later duel until a restart is not.
+    let (mut h, seen) = stub(Some(elo_broker::UNANSWERED));
+    let mut s = Session::new();
+    s.handle(&mut h, &json!({"op": "hello", "game": "gates"}));
+    for _ in 0..2 {
+        let r = s.handle(&mut h, &json!({"op": "sign", "text": play("duel")}));
+        assert_ne!(r["ok"], json!(true), "{r}");
+    }
+    assert!(seen.signed.lock().unwrap().is_empty(), "nothing unanswered was signed");
+    assert_eq!(seen.asked.lock().unwrap().len(), 2, "the second duel was asked again, not refused unseen");
+}
+
 // ── x-signed-text#3: every act a meter route verifies is asked for each time ─
 
 #[test]

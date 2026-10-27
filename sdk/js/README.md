@@ -4,12 +4,23 @@ The Elo Pros platform SDK for JavaScript: Node 18+, Deno, Bun and browsers.
 No dependencies.
 
 - **The platform API**: friends and buddies, tickets (does this wallet own a
-  copy), items, faces, profiles and leaderboards at `elopros.com/api/`, plus
+  copy, the calls that buy one, the download grant), items, faces, profiles,
+  leaderboards, an agent's check-in, the agent floor, your agents and the
+  board at `elopros.com/api/`, plus
   the payout file a game server writes when a wipe closes.
-- **The web SDK** for a browser game: `elo-1.js`, the same file served at
-  `https://elopros.com/sdk/elo-1.js`. It connects the player's wallet, signs
-  them in to your server (Sign-In With Ethereum) and asks whether they own a
-  copy. Released web SDK files never change; a new version is a new file.
+- **A game server's half**: `checkSignIn` (is this sign-in for my domain and
+  nonce, fresh, and the wallet's own — smart wallets and Solana included),
+  `checkRoster` (who still holds a copy, paged) and `newNonce`.
+- **The web SDK** for a browser game: `elo-3.js`, the same file served at
+  `https://elopros.com/sdk/elo-3.js`, with TypeScript types for `window.Elo`.
+  It connects the player's wallet, Ethereum or Solana, signs them in to your
+  server (Sign-In With Ethereum, or its Solana twin), asks whether they own a
+  copy, and gives you their name and face. Released web SDK files never
+  change; a new version is a new file, and `elo-1.js` and `elo-2.js` stay as
+  they were.
+
+**A whole working example**: [`examples/web-game/`](examples/web-game/), a
+page and a zero-dependency server. `node examples/web-game/server.mjs`.
 
 The Rust (`sdk/rust`) and Python (`sdk/python`) packages have the same API;
 `sdk/README.md` has the table. A desktop game that wants the launcher's
@@ -18,11 +29,15 @@ browser.
 
 ## Install
 
-From the repo folder, until the package is on npm:
+Until the package is on npm, from a clone of the repo (npm cannot install
+one folder of a repo):
 
 ```bash
+git clone https://github.com/AnthonE/elo-pros-launcher
 npm install ./elo-pros-launcher/sdk/js
 ```
+
+A web page needs no install: the `<script>` tag below.
 
 ## Quick start
 
@@ -54,21 +69,71 @@ const sign = (text) => window.ethereum.request({ method: "personal_sign", params
 const done = await elo.friend(me, "ask", "0x7777777777777777777777777777777777777777", sign);
 ```
 
-`friend` and `setFace` ask the server to prepare the change, rebuild the text
-to sign locally, and throw an `ActError` with `code: "mismatch"` for a server
-that offers any other text, before your signer is asked. Bad input throws
+`friend`, `setFace`, `boardClaim`, `boardSubmit` and `entitle` ask the
+server to prepare the change, rebuild the text to sign locally, and throw an
+`ActError` with `code: "mismatch"` for a server that offers any other text,
+before your signer is asked. `buddy` reads the change back out of the
+server's text (`buddyChange`) and throws unless it is the one asked for. Bad input throws
 `code: "bad_input"` before anything is sent.
 
-The web SDK, in a page:
+## A game server: the sign-in check and the roster sweep
 
-```html
-<script src="https://elopros.com/sdk/elo-1.js"></script>
+```js
+import { Client, newNonce } from "@elopros/sdk";
+
+const elo = new Client();
+const nonce = await newNonce();          // send it to the page; keep it to check against
+
+// … the page calls Elo.signIn({ nonce }) and posts back { message, signature } …
+const got = await elo.checkSignIn(message, signature, { domain: "play.your-game.example", nonce });
+// retire `nonce` now, whatever the answer: it works once
+if (got.kind === "answer") admit(got.value.address);           // proven
+else if (got.kind === "refused") refuse(got.body?.code, got.error);
+else retryLater(got.error);                                    // never refuse a player on this
+
+// every minute: who still holds a copy (a copy can be sold mid-session)
+const roster = await elo.checkRoster("your-slug", wallets);
+if (roster.ok) for (const [w, holds] of Object.entries(roster.value.entitled)) if (holds === false) kick(w);
 ```
 
-or from the package: `import "@elopros/sdk/elo-1.js"`, which sets `window.Elo`.
+## A game server's key
 
-`examples/friends.mjs`, `examples/owns.mjs` and `examples/payout.mjs` show
-each part.
+Cloud saves, stats and scores take your server's word, signed with an
+Ed25519 key you named on the dev desk or in `elo.json` (`server_keys`).
+Server-side only (Node 18+, Deno, Bun), no dependencies:
+
+```js
+import { readFileSync } from "node:fs";
+import { Client, ServerKey } from "@elopros/sdk";
+
+const key = await ServerKey.fromPem("your-slug", "eu-1", readFileSync("/etc/your-game/server.key", "utf8"));
+console.log(key.publicB64);                         // name this with us once
+const elo = new Client();
+await elo.cloudPut(key, player, "save", bytes);     // a Look: { etag, size, version, updated }
+const got = await elo.cloudGet(key, player, "save"); // got.value.data is a Uint8Array
+await elo.statsReport(key, [{ wallet: player, stats: { kills: 3 }, scores: { speedrun: 9123 } }]);
+```
+
+## The web SDK, in a page
+
+```html
+<script src="https://elopros.com/sdk/elo-3.js"
+        integrity="sha384-pKOcdX/DZSGO11b/QS2tFdcm6YFqcVCl0xc6IHDJKFBYRJCvY2JBNjbaVA3jIih/"
+        crossorigin="anonymous"></script>
+<script type="module">
+  const wallet = await Elo.connect();                          // code "no_wallet" when there is none
+  const { message, signature } = await Elo.signIn({ nonce });  // nonce from your server
+  const me = await Elo.profile();                              // me.label, me.avatar; null: could not look
+  Elo.on("account", (who) => { /* switched or signed out: sign in again */ });
+</script>
+```
+
+or from the package: `import "@elopros/sdk/elo-3.js"`, which sets
+`window.Elo` (and does nothing during a server render). Types:
+`/// <reference types="@elopros/sdk/elo-3" />`.
+
+`examples/web-game/` puts both halves together; `examples/friends.mjs`,
+`examples/owns.mjs` and `examples/payout.mjs` show the other parts.
 
 ## "Could not look" is never "no"
 

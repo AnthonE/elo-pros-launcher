@@ -281,8 +281,13 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Shard>> {
             "the shard list is not an object with a \"servers\" key",
         ));
     }
-    let doc: Doc = serde_json::from_value(v)
+    let mut doc: Doc = serde_json::from_value(v)
         .map_err(|e| DepotError::new(format!("the shard list did not parse: {e}")))?;
+    // `check_addr` judges the trimmed address, so the trimmed one is what is
+    // kept: padding would otherwise ride into a game's `{server}` and a link.
+    for s in doc.servers.iter_mut() {
+        s.addr = s.addr.trim().to_string();
+    }
 
     if doc.servers.len() > MAX_SHARDS {
         return Err(DepotError::new(format!(

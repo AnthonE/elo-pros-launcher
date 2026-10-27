@@ -216,6 +216,9 @@ fn the_book_takes_decimals_from_the_chain_and_drops_what_will_not_say() {
     let mut silent = Fake::new();
     silent.fail("call:313ce567", "reverted");
     assert_eq!(wallet::book(&listed, &silent).len(), 1, "no decimals, no row");
+    // But the row is said to be missing, not quietly dropped.
+    let (_, unread) = wallet::book_and_unread(&listed, &silent);
+    assert_eq!(unread, ["JUNK"]);
 }
 
 #[test]

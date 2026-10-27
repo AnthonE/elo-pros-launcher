@@ -198,28 +198,52 @@ mod imp_unix {
     pub struct Listener {
         inner: UnixListener,
         path: PathBuf,
+        /// The socket file this listener made, as (device, inode), so `Drop`
+        /// removes it only while it is still ours.
+        made: Option<(u64, u64)>,
     }
 
     impl Listener {
-        /// Bind, replacing a stale socket left by a crashed launcher.
+        /// Bind, replacing a stale socket left by a crashed launcher — and
+        /// refusing a live one.
         ///
-        /// ⚠ The unlink-then-bind is deliberate and is not a race we can lose
-        /// meaningfully: two launchers racing here end with one door and one
-        /// error, and the loser exits. Leaving a stale socket instead means
-        /// every game gets `ECONNREFUSED` from a file that looks alive.
+        /// ⚠ A socket file is stale only if nothing answers on it. Unlinking
+        /// one that answers took the door from a launcher that was still
+        /// running: the second copy bound "successfully", and when the first
+        /// one quit its `Drop` deleted the second's socket, so every game
+        /// then found no launcher at all. A live door is `AddrInUse`, which
+        /// is the "another copy of elo is already running" the window says.
         pub fn bind(endpoint: &str) -> io::Result<Listener> {
             let path = PathBuf::from(endpoint);
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
-                // 0700: the socket's directory is the access control here.
-                let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+                if !dir.as_os_str().is_empty() && !dir.exists() {
+                    std::fs::create_dir_all(dir)?;
+                    // 0700: the socket's directory is the access control
+                    // here — set on a directory this made, never on one a
+                    // named socket path happens to sit in (`$HOME`, say).
+                    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+                }
             }
             if path.exists() {
+                // A launcher that is restarting hands the door over by
+                // exiting, so give a live answer a moment to stop.
+                let mut tries = 0;
+                while UnixStream::connect(&path).is_ok() {
+                    tries += 1;
+                    if tries >= 10 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrInUse,
+                            format!("another launcher is already serving games at {}", path.display()),
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
                 let _ = std::fs::remove_file(&path);
             }
             let inner = UnixListener::bind(&path)?;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            Ok(Listener { inner, path })
+            let made = identity(&path);
+            Ok(Listener { inner, path, made })
         }
 
         pub fn accept(&self) -> io::Result<UnixStream> {
@@ -231,12 +255,20 @@ mod imp_unix {
         }
     }
 
+    fn identity(path: &std::path::Path) -> Option<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+    }
+
     impl Drop for Listener {
         fn drop(&mut self) {
             // The door closes with the launcher. A socket file outliving the
             // process is the stale-door problem stated above, from the other
-            // end.
-            let _ = std::fs::remove_file(&self.path);
+            // end — but only this listener's file: a path that now names
+            // another launcher's socket is not ours to delete.
+            if self.made.is_some() && identity(&self.path) == self.made {
+                let _ = std::fs::remove_file(&self.path);
+            }
         }
     }
 }

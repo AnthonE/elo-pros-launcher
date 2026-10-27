@@ -136,23 +136,30 @@ pub fn decrypt(doc: &Value, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, Str
         ));
     }
     let p = c.get("kdfparams").ok_or("no kdfparams")?;
-    let salt = unhex(p.get("salt").and_then(Value::as_str).ok_or("no salt")?)?;
+    let salt = field_hex(p.get("salt"), "salt")?;
     let n = p.get("n").and_then(Value::as_u64).ok_or("no n")?;
     if !n.is_power_of_two() || n < 2 {
         return Err(format!("scrypt n must be a power of two, got {n}"));
     }
     let log_n = n.trailing_zeros() as u8;
-    let r = p.get("r").and_then(Value::as_u64).ok_or("no r")? as u32;
-    let pp = p.get("p").and_then(Value::as_u64).ok_or("no p")? as u32;
+    let r = p.get("r").and_then(Value::as_u64).ok_or("no r")?;
+    let pp = p.get("p").and_then(Value::as_u64).ok_or("no p")?;
+    // The cost is the FILE's to name, so it is bounded before anything is
+    // allocated: scrypt takes 128·r·n bytes, and n = 2^40 in a hostile or
+    // corrupt file aborts the process on unlock rather than refusing it. The
+    // bound is well above anything a wallet writes (geth's standard is
+    // n = 2^18, r = 8, p = 1, which is what this vault writes too).
+    if r == 0 || r > 32 || pp == 0 || pp > 16 || 128u128 * r as u128 * n as u128 > 1 << 30 {
+        return Err(format!(
+            "this keystore asks for scrypt n={n}, r={r}, p={pp}, which is more work than any \
+             wallet uses — refusing to run it"
+        ));
+    }
+    let (r, pp) = (r as u32, pp as u32);
 
-    let iv = unhex(
-        c.get("cipherparams")
-            .and_then(|x| x.get("iv"))
-            .and_then(Value::as_str)
-            .ok_or("no iv")?,
-    )?;
-    let ciphertext = unhex(c.get("ciphertext").and_then(Value::as_str).ok_or("no ciphertext")?)?;
-    let want_mac = unhex(c.get("mac").and_then(Value::as_str).ok_or("no mac")?)?;
+    let iv = field_hex(c.get("cipherparams").and_then(|x| x.get("iv")), "iv")?;
+    let ciphertext = field_hex(c.get("ciphertext"), "ciphertext")?;
+    let want_mac = field_hex(c.get("mac"), "mac")?;
 
     let dk = derive(passphrase, &salt, log_n, r, pp)?;
 
@@ -179,6 +186,14 @@ pub fn decrypt(doc: &Value, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, Str
     out.copy_from_slice(&ciphertext);
     Aes128Ctr::new(dk[..16].into(), iv.as_slice().into()).apply_keystream(&mut *out);
     Ok(out)
+}
+
+/// One hex field of the document, or which field it was that failed. A bare
+/// "odd-length hex" out of a file with four hex fields sends the holder of a
+/// damaged keystore guessing — and guessing over the only copy of a key.
+fn field_hex(v: Option<&Value>, name: &str) -> Result<Vec<u8>, String> {
+    let s = v.and_then(Value::as_str).ok_or_else(|| format!("no {name}"))?;
+    unhex(s).map_err(|e| format!("the keystore's {name} is {e}"))
 }
 
 /// `keccak256(derived[16..32] || ciphertext)` — the V3 MAC.

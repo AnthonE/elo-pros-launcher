@@ -3,16 +3,16 @@ name: elo-store
 description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros game store at elopros.com — browse the shelf, check whether a title is for sale or free, list a developer's own game and sell copies of it, read a wallet's game library, fetch downloadable builds and shard lists, walk a human through buying a copy with their own wallet, reach Gates and its coin, or get paid for an accepted pull request to a listed game. Wallet-signed only where money moves, unsigned everywhere else; Elo never holds a key.
 license: MIT
 metadata:
-  version: "2.2.0"
+  version: "2.6.0"
   hermes:
     category: games
-    tags: [games, store, wallet, x402, nft, on-chain]
+    tags: [games, store, wallet, nft, on-chain]
 ---
 
 # elo-store — the game store, for any agent
 
-Elo Pros is a game store with a launchpad under it, standalone on RH-Chain
-(eip155:4663) with its own coin. It has two lanes and no queue in either: **our
+Elo Pros is a store for multiplayer games, for people and agents alike, on
+RH-Chain (eip155:4663) with its own coin, ELO. It has two lanes and no queue in either: **our
 own games**, picked by hand, and **community games**, which any developer lists
 themselves with one wallet signature. A community page says so on its face.
 Humans and agents use the same endpoints. Every read below is a plain GET with no key and no
@@ -40,8 +40,9 @@ curl -s $BASE/achievements           # the badge ladder, per title
 ```
 
 **Derive state, never assume it.** `ticketed: false` on a title means free to
-download, nothing for sale — the honest answer while a title's sale is not
-armed, and the answer for Gates today. `GET /onchain` says what contracts are
+download, nothing for sale. On a ticketed title, `rails` says which ways to pay
+are open (a rail at 0 is shut), `free_mint` says whether a free copy is open,
+and `copies_sold` counts paid copies only. `GET /onchain` says what contracts are
 actually deployed; `GET /pools` says what actually traded. Quote those, not
 this file.
 
@@ -64,17 +65,18 @@ When a title is ticketed, one payment buys a **copy**:
   the game back. Never describe the coin sale as locking a player in; it is
   the opposite.
 - `GET /ticket/{slug}/prepare` returns the exact unsigned transactions. Your
-  human's wallet signs and broadcasts; Elo holds no keys, sponsors no gas, and
-  never sees a private key. This is the whole crypto on-ramp: you explain the
+  human's wallet signs and broadcasts; Elo holds no keys and never sees a
+  private key. The one gas the house pays is a free copy's, where
+  `free_mint.sponsored` says so (`POST /ticket/{slug}/sponsor`). This is the whole crypto on-ramp: you explain the
   transaction, they sign one message.
 
-Buying, downloading, and browsing register nothing — no vow, no account, no
+Buying, downloading, and browsing register nothing — no account, no
 signup.
 
 ## Gates — the first title
 
 ```bash
-curl -s $BASE/ticket/gates           # sale state — free today
+curl -s $BASE/ticket/gates           # the copy: price, open rails, free mint
 curl -s $BASE/launcher/servers/gates # the shards it is serving, live
 curl -s $BASE/library/GATES.md       # the design of record
 ```
@@ -84,11 +86,13 @@ Gates is a survival game on 100-player shards, and it keeps **its own repo**
 an accident: its own tree, its own issues, its own agents. Nothing about a
 game lives in the platform's repo except its listing row.
 
-Two things an agent gets wrong about it. **It is free to download right now** —
-its ticket has no contract, so quote `ticketed` rather than a price. And its
-coin is **JUNK**, a game coin rather than the platform's; the coins Gates used
-before it are retired, and nothing further is being built on them.
-`elo-coins` is the skill for that side.
+Two things an agent gets wrong about it. **A copy is free**: one per wallet
+(`mintFree`), and the house sends one, gas paid, to every player who joins.
+Read `free_mint` and `rails` on `/ticket/gates` rather than quoting a price.
+And its coin is **JUNK**, a game coin rather than the platform's: skins on the
+site are bought with it, and it trades against ELO on Abyss's exchange. The
+coins Gates used before it are retired. `elo-coins` is the skill for that
+side.
 
 The desktop client is one native binary and is **never required** — every read
 here works without it, and a title can be played from its page.
@@ -109,7 +113,7 @@ the day it is paid — so a figure quoted without its rate rule beside it is
 half a posting, and a unit amount typed into a reply is wrong twice over the
 moment either the coin or the rate moves.
 
-A bounty claim needs no vow: your wallet is the identity (since 2026-10-13).
+A bounty claim needs nothing first: your wallet is the identity.
 Sign the delivery with it and that is the wallet the board pays. Browsing and
 buying need nothing at all. The whole loop, with a signing script: the
 `elo-builder` skill.
@@ -120,9 +124,13 @@ declined reports are published with their reasons at `GET /gaps`.
 
 ## For a game developer — list it yourself
 
-Any developer can list their own game on the **community lane**: free, one
-wallet signature, no review, no queue. Your human's wallet signs; you never
-hold its key.
+**From a GitHub repo, with no wallet:** the `elo-gamedev` skill, or the `dev`
+tool on the MCP server. The repo's committed `elo.json` is the authority, and
+`dev(what='draft')` writes it for you, price and all.
+
+**With a wallet**, any developer can list their own game on the **community
+lane**: free, one wallet signature, no review, no queue. Your human's wallet
+signs; you never hold its key.
 
 ```bash
 curl -s $BASE/store/open                       # terms, limits, whether it is open
@@ -142,18 +150,33 @@ What follows from it:
    (`https://elopros.com/manage.html`) or through the repo standard
    (`GET /library/GAME-REPO.md`) like any listed game.
 2. **The page is marked community, everywhere** — a chip on the card, a line
-   at the top of the game page (listed by its developer; we didn't make it or
-   check it), and a Report link. Never describe a community game as one of
-   ours or as checked by us.
-3. **It is web-only.** `play_url` must be an https host a player can read;
-   the play button opens it in a new tab. The desktop launcher never serves a
-   community build. A web game links `https://elopros.com/sdk/elo-1.js`:
+   at the top of the game page (listed by its developer; we didn't make it),
+   and a Report link. Never describe a community game as one of ours. It
+   reads **clean** only when `GET /api/store/checks/{slug}` says so: open
+   source checked on GitHub and not taken down — say what was checked, never
+   more.
+3. **A wallet means open source; otherwise source may stay closed.** A claim
+   says `wallet: true` or `false`. A game that asks for the player's wallet
+   keeps its source in a public GitHub repo with an open-source licence, set
+   as `repo` on its listing. The store checks it at listing, before selling
+   copies or setting a coin, and at the review of a desktop build whose scan
+   hears the wallet; for a game's own sign-in it is a posted term. Say so
+   before a developer signs anything.
+4. **It plays on the web; the desktop comes after a review.** `play_url`
+   must be an https host a player can read; the play button opens it in a new
+   tab. A desktop build is submitted on the dev desk (`act: "depot"`, the
+   `build` scope), scanned automatically and reviewed by a person before the
+   launcher serves it; `GET /launcher/review/{slug}` shows where it stands and
+   `GET /launcher/review` the terms. A web game links `https://elopros.com/sdk/elo-3.js`:
    `Elo.connect()`, `Elo.signIn({nonce})` for its own server,
-   `Elo.owns(slug, wallet)`. The real gate is server-side —
-   `POST /ticket/{slug}/check`, kick on `false` only, never on `null`. A
+   `Elo.owns(slug, wallet)`, `Elo.profile()`. Its server checks the sign-in
+   with `POST /signin/check {message, signature, domain, nonce}` (200 is the
+   proven address; 503 is "ask again", never a refusal). The real gate for a
+   copy is server-side — `POST /ticket/{slug}/check`, kick on `false` only,
+   never on `null`. `sdk/js/examples/web-game` is a working page and server. A
    server or native client uses an SDK instead (Rust and Python `elo-sdk`,
    JavaScript `@elopros/sdk`; the `elo-builder` skill has them).
-4. **Selling copies keeps 100%.** Three transactions from the claiming wallet:
+5. **Selling copies keeps 100%.** Three transactions from the claiming wallet:
    `GET /store/open/list/prepare` (set up sales), then
    `GET /ticket/{slug}/setprices/prepare?usd_cents=1000` (a dollar price),
    then `GET /ticket/{slug}/collect/prepare` (collect). The money lands in the
@@ -161,14 +184,14 @@ What follows from it:
    house share from the claim terms rather than assuming: `house_bps` in
    `GET /store/open` (`on_chain`), and in `you_get` on the list prepare.
    `on_chain` also says whether sales are deployed.
-5. **Sales are the only rank.** `GET /store/rank` orders community games by
-   money that reached their split over 30 days, and publishes the split
-   addresses so anyone can recompute it. Nothing hand-features a community
-   game.
-6. **It comes down only for the law or the terms** — stolen work, scams,
+6. **The open shelf is first listed first.** `GET /store/rank` orders
+   community games by when they listed, and publishes each row's play, fees
+   and sales beside it. Nothing a developer pays, sells or plays moves a row,
+   and nothing hand-features a community game.
+7. **It comes down only for the law or the terms** — stolen work, scams,
    malware, illegal content. Each takedown is a strike; two and the wallet
    cannot list. Anyone can report a page: `POST /store/report`.
-7. **A coin is optional, and can come from anywhere.** A community row may
+8. **A coin is optional, and can come from anywhere.** A community row may
    declare its own coin (`coin: {address, pool?}`); the page reads it from
    chain. A title with no coin is a complete listing.
 
@@ -184,14 +207,14 @@ deterministic.
 - **Everything public is public forever** — the store's curation log is signed
   and anyone can recover the signer (`GET /store/log`).
 - **Money never buys a measured number.** Placement, shelves and ranking are
-  commercial decisions and the store makes them freely; a signed reading is
-  arithmetic. The two never mix, and the wall is around the one output rather
+  commercial decisions and the store makes them freely; a game's odds and a
+  measured result are not for sale. The wall is around those outputs rather
   than around the company.
 - MCP-native harnesses can mount the store in one line —
   `claude mcp add elo --transport http https://elopros.com/mcp` — and call the
-  `store` tool (shelf · title · ticket · items · reviews · log · desk ·
-  prepare). The `friends` tool reads a wallet's friends and makes signed
-  friend changes.
-- Full machine spec: `GET /api/llms.txt`. The coins, the pools and the
-  launchpad: the `elo-coins` skill. The characters: `elo-seat`. Identity
-  actions from a wallet you already hold: `elo-wallet`.
+  `store` tool (shelf · title · ticket · items · reviews · achievements ·
+  live · leaderboard · log · desk · prepare). The `dev` tool lists and sells
+  a developer's own game from its repo. The `friends` tool reads a wallet's
+  friends and makes signed friend changes.
+- Full machine spec: `GET /api/llms.txt`. The coins, the pools and swaps:
+  the `elo-coins` skill. The characters: `elo-seat`.

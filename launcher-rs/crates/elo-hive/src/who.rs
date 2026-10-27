@@ -4,39 +4,24 @@
 //! for the steamid and then they can set ONE NAME IN ONE PLACE AND EVERYTHING
 //! PULLS FROM THAT SAME WITH PFP."*
 //!
-//! ## The join already existed; nothing used it
-//!
-//! This was settled on 2026-08-02 — *"the profile is a view, not a table"* —
-//! and `GET /api/who?handle=…` is that view. It takes **a wallet, an
-//! npub, a vow id or a sworn name** and answers with one identity. The comment
-//! in `meter/directory.py` even says it out loud: *"One face across every
-//! surface."*
-//!
-//! So the fix is not a new store. It is that the client was reading names out
-//! of whatever surface it happened to be looking at — a hive message's `who`,
-//! a kind:0 `display`, a bare npub — instead of asking the one place. This
-//! module is that one place, and every surface calls it.
+//! `GET /api/who?handle=…` is that one place: it takes **a wallet, an npub or
+//! a name** and answers with one identity, joined on the wallet (its own name
+//! and picture, the seat it holds, its hive link). This module reads it, and
+//! every surface calls this module rather than reading names out of whatever
+//! it happens to be looking at.
 //!
 //! ## One name, and the evidence rides ON it
 //!
-//! There is a real distinction under the names — a handle nobody checked is
-//! not a handle the register swore — and collapsing it would let anyone print
-//! themselves a sworn name. But that never needed to be *two names*.
-//!
-//! `ACHIEVEMENTS.md` already solved this shape for badges: **a claim plus a
-//! named evidence kind**, rendered carrying its own kind. Applied here: there
-//! is exactly one `name`, and [`NameKind`] says who checked it. The thing that
-//! varies is not the name — it is the evidence under it.
+//! There is exactly one `name`, and [`NameKind`] says who checked it:
 //!
 //! | kind | where it comes from | checked by |
 //! |---|---|---|
-//! | [`NameKind::Sworn`] | the NIP-05 local part in the locked index | the register |
-//! | [`NameKind::Declared`] | `face.display_name` (`POST /api/hive/face`) | **nobody** |
-//! | [`NameKind::Derived`] | the vow's agent name | the vow |
+//! | [`NameKind::Handle`] | the NIP-05 local part of a hive handle | the hive's handle index |
+//! | [`NameKind::Declared`] | the wallet's own name (`/api/face`), or a hive display name | **nobody** |
 //! | [`NameKind::Address`] | the wallet or npub itself | arithmetic |
 //!
-//! ⚠ A surface may render all four; it may never render `Declared` in the
-//! clothes of `Sworn`.
+//! ⚠ A surface may render all three; it may never render `Declared` in the
+//! clothes of `Handle`.
 
 use crate::error::{HiveError, Result};
 use elo_net::{Fetched, Net};
@@ -45,36 +30,35 @@ use serde::Deserialize;
 /// Who checked this name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameKind {
-    /// The NIP-05 local part on the register. Changing it burns SCRY.
-    Sworn,
-    /// `face.display_name` — wallet-signed, so it is *theirs*, but the string
-    /// itself is whatever they typed. Nobody checked that it is true.
+    /// The NIP-05 local part of a hive handle. Held by one wallet; it cannot
+    /// be set by asserting it.
+    Handle,
+    /// The wallet's own signed name, or a hive display name — *theirs*, but
+    /// the string is whatever they typed. Nobody checked that it is true.
     Declared,
-    /// The vow's own agent name.
-    Derived,
     /// No name at all: the address, shortened.
     Address,
 }
 
 impl NameKind {
     /// The one-character marker every surface uses. `~` for a name nobody
-    /// checked, blank for one the register swore.
+    /// checked, blank for a held handle.
     pub fn mark(&self) -> char {
         match self {
-            NameKind::Sworn => ' ',
-            NameKind::Declared | NameKind::Derived | NameKind::Address => '~',
+            NameKind::Handle => ' ',
+            NameKind::Declared | NameKind::Address => '~',
         }
     }
 
-    pub fn sworn(&self) -> bool {
-        matches!(self, NameKind::Sworn)
+    /// True for a held hive handle — the one name somebody checked.
+    pub fn checked(&self) -> bool {
+        matches!(self, NameKind::Handle)
     }
 
     pub fn line(&self) -> &'static str {
         match self {
-            NameKind::Sworn => "sworn on the register",
+            NameKind::Handle => "a hive handle, held by this wallet",
             NameKind::Declared => "self-declared — nobody checked it",
-            NameKind::Derived => "from the vow",
             NameKind::Address => "no name set; this is the address",
         }
     }
@@ -85,45 +69,28 @@ impl NameKind {
 pub struct Identity {
     pub wallet: Option<String>,
     pub npub: Option<String>,
-    pub vow_id: Option<String>,
     pub nip05: Option<String>,
     /// **The one name.**
     pub name: String,
     /// Who checked it.
     pub kind: NameKind,
     /// **The one picture**, absolute — or empty, and then a surface draws the
-    /// letter tile. The order is the site's own (`store.js` `faceSrc`, the
-    /// `/who` route's comment): the wallet's own picture, the Elo Pros seat it
-    /// holds, a hive picture, the vow's mark.
-    ///
-    /// ⚠ **This said "never empty — the register's derived mark is the
-    /// fallback" and the fallback was `/api/mark/{handle}.svg`, a route that
-    /// does not exist** (404, measured 2026-10-20). Every bare identity carried
-    /// a dead url. Empty is the honest value; [`Identity::origin_face`] is the
-    /// one a window may fetch.
+    /// letter tile. The order is the site's own (`store.js` `faceSrc`): the
+    /// wallet's own picture, the Elo Pros seat it holds, a hive picture.
+    /// [`Identity::origin_face`] is the one a window may fetch.
     pub face: String,
-    /// True when this identity is only an address with nothing bound to it.
+    /// True when this identity is only an address with nothing set for it.
     pub bare: bool,
-    /// How many vows this account swore.
-    ///
-    /// ⚠ **More than one is normal, and this is why "ONE NAME" is not yet
-    /// true.** `/api/who` on a wallet answers: *"this wallet is an identifier,
-    /// so the vows below are ONE party's, not a collision. Reputation and the
-    /// house hang off the wallet."* So the account is the wallet — and the
-    /// wallet's `subject` block carries **no name and no face of its own**.
-    /// Every name belongs to a vow.
-    ///
-    /// Until the meter gives the wallet its own name and face (or a designated
-    /// primary vow), `name` here is whichever vow `/who` picked, and a surface
-    /// showing it for a multi-vow wallet is showing *one of* several. That is
-    /// said out loud rather than papered over.
-    pub vows: u32,
+    /// How many people answered to this handle. A wallet or an npub names one;
+    /// a self-declared name can be shared, and `/who` says so rather than
+    /// picking a winner.
+    pub matches: u32,
 }
 
 impl Identity {
-    /// Does this account answer to more than one name?
+    /// Did this handle name more than one person?
     pub fn ambiguous(&self) -> bool {
-        self.vows > 1
+        self.matches > 1
     }
 
     /// The picture, only when it lives on `host` — the one a window may fetch.
@@ -142,10 +109,8 @@ impl Identity {
         format!("{}{}", self.kind.mark(), self.name).trim_start().to_string()
     }
 
-    /// An identity for an address the town knows nothing about.
-    ///
-    /// A bare wallet still gets a name, and a letter tile for a face: *a bare wallet with no vow
-    /// still gets a page — no account exists to require.*
+    /// An identity for an address with nothing set for it: a name (the
+    /// address, shortened) and a letter tile. No account exists to require.
     ///
     /// `_host` is kept so every caller still reads the same: a bare identity
     /// has no picture on any host, so it no longer builds one.
@@ -153,11 +118,10 @@ impl Identity {
         Identity {
             wallet: address.starts_with("0x").then(|| address.to_string()),
             npub: address.starts_with("npub").then(|| address.to_string()),
-            vow_id: None,
             nip05: None,
             name: short(address),
             kind: NameKind::Address,
-            vows: 0,
+            matches: 0,
             face: String::new(),
             bare: true,
         }
@@ -181,6 +145,9 @@ pub fn short(address: &str) -> String {
 }
 
 // ── the wire ────────────────────────────────────────────────────────────────
+//
+// Every struct ignores fields it does not name, so a reply carrying more (or
+// an older origin's extra keys) still parses.
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct Face {
@@ -211,6 +178,7 @@ struct Seat {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct WhoIdentity {
+    /// The name `/who` picked: the wallet's own name, else its handle.
     #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
@@ -219,9 +187,7 @@ struct WhoIdentity {
     npub: Option<String>,
     #[serde(default)]
     nip05: Option<String>,
-    #[serde(default)]
-    vow_id: Option<String>,
-    /// The register's derived mark. An API PATH, not an absolute url.
+    /// The wallet's picture as a route path. An API PATH, not an absolute url.
     #[serde(default)]
     avatar: Option<String>,
     #[serde(default)]
@@ -234,27 +200,13 @@ struct WhoIdentity {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct Subject {
-    /// `"wallet"` when the handle named one. Parsed but unused: the shape is
-    /// documented here so a future reader sees the whole reply, and the
-    /// resolver deliberately does not branch on it — a wallet and a vow both
-    /// produce one identity.
-    #[serde(default)]
-    #[allow(dead_code)]
-    kind: Option<String>,
     #[serde(default)]
     wallet: Option<String>,
-    /// How many vows this wallet swore. **More than one is normal**, and the
-    /// server says so: *"this wallet is an identifier, so the vows below are
-    /// ONE party's, not a collision."*
-    #[serde(default)]
-    identities: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 struct WhoReply {
-    /// What `/api/who` actually calls the resolved row. Measured 2026-08-05 —
-    /// the first pass looked for `identity` and got nothing, which is why
-    /// every real wallet came back bare.
+    /// What `/api/who` calls the resolved row.
     #[serde(default)]
     found: Option<WhoIdentity>,
     /// The account itself — *a profile is the wallet.*
@@ -264,11 +216,10 @@ struct WhoReply {
     matches: Option<u32>,
     #[serde(default)]
     identity: Option<WhoIdentity>,
-    /// `/who` answers 200 with an `error` when nothing is sworn for a handle.
     #[serde(default)]
     error: Option<String>,
-    // A bare `agent`/`wallet` at the top level, for the flatter shapes the
-    // directory serves. Tried second so a nested `identity` always wins.
+    // A bare `agent`/`wallet` at the top level, for the flatter rows the
+    // directory serves. Tried second so a nested row always wins.
     #[serde(default)]
     agent: Option<String>,
     #[serde(default)]
@@ -277,8 +228,6 @@ struct WhoReply {
     npub: Option<String>,
     #[serde(default)]
     nip05: Option<String>,
-    #[serde(default)]
-    vow_id: Option<String>,
     #[serde(default)]
     avatar: Option<String>,
     #[serde(default)]
@@ -292,8 +241,8 @@ fn non_empty(s: Option<&String>) -> Option<String> {
 /// Turn a `/who` reply into the one identity.
 ///
 /// The precedence is the whole point, and it is fixed here so no surface can
-/// invent its own: **sworn handle, then a declared face name, then the vow's
-/// agent, then the address.** Never the other way round.
+/// invent its own: **a held handle, then a declared name, then the address.**
+/// Never the other way round.
 fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
     let id = reply
         .found
@@ -302,36 +251,36 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
         .unwrap_or_default();
     let pick = |a: Option<&String>, b: Option<&String>| non_empty(a).or_else(|| non_empty(b));
 
-    // The wallet is the account, so `subject.wallet` outranks a vow's copy.
+    // The wallet is the account, so `subject.wallet` outranks the row's copy.
     let subject = reply.subject.clone().unwrap_or_default();
     let wallet = non_empty(subject.wallet.as_ref())
         .or_else(|| pick(id.wallet.as_ref(), reply.wallet.as_ref()));
     let npub = pick(id.npub.as_ref(), reply.npub.as_ref());
     let nip05 = pick(id.nip05.as_ref(), reply.nip05.as_ref());
-    let vow_id = pick(id.vow_id.as_ref(), reply.vow_id.as_ref());
     let agent = pick(id.agent.as_ref(), reply.agent.as_ref());
     let avatar = pick(id.avatar.as_ref(), reply.avatar.as_ref());
     let face = id.face.clone().or_else(|| reply.face.clone()).unwrap_or_default();
     let profile = id.profile.clone().unwrap_or_default();
-    // The wallet's own signed name leads the hive's self-declared one: it is
-    // the name the game and the store show for this account.
+    // The wallet's own signed name leads the hive's display name: it is the
+    // name the game and the store show for this account. `agent` is the
+    // server's pick of the same.
     let declared = non_empty(profile.name.as_ref())
-        .or_else(|| non_empty(face.display_name.as_ref()));
+        .or_else(|| non_empty(face.display_name.as_ref()))
+        .or(agent);
     let picture = non_empty(face.picture.as_ref());
 
-    // The sworn name is the NIP-05 local part, and it is the only one the
-    // register vouches for. It cannot be set by asserting it.
-    let sworn = nip05
+    // A handle is the NIP-05 local part, and it is the one name held by a
+    // single wallet. It cannot be set by asserting it.
+    let held = nip05
         .as_deref()
         .and_then(|n| n.split('@').next())
         .map(str::to_string)
         .filter(|n| !n.is_empty());
 
-    let (name, kind) = match (sworn, declared, agent) {
-        (Some(n), _, _) => (n, NameKind::Sworn),
-        (None, Some(d), _) => (d, NameKind::Declared),
-        (None, None, Some(a)) => (a, NameKind::Derived),
-        (None, None, None) => (short(handle), NameKind::Address),
+    let (name, kind) = match (held, declared) {
+        (Some(n), _) => (n, NameKind::Handle),
+        (None, Some(d)) => (d, NameKind::Declared),
+        (None, None) => (short(handle), NameKind::Address),
     };
 
     let host = host.trim_end_matches('/');
@@ -346,16 +295,10 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
         .unwrap_or_default();
 
     Identity {
-        bare: wallet.is_none() && npub.is_none() && vow_id.is_none(),
-        // How many names this account answers to. One is the ordinary case;
-        // more is normal and must not be hidden — see `Identity::vows`.
-        vows: reply
-            .matches
-            .or(subject.identities)
-            .unwrap_or(if id.vow_id.is_some() { 1 } else { 0 }),
+        bare: kind == NameKind::Address && face_url.is_empty() && npub.is_none(),
+        matches: reply.matches.unwrap_or(1),
         wallet,
         npub,
-        vow_id,
         nip05,
         name,
         kind,
@@ -367,11 +310,10 @@ fn build(reply: &WhoReply, handle: &str, host: &str) -> Identity {
 /// that is not a plain path on our own host.
 ///
 /// ⚠ **The `/api` is added here because the routes are declared bare.** `/who`
-/// answers `avatar: "/vow/…/mark.svg"` and `seat.src: "/seat/…/face.svg"`,
-/// which are the meter's own route paths; nginx serves them under `/api/`, and
-/// at the site root they are a 404 page. The site prefixes them the same way
-/// (`store.js`). A path already under `/api/` is left alone, and `//host/…`
-/// looks like a path and is another host, so it is refused.
+/// answers `seat.src: "/seat/…/face.svg"`, a meter route path; nginx serves it
+/// under `/api/`, and at the site root it is a 404 page. The site prefixes it
+/// the same way (`store.js`). A path already under `/api/` is left alone, and
+/// `//host/…` looks like a path and is another host, so it is refused.
 fn on_origin(host: &str, path: &str) -> Option<String> {
     if !path.starts_with('/') || path.starts_with("//") {
         return None;
@@ -383,12 +325,11 @@ fn on_origin(host: &str, path: &str) -> Option<String> {
     })
 }
 
-/// Resolve one handle — **a wallet, an npub, a vow id, or a sworn name.**
+/// Resolve one handle — **a wallet, an npub, or a name.**
 ///
 /// The wallet is the account (the operator's *"steamid"*), so passing an
-/// address is the ordinary call. An address the town knows nothing about is
-/// **not an error**: it comes back [`Identity::bare`], because a bare wallet
-/// still gets a name and a face and no account exists to require.
+/// address is the ordinary call, and `/who` answers for any wallet. A handle
+/// nobody answers to is **not an error**: it comes back [`Identity::bare`].
 pub fn resolve(net: &Net, host: &str, handle: &str) -> Fetched<Identity> {
     let handle = handle.trim();
     if handle.is_empty() {
@@ -401,70 +342,18 @@ pub fn resolve(net: &Net, host: &str, handle: &str) -> Fetched<Identity> {
     );
     let got = net.get_json(&url);
     // ⚠ **404 here means "nobody by that name", not "we could not look".**
-    // `/api/who` answers 404 for an address with nothing sworn to it, and that
-    // is a true statement about a real address: a bare wallet still gets a
-    // page, and no account exists to require. Rendering it as an
-    // error would make every un-sworn player look like a broken lookup.
     if got.status == Some(404) {
-        // …but "not sworn" is not "unknown". The directory carries a row for
-        // every vow — an agent name, a wallet, a mark — whether or not a key
-        // was ever bound, so it answers for people `/who` will not.
-        return match from_directory(net, host, handle) {
-            Some(id) => Fetched::good(id),
-            None => Fetched::good(Identity::bare(handle, host)),
-        };
+        return Fetched::good(Identity::bare(handle, host));
     }
     match got.value {
         Some(v) => match serde_json::from_value::<WhoReply>(v) {
-            // An `error` means nothing is sworn for this handle, which is a
-            // real answer about a real address — not a failed lookup.
             Ok(reply) if reply.error.is_some() => Fetched::good(Identity::bare(handle, host)),
             Ok(reply) => Fetched::good(build(&reply, handle, host)),
-            Err(e) => Fetched::bad(format!("the register answered in a shape we do not know: {e}")),
+            Err(e) => Fetched::bad(format!("the directory answered in a shape we do not know: {e}")),
         },
         None if got.reachable => Fetched::bad(got.why),
         None => Fetched::unreachable(got.why),
     }
-}
-
-/// Second pass: find a handle in the town directory.
-///
-/// ⚠ **This is a client-side join, and it is here because the server has no
-/// route for it.** Measured 2026-08-05:
-///
-/// * `GET /api/who?handle=…` answers **404** unless the identity is *sworn* —
-///   it needs a bound npub or NIP-05, so an ordinary wallet with a vow gets
-///   nothing;
-/// * `GET /api/directory?q=…` matches on the **agent name only** — a wallet or
-///   a vow id returns `count: 0`.
-///
-/// So neither endpoint resolves *"who is this wallet"*, which is the exact
-/// question the client asks most. Until one does, this fetches the directory
-/// and scans it. That is honest at 51 entries and will stop being honest;
-/// **the fix belongs in the meter** — either `/who` answering for an unsworn
-/// wallet, or `/directory?q=` matching wallet and vow id.
-fn from_directory(net: &Net, host: &str, handle: &str) -> Option<Identity> {
-    let url = format!("{}/api/directory?limit=500", host.trim_end_matches('/'));
-    let rows = net.get_json(&url).value?;
-    let entries = rows.get("entries")?.as_array()?;
-    let needle = handle.trim().to_ascii_lowercase();
-    for e in entries {
-        let hit = ["wallet", "vow_id", "npub", "nip05", "agent"].iter().any(|k| {
-            e.get(*k)
-                .and_then(|v| v.as_str())
-                .is_some_and(|v| v.to_ascii_lowercase() == needle)
-        });
-        if !hit {
-            continue;
-        }
-        let reply: WhoReply = serde_json::from_value(e.clone()).ok()?;
-        let mut id = build(&reply, handle, host);
-        // The directory row proves a vow exists, so this is not a bare address
-        // even when no key is bound to it.
-        id.bare = false;
-        return Some(id);
-    }
-    None
 }
 
 /// Percent-encode everything that is not unreserved. A handle can be a name a
@@ -484,7 +373,7 @@ pub fn urlencode(s: &str) -> String {
 
 /// The identity a hive message speaks under, resolved through the same place.
 ///
-/// The room read hands back `who` (sworn) and `display` (self-declared) per
+/// The room read hands back `who` (a held handle) and `display` (self-declared) per
 /// message. Rather than let a chat renderer invent its own precedence, this
 /// maps them onto the same [`Identity`] shape the rest of the client uses.
 ///
@@ -494,12 +383,12 @@ pub fn from_message(m: &crate::Message, host: &str) -> Identity {
     let mut id = Identity::bare(&m.npub, host);
     if m.house {
         id.name = "the house".into();
-        id.kind = NameKind::Sworn;
+        id.kind = NameKind::Handle;
         return id;
     }
     if let Some(w) = m.who.as_deref().filter(|s| !s.trim().is_empty()) {
         id.name = w.trim().to_string();
-        id.kind = NameKind::Sworn;
+        id.kind = NameKind::Handle;
     } else if let Some(d) = m.display.as_deref().filter(|s| !s.trim().is_empty()) {
         id.name = d.trim().to_string();
         id.kind = NameKind::Declared;
@@ -540,47 +429,39 @@ mod tests {
     }
 
     #[test]
-    fn the_sworn_handle_wins_over_everything() {
-        // It is the only name the register vouches for, and it cannot be set
-        // by asserting it.
+    fn a_held_handle_wins_over_everything() {
+        // It is the one name a single wallet holds, and it cannot be set by
+        // asserting it.
         let id = who(json!({"identity": {
             "nip05": "magus@elopros.com",
-            "agent": "the vow's own name",
+            "agent": "Someone",
             "face": {"display_name": "TOTALLY THE HOUSE"},
         }}));
         assert_eq!(id.name, "magus");
-        assert_eq!(id.kind, NameKind::Sworn);
-        assert_eq!(id.label(), "magus", "a sworn name wears no marker");
+        assert_eq!(id.kind, NameKind::Handle);
+        assert_eq!(id.label(), "magus", "a held handle wears no marker");
     }
 
     #[test]
     fn a_declared_name_is_used_and_marked() {
-        let id = who(json!({"identity": {
-            "agent": "the vow's own name",
-            "face": {"display_name": "Anthone"},
-        }}));
+        let id = who(json!({"identity": {"face": {"display_name": "Anthone"}}}));
         assert_eq!(id.name, "Anthone");
         assert_eq!(id.kind, NameKind::Declared);
         assert_eq!(id.label(), "~Anthone", "nobody checked it, and it says so");
-        assert!(!id.kind.sworn());
+        assert!(!id.kind.checked());
     }
 
     #[test]
     fn the_precedence_falls_all_the_way_to_the_address() {
-        let id = who(json!({"identity": {"agent": "a shade of the floor"}}));
-        assert_eq!(id.kind, NameKind::Derived);
-        assert_eq!(id.name, "a shade of the floor");
+        let id = who(json!({"identity": {"agent": "Mara"}}));
+        assert_eq!(id.kind, NameKind::Declared, "the server's pick is still self-declared");
+        assert_eq!(id.name, "Mara");
 
         let id = who(json!({"identity": {}}));
         assert_eq!(id.kind, NameKind::Address);
         assert_eq!(id.name, "0xabc");
     }
 
-    /// ⚠ This test was `nobody_is_faceless`, and it pinned two dead urls: the
-    /// bare fallback `/api/mark/{handle}.svg` (no such route) and the mark at
-    /// `/vow/…/mark.svg` with no `/api` (a 404 page at the site root). Both
-    /// passed for months because they asserted the string we built rather
-    /// than one the origin serves.
     #[test]
     fn a_face_is_a_url_the_origin_serves_or_nothing() {
         let bare = who(json!({"identity": {}}));
@@ -588,18 +469,15 @@ mod tests {
         assert_eq!(bare.origin_face("https://elo.test"), None);
 
         // `avatar` is a route path: it is served under /api.
-        let marked = who(json!({"identity": {"avatar": "/vow/77c2/mark.svg"}}));
-        assert_eq!(marked.face, "https://elo.test/api/vow/77c2/mark.svg");
-        assert_eq!(marked.origin_face("https://elo.test"), Some(marked.face.as_str()));
+        let pictured = who(json!({"identity": {"avatar": "/face/0xabc/pic.png"}}));
+        assert_eq!(pictured.face, "https://elo.test/api/face/0xabc/pic.png");
+        assert_eq!(pictured.origin_face("https://elo.test"), Some(pictured.face.as_str()));
 
-        // A hive picture outranks the mark, as on the site — and is never one
-        // a window may fetch.
-        let faced = who(json!({"identity": {
-            "avatar": "/vow/77c2/mark.svg",
-            "face": {"picture": "https://media.example/p.png"},
-        }}));
-        assert_eq!(faced.face, "https://media.example/p.png");
-        assert_eq!(faced.origin_face("https://elo.test"), None);
+        // A hive picture is kept as the face, and is never one a window may
+        // fetch.
+        let hive = who(json!({"identity": {"face": {"picture": "https://media.example/p.png"}}}));
+        assert_eq!(hive.face, "https://media.example/p.png");
+        assert_eq!(hive.origin_face("https://elo.test"), None);
 
         // `//host/…` looks like a path and is another host.
         let sneaky = who(json!({"identity": {"avatar": "//evil.example/x.svg"}}));
@@ -607,11 +485,10 @@ mod tests {
     }
 
     /// The site's order: the wallet's own picture, the seat it holds, a hive
-    /// picture, the mark.
+    /// picture.
     #[test]
     fn the_wallets_own_picture_leads_then_the_seat() {
         let all = json!({"identity": {
-            "avatar": "/vow/77c2/mark.svg",
             "face": {"picture": "https://media.example/p.png"},
             "seat": {"src": "/seat/41/face.svg"},
             "profile": {"name": "Mara", "picture": "/api/face/0xabc/pic.png?v=1a2b"},
@@ -659,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unsworn_address_is_bare_and_still_has_a_name_and_a_face() {
+    fn an_unknown_address_is_bare_and_still_has_a_name() {
         let id = Identity::bare("0x1234567890abcdef1234567890abcdef12345678", "https://elo.test");
         assert!(id.bare);
         assert_eq!(id.kind, NameKind::Address);
@@ -667,6 +544,8 @@ mod tests {
         assert_eq!(id.face, "", "a bare address draws a tile");
         assert_eq!(id.wallet.as_deref(), Some("0x1234567890abcdef1234567890abcdef12345678"));
         assert_eq!(id.npub, None);
+        assert_eq!(id.matches, 0);
+        assert!(!id.ambiguous());
     }
 
     #[test]
@@ -700,10 +579,10 @@ mod tests {
             house,
             ..crate::Message::default()
         };
-        assert_eq!(from_message(&msg(None, None, true), "h").kind, NameKind::Sworn);
+        assert_eq!(from_message(&msg(None, None, true), "h").kind, NameKind::Handle);
         assert_eq!(from_message(&msg(None, None, true), "h").name, "the house");
         assert_eq!(from_message(&msg(Some("magus"), Some("fake"), false), "h").name, "magus");
-        assert_eq!(from_message(&msg(Some("magus"), None, false), "h").kind, NameKind::Sworn);
+        assert_eq!(from_message(&msg(Some("magus"), None, false), "h").kind, NameKind::Handle);
         assert_eq!(from_message(&msg(None, Some("Anthone"), false), "h").kind, NameKind::Declared);
         // Blank `who` must not beat a real `display`.
         assert_eq!(from_message(&msg(Some("  "), Some("Anthone"), false), "h").name, "Anthone");
@@ -711,71 +590,57 @@ mod tests {
     }
 
     #[test]
-    fn the_real_who_shape_resolves() {
-        // Measured against the live origin 2026-08-05. The first pass looked
-        // for `identity` — the actual key is `found` — so every real wallet
-        // came back bare and the bug was invisible until it was driven.
+    fn the_current_who_shape_resolves() {
+        // The shape `meter/directory.py` answers today, with the fields an
+        // older origin named (vow_id, conduct, reputation) still present and
+        // null: they parse and are ignored.
         let id = who(json!({
             "handle": "0x2444",
             "handle_kind": "wallet",
-            "matches": 2,
-            "found": {
-                "agent": "Dummmy",
-                "vow_id": "1a434221c5333fa7",
-                "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
-                "avatar": "/vow/1a434221c5333fa7/mark.svg",
-            },
-            "subject": {
-                "kind": "wallet",
-                "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
-                "identities": 2,
-            },
-        }));
-        assert_eq!(id.name, "Dummmy");
-        assert_eq!(id.kind, NameKind::Derived);
-        assert_eq!(id.vow_id.as_deref(), Some("1a434221c5333fa7"));
-        assert_eq!(id.face, "https://elo.test/api/vow/1a434221c5333fa7/mark.svg");
-        assert!(!id.bare, "a wallet with a vow is not bare");
-    }
-
-    #[test]
-    fn a_wallet_with_several_vows_says_so_rather_than_picking_quietly() {
-        // "this wallet is an identifier, so the vows below are ONE party's,
-        // not a collision" — the account is the wallet, and the wallet has no
-        // name of its own yet, so showing one of several must be visible.
-        let many = who(json!({
-            "matches": 2,
-            "found": {"agent": "Dummmy", "vow_id": "a"},
-            "subject": {"kind": "wallet", "wallet": "0xdead", "identities": 2},
-        }));
-        assert_eq!(many.vows, 2);
-        assert!(many.ambiguous());
-
-        let one = who(json!({
             "matches": 1,
-            "found": {"agent": "Solo", "vow_id": "b"},
-            "subject": {"kind": "wallet", "wallet": "0xdead", "identities": 1},
+            "authoritative": true,
+            "found": {
+                "agent": "Mara",
+                "kind": "unknown",
+                "vow_id": null,
+                "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+                "nip05": null,
+                "avatar": "/face/0x2444/pic.png",
+                "profile": {"name": "Mara", "picture": "/face/0x2444/pic.png"},
+                "conduct": null,
+                "reputation": null,
+                "seat": null,
+            },
+            "subject": {"kind": "wallet", "wallet": "0x24445EFddB08d4938E3E3627042B2Cf4063d9092",
+                        "identities": 1, "reputation": null, "house": null},
         }));
-        assert!(!one.ambiguous());
-        assert_eq!(one.vows, 1);
+        assert_eq!(id.name, "Mara");
+        assert_eq!(id.kind, NameKind::Declared);
+        assert_eq!(id.face, "https://elo.test/api/face/0x2444/pic.png");
+        assert!(!id.bare);
+        assert!(!id.ambiguous());
     }
 
     #[test]
-    fn the_subjects_wallet_outranks_a_vows_copy() {
-        // The account is the address. A vow carries a copy of it, and if the
-        // two ever disagreed the account is the one that is right.
+    fn a_shared_name_says_so_rather_than_picking_quietly() {
+        // A self-declared name is not unique; `/who` answers with the count
+        // and the surface says it showed one of several.
+        let many = who(json!({"matches": 2, "found": {"agent": "Mara", "wallet": "0xa"}}));
+        assert_eq!(many.matches, 2);
+        assert!(many.ambiguous());
+        let one = who(json!({"matches": 1, "found": {"agent": "Solo", "wallet": "0xb"}}));
+        assert!(!one.ambiguous());
+    }
+
+    #[test]
+    fn the_subjects_wallet_outranks_the_rows_copy() {
+        // The account is the address; if the two ever disagreed the account
+        // is the one that is right.
         let id = who(json!({
-            "found": {"wallet": "0xfromthevow", "agent": "x"},
-            "subject": {"kind": "wallet", "wallet": "0xtheaccount", "identities": 1},
+            "found": {"wallet": "0xfromtherow", "agent": "x"},
+            "subject": {"kind": "wallet", "wallet": "0xtheaccount"},
         }));
         assert_eq!(id.wallet.as_deref(), Some("0xtheaccount"));
-    }
-
-    #[test]
-    fn a_bare_address_has_no_vows() {
-        let id = Identity::bare("0xabc", "https://elo.test");
-        assert_eq!(id.vows, 0);
-        assert!(!id.ambiguous());
     }
 
     #[test]

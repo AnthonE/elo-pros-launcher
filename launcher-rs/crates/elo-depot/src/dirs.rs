@@ -20,6 +20,22 @@ pub fn state_root() -> PathBuf {
     home_based("XDG_STATE_HOME", ".local/state").join("elo")
 }
 
+/// Where Workshop mods are kept: one folder per game, one per mod inside it
+/// (`workshop::sync`).
+///
+/// `ELO_MODS` wins; otherwise beside the games, `$XDG_DATA_HOME/elo/mods`
+/// (`~/.local/share/elo/mods`) on unix and `%LOCALAPPDATA%\elo\mods` on
+/// Windows. Not inside the games root: a build may be called `mods`, and a
+/// title's folder holds only its builds.
+pub fn mods_root() -> PathBuf {
+    if let Ok(p) = std::env::var("ELO_MODS") {
+        if !p.is_empty() {
+            return PathBuf::from(p);
+        }
+    }
+    home_based("XDG_DATA_HOME", ".local/share").join("elo").join("mods")
+}
+
 /// The XDG dir on unix, `%LOCALAPPDATA%` on Windows — and never a path rooted
 /// at `/` because an env var was missing.
 ///
@@ -46,8 +62,11 @@ pub fn home_based(xdg_var: &str, unix_tail: &str) -> PathBuf {
     }
     #[cfg(not(windows))]
     {
+        // Absolute only, as the XDG spec says: a relative one is a path under
+        // whatever directory the launcher was started in, which is the
+        // "somewhere the caller cannot find" this function exists to prevent.
         if let Ok(p) = std::env::var(xdg_var) {
-            if !p.is_empty() {
+            if std::path::Path::new(&p).is_absolute() {
                 return PathBuf::from(p);
             }
         }

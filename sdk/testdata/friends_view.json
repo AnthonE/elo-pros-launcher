@@ -15,6 +15,7 @@
         "server": "us-east-1",
         "server_name": "Gates US East 1",
         "since": 1761000000,
+        "status": "Raiding \u00b7 3/4",
         "join": "elo://join/gates/game.elopros.com:61234"
       },
       "last_online": null
@@ -32,6 +33,7 @@
         "server": "eu-1",
         "server_name": "Gates EU 1",
         "since": 1761001000,
+        "status": null,
         "join": null
       },
       "last_online": null
@@ -61,6 +63,7 @@
         "server": "us-east-1",
         "server_name": "Gates US East 1",
         "since": 1761002000,
+        "status": null,
         "join": "elo://join/gates/game.elopros.com:61234"
       },
       "last_online": null,
@@ -98,6 +101,7 @@
         "server": "us-east-1",
         "server_name": "Gates US East 1",
         "since": 1761000000,
+        "status": null,
         "join": "elo://join/gates/game.elopros.com:61234"
       },
       "last_online": null,

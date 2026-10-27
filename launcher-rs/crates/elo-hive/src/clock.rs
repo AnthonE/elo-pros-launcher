@@ -27,11 +27,13 @@ pub fn now() -> i64 {
 /// `"3m ago"`, `"2h ago"`, `"4d ago"`. A chat feed printing raw epoch integers
 /// is a chat feed nobody reads.
 pub fn ago(at: i64, now: i64) -> String {
-    let d = now - at;
+    // Saturating: `at` is a relay's number, and a stranger's i64::MIN must
+    // not overflow the one line that draws it.
+    let d = now.saturating_sub(at);
     if d < 0 {
         // A clock skewed the wrong way is worth showing rather than hiding as
         // "0s ago" — it is usually the reader's clock and it explains a lot.
-        return format!("in {}", span(-d));
+        return format!("in {}", span(d.saturating_neg()));
     }
     if d < 5 {
         return "just now".into();

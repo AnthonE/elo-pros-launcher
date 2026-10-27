@@ -168,8 +168,8 @@ fn the_vocabulary_cannot_operate_the_launcher() {
     // a game wrote.
     //
     // What `profile` buys: a name and a face for an address, so a game can draw
-    // a scoreboard without every title reimplementing the join across sworn
-    // name, npub, vow and wallet. **It is a READ and authorises nothing** — no
+    // a scoreboard without every title reimplementing the join on the
+    // wallet. **It is a READ and authorises nothing** — no
     // signature, no consent, no key. It could have been left to the game (fetch
     // `/api/who` yourself, as `servers` leaves the shard list), and the reason
     // it is not is that the vendored Rust SDK is `std`-only with no HTTP
@@ -222,7 +222,7 @@ fn consent_is_counted_and_a_second_ask_reprompts() {
 #[test]
 fn the_prompt_is_given_the_message_and_the_games_reason() {
     let mut h = Fake::default();
-    let text = "elo play\naction: duel\nvow: vow_x\ndetail: ETH up 5";
+    let text = "elo play\naction: duel\nwallet: 0xabc\ndetail: ETH up 5";
     let out = talk(&mut h, &[hello(), json!({
         "op": "sign", "text": text, "why": "settling round 41",
     })]);
@@ -312,6 +312,26 @@ fn a_bad_line_is_answered_rather_than_disconnected() {
     assert_eq!(first["ok"], json!(false));
     let second: Value = serde_json::from_str(lines[1]).unwrap();
     assert_eq!(second["ok"], json!(true), "and hello still worked afterwards");
+}
+
+#[test]
+fn a_line_that_is_not_utf8_is_answered_and_an_endless_one_is_cut_off() {
+    let mut h = Fake::default();
+    let mut input = b"\xff\xfe\n{\"op\":\"hello\",\"game\":\"gates\"}\n".to_vec();
+    let mut stream = Duplex { input: std::io::Cursor::new(input.clone()), output: Vec::new() };
+    serve_conn(&mut stream, &mut h).expect("bad bytes must not kill the connection");
+    let lines: Vec<&str> = std::str::from_utf8(&stream.output).unwrap().lines().collect();
+    assert_eq!(lines.len(), 2, "both lines answered");
+    assert!(lines[0].contains("UTF-8"), "{}", lines[0]);
+
+    // Over the cap with no newline in sight: refused, and the read stops
+    // there instead of buffering whatever the client keeps sending.
+    input = vec![b'x'; elo_broker::MAX_LINE + 4096];
+    let mut stream = Duplex { input: std::io::Cursor::new(input), output: Vec::new() };
+    serve_conn(&mut stream, &mut h).expect("serve");
+    let out = String::from_utf8(stream.output).unwrap();
+    assert_eq!(out.lines().count(), 1, "{out}");
+    assert!(out.contains("over"), "{out}");
 }
 
 #[test]
@@ -828,4 +848,19 @@ fn a_message_with_a_hidden_or_reordering_character_is_refused_before_consent() {
     let mut h = Fake::default();
     let out = talk(&mut h, &[hello(), json!({"op": "sign", "text": "elo play\ndetail:\tgg", "why": "w"})]);
     assert_eq!(out[1]["ok"], json!(true), "{}", out[1]);
+}
+
+/// A caller's `issued_at` at the edge of i64 is refused, not wrapped. In a
+/// release build `(i64::MIN + now - now).abs()` stays negative, which passed
+/// the skew check and stamped a proof "Issued At: -292277022657-…".
+#[test]
+fn an_issued_at_at_the_edge_of_the_clock_is_refused() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    for secs in [i64::MIN, i64::MIN + now, i64::MAX, now - 100_000, now + 100_000] {
+        assert!(elo_broker::protocol::check_issued_at(secs).is_err(), "{secs} passed");
+    }
+    assert!(elo_broker::protocol::check_issued_at(now).is_ok());
 }

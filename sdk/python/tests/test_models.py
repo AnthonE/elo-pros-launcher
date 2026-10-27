@@ -5,7 +5,7 @@ import unittest
 from _testdata import fx
 
 from elo_sdk import classify
-from elo_sdk.models import FriendsView, Items, Leaderboard, Ticket, TicketOf, Who
+from elo_sdk.models import Face, FriendsView, GuildsOf, GuildTags, Items, Leaderboard, Ticket, TicketOf, Who
 
 
 def answer(body, parse):
@@ -71,8 +71,22 @@ class Models(unittest.TestCase):
     def test_who(self):
         who = answer(fx("who_fixture.json")["who"], Who.from_json)
         self.assertTrue(who.authoritative)
-        self.assertEqual((who.found.agent, who.found.vow_id), ("Dummmy", "1a434221c5333fa7"))
-        self.assertIn("conduct", who.found.raw)
+        self.assertEqual((who.found.agent, who.found.nip05), ("Moss", "moss@elopros.com"))
+        self.assertEqual(who.found.profile.name, "Moss")
+        self.assertIn("reach", who.found.raw)
+
+    def test_guilds(self):
+        g = fx("guilds.json")
+        tags = answer(g["tags"], GuildTags.from_json)
+        owl = tags.of("0xB2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2")
+        self.assertEqual((owl.tag, owl.color, owl.role), ("OWL", "teal", "member"))
+        self.assertIsNone(tags.of("0x" + "c3" * 20))
+        self.assertIn("0x" + "c3" * 20, tags.tags)
+        of = answer(g["of"], GuildsOf.from_json)
+        self.assertEqual((of.worn, of.hidden, of.guilds[0].shape, of.guilds[0].members), ("OWL", False, "hex", 2))
+        f = fx("face.json")
+        self.assertEqual(answer(f["set"], Face.from_json).guild.tag, "OWL")
+        self.assertIsNone(answer(f["unset"], Face.from_json).guild)
 
     def test_the_three_outcomes(self):
         self.assertTrue(classify(404, '{"error":"no ask from that wallet"}').refused)

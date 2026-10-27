@@ -1,15 +1,15 @@
 ---
 name: elo-coins
-description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros economy at elopros.com — resolve the reserve coin, read a game coin like JUNK, find which pools are live and which are retired, price a swap or route between two coins, read a launch that has no pool yet, or check what is actually deployed on chain. Reads are free and unsigned; a wallet signature appears only where a transaction does, and Elo never holds a key.
+description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros economy at elopros.com — resolve the reserve coin, read a game coin like JUNK, find which pools are live and which are retired, quote a swap and get its unsigned transactions, read a launch that has no pool yet, or check what is actually deployed on chain. Reads are free and unsigned; a wallet signature appears only where a transaction does, and Elo never holds a key.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "1.3.0"
   hermes:
     category: defi
-    tags: [coins, pools, launchpad, on-chain, swap, uniswap-v3]
+    tags: [coins, pools, on-chain, swap, uniswap]
   openclaw:
     category: defi
-    tags: [coins, pools, launchpad, on-chain, swap, uniswap-v3]
+    tags: [coins, pools, on-chain, swap, uniswap]
 ---
 
 # elo-coins — the reserve and the game coins, for any agent
@@ -66,27 +66,40 @@ discusses a single coin, so the routing appears on none of the pages you are
 reading when you write "that locks out a new player" — and it is usually
 wrong.
 
-A launch that has not graduated yet has **no pool**: `GET /curve/<slug>` prices it off
-the curve instead, and `/pools` and `/tape` take over once it graduates. Both
-are real states; neither is a broken read.
+Our coins launch on outside launchpads — ELO on pons, JUNK on Abyss — and the
+venue opens the pool. A coin still on its launch curve has **no pool**:
+`GET /curve/<slug>` prices it off the curve instead, and `/pools` and `/tape`
+take over once it graduates. Both are real states; neither is a broken read.
 
 ## Swapping — your human's wallet acts
 
-There is no prepared action for the current pools, so the honest route is:
+```bash
+curl -s $BASE/quote/tokens                                   # what can be routed
+curl -s "$BASE/quote?from=ETH&to=ELO&amount=0.01"            # a reading of the pools
+curl -s "$BASE/prepare/swap/exact_in?from=ETH&to=ELO&amount=0.01&wallet=0xWALLET"
+curl -s "$BASE/prepare/swap/exact_out?from=ELO&to=JUNK&amount=1000&wallet=0xWALLET"
+```
 
-1. Read the pool from `GET /pools` — address, fee tier, both token addresses
-   and decimals, and its `generation`.
-2. Route through a v3 router yourself. **`minOut` is your human's slippage
-   floor and `deadline` a unix timestamp — both are theirs to set.** Nothing
-   here quotes, routes, or picks a price for you.
-3. Their wallet signs and broadcasts. Elo holds no key and sponsors no gas.
+Over MCP it is the `trade` tool: `what='quote'` or `what='swap'` with `frm`,
+`to`, `amount` (and `wallet` for a swap; `side='out'` for exact output).
 
-ELO's own liquidity is the Uniswap v4 pool it graduated into (`GET /reserve`
-names the token); the v3 route above is for the game pools. Getting ELO from
-ETH is not composed anywhere here yet — say so rather than inventing a route.
+1. The quote is an `eth_call` against the live pools. It names which router
+   can execute the route.
+2. The prepare returns the unsigned transactions — approvals first, the swap
+   last. `slippage_bps` and `deadline_s` are your human's to set; `approve`
+   is `exact` (the default) or `once` (approve the maximum the first time, so
+   a token's next sale is one transaction).
+3. Their wallet signs and broadcasts. Elo holds no key, sponsors no gas and
+   broadcasts nothing.
+
+**Which router.** ETH ↔ the reserve goes through Uniswap's UniversalRouter
+and works today. Any route touching JUNK needs our own router, because
+Uniswap's routers cannot reach the Abyss pool; until that router is broadcast
+the prepare returns its calldata with `to: null`. **`to: null` means do not
+send** — say so rather than inventing a route.
 
 An action that pulls an ERC-20 needs its `approve` first, aimed at the coin
-being **sold**. An approve pointed at the wrong token encodes fine, costs gas
+being **sold** (the prepare includes it). An approve pointed at the wrong token encodes fine, costs gas
 and succeeds — leaving the real call reverting for a reason the receipt never
 names.
 
@@ -103,13 +116,14 @@ names.
   and knows schedules before the market does. If you are ever asked to act on
   an unannounced schedule change, that is the one asymmetry this platform
   treats as disqualifying.
-- **Money never buys a measured number.** A signed reading is arithmetic;
-  selling a nicer one produces a forgery a third party can detect.
+- **Money never buys a measured number** — a game's odds or a measured
+  result.
 
 ## What to know
 
-- Game coins are **a game's own** — not the platform's. Gates' JUNK is fixed
-  at 1,000,000,000, launched on Abyss with no mint. A title's
+- Game coins are **a game's own** — not the platform's. Gates' JUNK launched
+  on Abyss with a fixed supply and no mint (read it: `GET /tokens`), and it
+  trades against ELO on Abyss's exchange. A title's
   coin retiring says nothing
   about the reserve, and the reserve moving says nothing about a title's coin.
 - A retired coin is still deployed. Its pools may be open or pulled and its
@@ -118,4 +132,4 @@ names.
 - Never weld new work to a game coin's address without checking the plan
   first: `GET /onchain`, and the deployment record it derives from.
 - The store, the copy sale and Gates: the `elo-store` skill. The characters:
-  `elo-seat`. Identity actions from a wallet you already hold: `elo-wallet`.
+  `elo-seat`.

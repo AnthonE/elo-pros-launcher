@@ -134,3 +134,26 @@ fn bytes_go_up_as_bytes_and_the_reply_still_reads() {
     assert!(got.ok, "{}", got.why);
     assert_eq!(got.value.unwrap()["sha256"], "abc");
 }
+
+#[test]
+fn a_get_refusal_keeps_its_sentence_too() {
+    let s = serve(422, r##"{"error":"#9 is not in 0xaaaa"}"##, "application/json");
+    let net = Net::new();
+    let url = format!("{}/api/collections/skins/list/prepare?id=9", s.base);
+    let told = net.get_json_told(&url);
+    assert!(told.reachable && !told.ok);
+    assert_eq!(told.status, Some(422));
+    assert_eq!(told.why, "#9 is not in 0xaaaa");
+    let bare = net.get_json(&url);
+    assert!(bare.value.is_none(), "get_json drops the body — that is why the other exists");
+}
+
+#[test]
+fn a_get_success_reads_as_before() {
+    let s = serve(200, r#"{"collections":[]}"#, "application/json");
+    let got = Net::new().get_json_told(&format!("{}/api/collections", s.base));
+    assert!(got.ok && got.why.is_empty());
+    assert!(got.value.unwrap()["collections"].is_array());
+    let down = Net::new().get_json_told("http://127.0.0.1:9/x");
+    assert!(!down.reachable && down.status.is_none());
+}

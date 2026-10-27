@@ -151,8 +151,10 @@ fn face_body_and_signed_texts() {
     let set: elo_sdk::models::Face = as_answer(&f["set"]);
     assert_eq!(set.name.as_deref(), Some("ash"));
     assert!(set.picture.as_deref().unwrap().starts_with("/api/face/"));
+    assert_eq!(set.guild.as_ref().map(|g| g.tag.as_str()), Some("OWL"));
     let unset: elo_sdk::models::Face = as_answer(&f["unset"]);
     assert_eq!(unset.name, None);
+    assert_eq!(unset.guild, None);
     for c in f["cases"].as_array().unwrap() {
         let g = |k: &str| c["fields"].get(k).and_then(Value::as_str);
         let detail = texts::face_detail(
@@ -172,6 +174,33 @@ fn face_body_and_signed_texts() {
         );
         assert_eq!(text, c["text"].as_str().unwrap());
     }
+}
+
+#[test]
+fn guild_tags_and_a_wallets_guilds() {
+    let g = fx(include_str!("../../testdata/guilds.json"));
+    let tags: elo_sdk::models::GuildTags = as_answer(&g["tags"]);
+    let owl = tags
+        .of("0xB2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2")
+        .expect("a wearer reads, any case");
+    assert_eq!(
+        (owl.tag.as_str(), owl.color.as_deref(), owl.role.as_deref()),
+        ("OWL", Some("teal"), Some("member"))
+    );
+    assert!(tags
+        .of("0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3")
+        .is_none());
+    assert!(tags
+        .tags
+        .contains_key("0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"));
+    let of: elo_sdk::models::GuildsOf = as_answer(&g["of"]);
+    assert_eq!(of.worn.as_deref(), Some("OWL"));
+    assert!(!of.hidden);
+    assert_eq!(of.guilds[0].emblem.shape.as_deref(), Some("hex"));
+    assert_eq!(
+        (of.guilds[0].members, of.guilds[0].role.as_deref()),
+        (2, Some("member"))
+    );
 }
 
 #[test]
@@ -199,9 +228,16 @@ fn who_parses() {
     let who: Who = as_answer(&w["who"]);
     assert!(who.authoritative);
     let found = who.found.unwrap();
-    assert_eq!(found.agent.as_deref(), Some("Dummmy"));
-    assert_eq!(found.vow_id.as_deref(), Some("1a434221c5333fa7"));
-    assert!(found.rest.contains_key("conduct"));
+    assert_eq!(found.agent.as_deref(), Some("Moss"));
+    assert_eq!(found.nip05.as_deref(), Some("moss@elopros.com"));
+    assert_eq!(
+        found.profile.as_ref().and_then(|p| p.name.as_deref()),
+        Some("Moss")
+    );
+    assert!(
+        found.rest.contains_key("reach"),
+        "what is not named lands in `rest`"
+    );
 }
 
 #[test]
@@ -233,4 +269,84 @@ fn payout_files_good_and_bad() {
     let refused = PayoutFile::new(0).write_atomic(&dir.join("bad.json"));
     assert!(refused.is_err() && !dir.join("bad.json").exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn buddy_texts_read_back_as_the_change_asked_for() {
+    let f = fx(include_str!("../../testdata/buddy_texts.json"));
+    let ops: Vec<&str> = f["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o.as_str().unwrap())
+        .collect();
+    assert_eq!(ops, texts::BUDDY_OPS, "the ops are the server's");
+    for c in f["cases"].as_array().unwrap() {
+        let w = c["wallet"].as_str().unwrap();
+        let got = texts::buddy_change(c["text"].as_str().unwrap(), w).expect("a buddy text");
+        assert_eq!(got.day, c["day"].as_str().unwrap());
+        assert_eq!(got.op, c["op"].as_str().unwrap());
+        assert_eq!(got.at, c["at"].as_u64().unwrap());
+        assert_eq!(got.args, c["args"], "{}", c["op"]);
+        assert!(texts::same_args(&c["asked"], &got.args), "{}", c["asked"]);
+        let upper = format!("0x{}", w[2..].to_ascii_uppercase());
+        assert_eq!(
+            texts::read_play(c["text"].as_str().unwrap(), texts::BUDDY_ACTION, &upper),
+            Some((
+                c["day"].as_str().unwrap().to_string(),
+                c["detail"].as_str().unwrap().to_string()
+            )),
+            "a checksummed wallet reads the same text"
+        );
+    }
+    for c in f["refused"].as_array().unwrap() {
+        let got = texts::buddy_change(c["text"].as_str().unwrap(), c["wallet"].as_str().unwrap());
+        assert!(
+            !got.is_some_and(|g| g.op == c["op"] && texts::same_args(&c["asked"], &g.args)),
+            "{}",
+            c["why"]
+        );
+    }
+}
+
+#[test]
+fn board_and_entitle_texts_rebuild_byte_for_byte() {
+    let f = fx(include_str!("../../testdata/board_texts.json"));
+    for c in f["cases"].as_array().unwrap() {
+        let (w, q, day) = (
+            c["wallet"].as_str().unwrap(),
+            c["quest_id"].as_str().unwrap(),
+            c["day"].as_str().unwrap(),
+        );
+        if c["op"] == "claim" {
+            assert_eq!(
+                texts::claim_text(w, q, Some(day)),
+                c["text"].as_str().unwrap()
+            );
+            continue;
+        }
+        #[cfg(feature = "http")]
+        {
+            let (url, n) = (c["url"].as_str().unwrap(), c["n"].as_u64().unwrap());
+            assert_eq!(
+                texts::submit_detail(q, url, n),
+                c["detail"].as_str().unwrap()
+            );
+            assert_eq!(
+                texts::submit_text(w, q, url, n, Some(day)),
+                c["text"].as_str().unwrap()
+            );
+        }
+    }
+    let f = fx(include_str!("../../testdata/entitle_texts.json"));
+    for c in f["cases"].as_array().unwrap() {
+        assert_eq!(
+            texts::entitle_text(
+                c["game"].as_str().unwrap(),
+                c["wallet"].as_str().unwrap(),
+                c["day"].as_str()
+            ),
+            c["text"].as_str().unwrap()
+        );
+    }
 }

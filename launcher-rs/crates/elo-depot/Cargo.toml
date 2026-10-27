@@ -15,6 +15,10 @@ license.workspace = true
 # a dependency EDGE and no package — the k256 it brings was already in every
 # binary that links this one. No cycle: elo-broker depends on serde_json alone.
 elo-vault = { path = "../elo-vault" }
+# File hashing (`digest::sha256_file`): BoringSSL's SHA-256, three times the
+# speed of `sha2` on an install's hundreds of megabytes. An EDGE and no package:
+# `ring` is already in every binary, under rustls and under elo-vault.
+ring = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

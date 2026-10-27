@@ -123,7 +123,8 @@ between snapshots (about 100 ms behind) and predict their own avatar.
   message and the server verifies the signature. It never holds a key. On
   desktop the signature comes from the SDK's `prove` (`sdk/PROTOCOL.md`). In
   the browser it comes from the player's own wallet through the web SDK:
-  `Elo.signIn({nonce})` in `elo-1.js` (`SDK.md` §5b). The launcher relay does
+  `Elo.signIn({nonce})` in `elo-3.js` (`SDK.md` §5b), and either one is
+  checked with `POST /api/signin/check` (`GAMEDEV.md` §1). The launcher relay does
   not carry it — no SIWE rides the relay (`SIGN-IN.md` §3). A paid title
   requires it, because the ticket check needs an address.
 - **Saves.** `load(player)` on join and `save(player)` on leave and on an

@@ -84,7 +84,7 @@ fn main() {
                 decimals: 18,
                 what: "Gates's coin".into(),
             };
-            let elo = elo_net::wallet::Coin { sym: "ELO".into(), what: "the platform's".into(), ..junk.clone() };
+            let elo = elo_net::wallet::Coin { sym: "ELO".into(), what: "the platform's coin".into(), ..junk.clone() };
             let snap = elo_net::wallet::Snapshot {
                 coins: vec![
                     (elo_net::wallet::Coin::eth(), Ok(1_964_833_011_588_000)),
@@ -94,7 +94,17 @@ fn main() {
                 warning: None,
                 note: None,
             };
-            elo_ui::wiring::paint_wallet(&w, &snap, &std::cell::RefCell::new(Vec::new()));
+            let me = elo_vault::solana::parse_address("HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk").unwrap();
+            let sol = elo_net::solana::Snapshot { sol: Ok(1_250_000_000), coins: Ok(vec![]) };
+            elo_ui::wiring::paint_wallet(&w, &snap, Some((me, &sol)), &std::cell::RefCell::new(Vec::new()));
+            let mut sa = w.sol_address.clone();
+            sa.set_label("HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk");
+            sa.set_label_color(elo_ui::theme::INK);
+            sa.set_label_font(fltk::enums::Font::Courier);
+            sa.set_label_size(12);
+            w.move_amount.clone().set_value("0.5");
+            w.sol_copy.clone().activate();
+            w.sol_explorer.clone().activate();
             let (mut a, mut t) = (w.amount.clone(), w.to.clone());
             a.set_value("2.5");
             t.set_value("0xF0109fC8DF283027b6285cc889F5aA624EaC1F55");
@@ -127,10 +137,11 @@ fn main() {
             "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf\n\n\
              The keystore is the only copy of this key.\n\
              Back it up. The passphrase cannot be reset.", None).window,
-        "notice2" => windows::notice(windows::Note::Refused, "The game door did not open",
-            "Games will still install and start — they will just play anonymously.\n\n\
-             The usual cause is another copy of elo already running.\n\n\
-             Nothing retries this while the program is open, so a restart is the fix.",
+        "notice2" => windows::notice(windows::Note::Refused, "Games can't reach your account",
+            "Games will still install and start, but they will play anonymously:\n\
+             they can't ask elo who is playing or for a signature.\n\n\
+             The usual cause is another copy of elo already running. Close it,\n\
+             then restart this one.",
             Some("Restart elo now")).window,
         // The install notice, with the step after it ON it. Operator,
         // 2026-08-23: *"when we install a game it would be nice if it just
@@ -260,13 +271,13 @@ fn main() {
         // and what must stay true is that the buttons are still on screen.
         "consent" => windows::consent(
             &elo_ui::consent::Ask::new(
-                "gates", "play",
-                "elo play\naction: duel\nvow: vow_7f3a9c\nday: 2026-08-08\n\
+                "gates", "play duel",
+                "elo play\naction: duel\nwallet: 0x7f3a9c00000000000000000000000000000000aa\nday: 2026-08-08\n\
                  detail: ETH up 5 by close",
                 "settling round 41"),
             Some("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"), true).window,
         "consent2" => windows::consent(
-            &elo_ui::consent::Ask::new("gates", "play", "elo play\naction: duel", ""),
+            &elo_ui::consent::Ask::new("gates", "play duel", "elo play\naction: duel", ""),
             None, false).window,
         "consent3" => windows::consent(
             &elo_ui::consent::Ask::new(
@@ -319,7 +330,7 @@ fn main() {
                 status: "live · hive.elopros.com".into(),
                 npub: Some("npub1k7v2xq0u4rj3m8w5yqkf9e6h2c0s4n7d3g5p8t2z6v9x0a1b2c3dqwerty".into()),
                 // Two speakers with pictures (as `/who` would hand back — a
-                // seat face and a vow mark are both SVG on the origin), one
+                // seat face and a profile picture are both on the origin), one
                 // with none, so the capture shows the tile beside the faces.
                 people: [
                     ("b", "mara", r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#2d3a52"/><circle cx="32" cy="26" r="12" fill="#e8b48a"/><rect x="14" y="42" width="36" height="22" rx="10" fill="#c9a227"/></svg>"##),
@@ -330,7 +341,7 @@ fn main() {
                     (format!("npub1{id}qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"),
                      elo_hive::chat::Person {
                          name: name.into(),
-                         kind: elo_hive::who::NameKind::Sworn,
+                         kind: elo_hive::who::NameKind::Handle,
                          wallet: None, picture: Some(std::sync::Arc::new(svg.as_bytes().to_vec())),
                      })
                 })

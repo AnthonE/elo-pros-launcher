@@ -1,0 +1,26 @@
+{
+ "elo_mod": 1,
+ "game": "the-game-slug",
+ "id": "your-mod-id",
+ "name": "Your Mod",
+ "about": "What the mod is and what it changes, in plain words. 2000 characters.",
+ "kind": "map",
+ "version": "1.0.0",
+ "license": "MIT",
+ "files": [
+  {
+   "name": "your-mod.zip",
+   "url": "https://github.com/you/your-mod/releases/download/v1.0.0/your-mod.zip",
+   "sha256": "the 64 hex characters sha256sum prints for your-mod.zip",
+   "size": 123456
+  }
+ ],
+ "preview": "preview.png",
+ "requires": [],
+ "_game": "The slug of the game this mod is for. GET https://elopros.com/api/workshop lists the games that take mods; GET https://elopros.com/api/workshop/<game> shows the kinds each one takes.",
+ "_id": "Lowercase letters, digits and '-', up to 48 characters. An id belongs to the first repo that publishes it in a game, so a fork picks its own.",
+ "_kind": "One of the kinds the game takes, e.g. map, skin, mode.",
+ "_files": "1 to 8 files. Each url is a release asset of THIS repo: https://github.com/<you>/<this repo>/releases/download/<tag>/<file>. size is in bytes. The game checks each file's sha256 after download, so a file whose bytes differ is refused.",
+ "_optional": "license, preview (a .png or .jpg in this repo) and requires (other mod ids in the same game) may be left out. A LICENSE file in the repo is recorded too.",
+ "_next": "Upload your files to a GitHub release on a public repo, commit this file at the repo's root as elo-mod.json, then paste the repo at https://elopros.com/mods.html#workshop, or POST https://elopros.com/api/workshop/<game>/publish with {\"repo\": \"https://github.com/you/your-mod\"}. For an update, make a new release, change version and the files, commit, and publish again. Keys starting with _ are your own notes and are ignored."
+}

@@ -3,7 +3,10 @@
 //! Every read answers a [`Look`]. Every write is prepare → rebuild the text
 //! here → sign → act, and a server that prepares a different text from the
 //! change asked for is refused before the signer is asked (the launcher's
-//! own guard, `launcher-rs/crates/elo-launcher/src/friends.rs`).
+//! own guard, `launcher-rs/crates/elo-launcher/src/friends.rs`). A buddy
+//! change is the one read back instead of rebuilt: the server cleans its args
+//! (a name trimmed, a line's spaces collapsed), so the change is parsed out of
+//! the text and compared with what was asked ([`texts::same_args`]).
 
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -13,16 +16,70 @@ use serde_json::{json, Map, Value};
 
 use crate::look::{classify, Look, Refusal};
 use crate::models::{
-    Face, FacePrepared, FriendsActed, FriendsPrepared, FriendsView, Items, Leaderboard, Ticket,
-    TicketOf, Who,
+    Face, FacePrepared, FriendsActed, FriendsPrepared, FriendsView, GuildTags, GuildsOf, Items,
+    Leaderboard, Roster, SignIn, Ticket, TicketOf, Who,
 };
 use crate::overlay::play_message;
+use crate::server::ServerKey;
 use crate::texts;
 
 /// The platform's origin.
 pub const DEFAULT_ORIGIN: &str = "https://elopros.com";
 /// How long one request may take before it is "could not look".
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
+/// How many wallets one roster sweep sends (the server's own cap).
+pub const ROSTER_PAGE: usize = 100;
+
+/// What [`Client::check_sign_in`] holds a sign-in to. `domain` (your host or
+/// `host:port`) and `nonce` (the one you issued) are required; the rest
+/// tighten it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SignInCheck {
+    pub domain: String,
+    pub nonce: String,
+    /// When set, the `URI:` line must equal it.
+    pub uri: Option<String>,
+    /// When set, the `Chain ID:` line must equal it (`4663`, `mainnet`).
+    pub chain_id: Option<String>,
+    /// How old `Issued At` may be, in seconds (default 600, at most 86400).
+    pub max_age_s: Option<u32>,
+}
+
+impl SignInCheck {
+    pub fn new(domain: &str, nonce: &str) -> SignInCheck {
+        SignInCheck {
+            domain: domain.to_string(),
+            nonce: nonce.to_string(),
+            ..SignInCheck::default()
+        }
+    }
+}
+
+/// A fresh sign-in nonce: `n` letters and digits (8 to 128), from the
+/// operating system's CSPRNG — the alphabet EIP-4361 requires, so a uuid with
+/// dashes never reaches a wallet. Issue one per sign-in; retire it once
+/// [`Client::check_sign_in`] answers. None if `n` is out of range or the
+/// system RNG failed.
+pub fn new_nonce(n: usize) -> Option<String> {
+    use ring::rand::SecureRandom;
+    const ABC: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    if !(8..=128).contains(&n) {
+        return None;
+    }
+    let rng = ring::rand::SystemRandom::new();
+    let mut out = String::with_capacity(n);
+    let mut buf = vec![0u8; n * 2];
+    while out.len() < n {
+        rng.fill(&mut buf).ok()?;
+        // 248 = 4 × 62: the bytes above it are dropped, so no letter is likelier
+        for b in buf.iter().filter(|b| **b < 248) {
+            if out.len() < n {
+                out.push(ABC[usize::from(*b) % 62] as char);
+            }
+        }
+    }
+    Some(out)
+}
 
 /// A client for one origin. Cheap to clone; holds a connection pool.
 #[derive(Clone)]
@@ -103,6 +160,29 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+fn solana_ok(s: &str) -> bool {
+    (32..=44).contains(&s.len())
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() && !matches!(c, b'0' | b'O' | b'I' | b'l'))
+}
+
+fn domain_ok(s: &str) -> bool {
+    let (host, port) = match s.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (s, None),
+    };
+    !host.is_empty()
+        && host.len() <= 253
+        && host
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'.' || c == b'-')
+        && port.is_none_or(|p| (1..=5).contains(&p.len()) && p.bytes().all(|c| c.is_ascii_digit()))
+}
+
+fn nonce_ok(s: &str) -> bool {
+    (8..=128).contains(&s.len()) && s.bytes().all(|c| c.is_ascii_alphanumeric())
+}
+
 fn slug_ok(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
@@ -125,7 +205,15 @@ fn enc(s: &str) -> String {
     out
 }
 
-fn b64(data: &[u8]) -> String {
+fn with_query(path: &str, q: &[String]) -> String {
+    if q.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{}", q.join("&"))
+    }
+}
+
+pub(crate) fn b64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
@@ -144,7 +232,7 @@ fn b64(data: &[u8]) -> String {
     out
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
     ring::digest::digest(&ring::digest::SHA256, data)
         .as_ref()
         .iter()
@@ -258,6 +346,21 @@ impl Client {
         }
     }
 
+    /// Who can hold a copy: a 0x wallet (lowercased), or a Solana wallet as
+    /// given — base58 is case-sensitive — which holds through its linked 0x one.
+    fn holder(w: &str) -> Result<String, Refusal> {
+        let w = w.trim();
+        if texts::is_wallet(w) {
+            Ok(w.to_ascii_lowercase())
+        } else if solana_ok(w) {
+            Ok(w.to_string())
+        } else {
+            Err(Refusal::here(
+                "wallet must be 0x + 40 hex, or a Solana address",
+            ))
+        }
+    }
+
     fn slug(s: &str) -> Result<String, Refusal> {
         let s = s.trim().to_ascii_lowercase();
         if slug_ok(&s) {
@@ -346,9 +449,10 @@ impl Client {
         }
     }
 
-    /// Whether a wallet holds a copy, with its count and free mints left.
+    /// Whether a wallet holds a copy, with its count and free mints left. A
+    /// Solana wallet holds through the 0x wallet it is linked to.
     pub fn ticket_of(&self, slug: &str, wallet: &str) -> Look<TicketOf> {
-        match (Client::slug(slug), Client::wallet(wallet)) {
+        match (Client::slug(slug), Client::holder(wallet)) {
             (Ok(s), Ok(w)) => self.get(&format!("/api/ticket/{s}/of/{w}")),
             (Err(r), _) | (_, Err(r)) => Look::Refused(r),
         }
@@ -361,6 +465,140 @@ impl Client {
             Some(b) => Look::Answer(b),
             None => Look::CouldNotLook(t.why.unwrap_or_else(|| "the ownership read failed".into())),
         })
+    }
+
+    /// The roster sweep, server to server — the real gate: which of
+    /// `wallets` still hold a copy. Check at join, then on an interval: a
+    /// player can sell the copy mid-session. Sends [`ROSTER_PAGE`] wallets a
+    /// call. Kick on `Some(false)` only: `None` is a read that failed, and a
+    /// page that could not be read is `None` for every wallet on it.
+    /// Could-not-look when no page could be read.
+    pub fn check_roster(&self, slug: &str, wallets: &[&str]) -> Look<Roster> {
+        let s = match Client::slug(slug) {
+            Ok(s) => s,
+            Err(r) => return Look::Refused(r),
+        };
+        if wallets.is_empty() {
+            return Look::Refused(Refusal::here("wallets is a list of addresses"));
+        }
+        let mut roster: Vec<String> = Vec::new();
+        for w in wallets {
+            match Client::holder(w) {
+                Ok(h) if !roster.contains(&h) => roster.push(h),
+                Ok(_) => {}
+                Err(_) => {
+                    return Look::Refused(Refusal::here(
+                        "every wallet is 0x + 40 hex, or a Solana address",
+                    ))
+                }
+            }
+        }
+        let mut out = Roster {
+            game: s.clone(),
+            ticketed: true,
+            entitled: Default::default(),
+        };
+        let (mut read, mut failed) = (0usize, None);
+        for page in roster.chunks(ROSTER_PAGE) {
+            let got: Look<Value> = self.post(
+                &format!("/api/ticket/{s}/check"),
+                &json!({ "wallets": page }),
+            );
+            let v = match got {
+                Look::Answer(v) if v.is_object() => v,
+                Look::Answer(_) => {
+                    failed = Some("the answer is not in a shape this SDK reads".to_string());
+                    out.entitled.extend(page.iter().map(|w| (w.clone(), None)));
+                    continue;
+                }
+                Look::Refused(r) => return Look::Refused(r),
+                Look::CouldNotLook(why) => {
+                    failed = Some(why);
+                    out.entitled.extend(page.iter().map(|w| (w.clone(), None)));
+                    continue;
+                }
+            };
+            read += 1;
+            if let Some(g) = v.get("game").and_then(Value::as_str) {
+                out.game = g.to_string();
+            }
+            if v.get("ticketed") == Some(&Value::Bool(false))
+                || v.get("every_wallet_entitled") == Some(&Value::Bool(true))
+            {
+                out.ticketed = false;
+                out.entitled = roster.iter().map(|w| (w.clone(), Some(true))).collect();
+                return Look::Answer(out);
+            }
+            for w in page {
+                let e = v
+                    .get("wallets")
+                    .and_then(|rows| rows.get(w))
+                    .and_then(|row| row.get("entitled"))
+                    .and_then(Value::as_bool);
+                out.entitled.insert(w.clone(), e);
+            }
+        }
+        if read == 0 {
+            return Look::CouldNotLook(failed.unwrap_or_else(|| "no page could be read".into()));
+        }
+        Look::Answer(out)
+    }
+
+    // ── sign-in ─────────────────────────────────────────────────────────────
+
+    /// Is this a fresh sign-in to your server, signed by the wallet it names?
+    /// For the message and signature the web SDK's `Elo.signIn` hands your
+    /// page (Ethereum or Solana), or the launcher's [`crate::Overlay::prove`].
+    /// Refused carries the failed field in `body["code"]` (`domain`, `nonce`,
+    /// `stale`, `signature`, …); could-not-look is a smart wallet's chain that
+    /// could not be asked — never refuse a player on that. Nothing is stored
+    /// there: retire the nonce once this answers.
+    pub fn check_sign_in(
+        &self,
+        message: &str,
+        signature: &str,
+        check: &SignInCheck,
+    ) -> Look<SignIn> {
+        if message.is_empty() {
+            return Look::Refused(Refusal::here("message is the signed sign-in text"));
+        }
+        if signature.is_empty() {
+            return Look::Refused(Refusal::here("signature is required"));
+        }
+        if !domain_ok(&check.domain) {
+            return Look::Refused(Refusal::here(
+                "domain is your server's host or host:port, with no scheme or path",
+            ));
+        }
+        if !nonce_ok(&check.nonce) {
+            return Look::Refused(Refusal::here(
+                "nonce is the one you issued: 8 to 128 letters and digits",
+            ));
+        }
+        let mut body = json!({
+            "message": message, "signature": signature,
+            "domain": check.domain, "nonce": check.nonce,
+        });
+        if let Some(u) = &check.uri {
+            body["uri"] = json!(u);
+        }
+        if let Some(c) = &check.chain_id {
+            body["chain_id"] = json!(c);
+        }
+        if let Some(m) = check.max_age_s {
+            if !(1..=86_400).contains(&m) {
+                return Look::Refused(Refusal::here("max_age_s is whole seconds, 1 to 86400"));
+            }
+            body["max_age_s"] = json!(m);
+        }
+        self.post::<SignIn>("/api/signin/check", &body)
+            .and_then(|s| {
+                if s.ok && !s.address.is_empty() && (s.chain == "evm" || s.chain == "solana") {
+                    Look::Answer(s)
+                } else {
+                    Look::CouldNotLook("the answer is not a checked sign-in".into())
+                }
+            })
     }
 
     // ── items ───────────────────────────────────────────────────────────────
@@ -504,14 +742,329 @@ impl Client {
         Ok(self.post("/api/face", &Value::Object(send)))
     }
 
-    /// One party by sworn name, npub, vow id or wallet. A handle nobody has
-    /// sworn is a refusal (404); a bare wallet always answers.
+    // ── guilds ──────────────────────────────────────────────────────────────
+
+    /// The guild tag each wallet shows, in one read: what a game server draws
+    /// over its players. Up to 100 wallets; a wallet that is not one is
+    /// refused here, before any request.
+    pub fn guild_tags(&self, wallets: &[&str]) -> Look<GuildTags> {
+        if wallets.is_empty() || wallets.len() > 100 {
+            return Look::Refused(Refusal::here("name 1 to 100 wallets"));
+        }
+        let mut ws = Vec::with_capacity(wallets.len());
+        for w in wallets {
+            match Client::wallet(w) {
+                Ok(w) => ws.push(w),
+                Err(r) => return Look::Refused(r),
+            }
+        }
+        self.get(&format!("/api/guilds/tags?wallets={}", ws.join(",")))
+    }
+
+    /// The guilds a wallet is in, its asks, its invites and the tag it shows.
+    pub fn guilds_of(&self, wallet: &str) -> Look<GuildsOf> {
+        match Client::wallet(wallet) {
+            Ok(w) => self.get(&format!("/api/guilds/of/{w}")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    /// One party by wallet, npub or name. A name nobody answers to is a
+    /// refusal (404); a bare wallet always answers.
     pub fn who(&self, handle: &str) -> Look<Who> {
         let h = handle.trim();
         if h.is_empty() {
             return Look::Refused(Refusal::here("name a handle to look up"));
         }
         self.get(&format!("/api/who?handle={}", enc(h)))
+    }
+
+    // ── agents: the check-in, the floor, buddies ────────────────────────────
+
+    /// An agent's check-in (`/api/home`): its face, its agents, the island,
+    /// its board record and the next steps, as JSON. `since` is the unix time
+    /// of the last check-in.
+    pub fn home(&self, wallet: Option<&str>, since: Option<u64>) -> Look<Value> {
+        let mut q = Vec::new();
+        if let Some(w) = wallet {
+            match Client::wallet(w) {
+                Ok(w) => q.push(format!("wallet={w}")),
+                Err(r) => return Look::Refused(r),
+            }
+        }
+        if let Some(t) = since {
+            q.push(format!("since={t}"));
+        }
+        self.get(&with_query("/api/home", &q))
+    }
+
+    /// Every agent on the Gates island now: who drives it, what it is doing,
+    /// its score, a watch link (`/api/agents/floor`), as JSON.
+    pub fn floor(&self) -> Look<Value> {
+        self.get("/api/agents/floor")
+    }
+
+    /// The buddy card (`/api/buddy`): the trial, whether top-ups are open
+    /// (`pay.open`, and `pay.why_not` when not), the characters, looks and the
+    /// community pots, as JSON.
+    pub fn buddy_offer(&self) -> Look<Value> {
+        self.get("/api/buddy")
+    }
+
+    /// A wallet's own agents and credit (`/api/buddy/{wallet}`), as JSON.
+    pub fn buddies(&self, wallet: &str) -> Look<Value> {
+        match Client::wallet(wallet) {
+            Ok(w) => self.get(&format!("/api/buddy/{w}")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    /// One signed change to a wallet's agents: `op` is one of
+    /// [`texts::BUDDY_OPS`], with the args it takes (`create` needs kind,
+    /// name, character and look; most others an `id`). The server cleans the
+    /// args and prepares the text; the change is read back out of it and
+    /// checked against what was asked ([`texts::same_args`]) before `sign` is
+    /// called, once. `picture_png` is for op `face`: its sha256 is signed as
+    /// `pic_sha`.
+    pub fn buddy<E>(
+        &self,
+        me: &str,
+        op: &str,
+        args: &Value,
+        picture_png: Option<&[u8]>,
+        sign: &mut dyn FnMut(&str) -> Result<String, E>,
+    ) -> Result<Look<Value>, ActError<E>> {
+        let bad = |s: &str| ActError::BadInput(s.to_string());
+        if !texts::BUDDY_OPS.contains(&op) {
+            return Err(ActError::BadInput(format!(
+                "op is one of: {}",
+                texts::BUDDY_OPS.join(", ")
+            )));
+        }
+        let w = Client::wallet(me).map_err(|r| ActError::BadInput(r.error))?;
+        let mut ask = args
+            .as_object()
+            .cloned()
+            .ok_or_else(|| bad("args is an object"))?;
+        if let Some(png) = picture_png {
+            if op != "face" {
+                return Err(bad("a picture goes with op face"));
+            }
+            if png.len() > PIC_MAX_BYTES {
+                return Err(ActError::BadInput(format!(
+                    "the picture is over the {PIC_MAX_BYTES}-byte cap"
+                )));
+            }
+            let sha = sha256_hex(png);
+            let given = ask.entry("pic_sha").or_insert_with(|| json!(sha));
+            if given.as_str().map(|g| g.trim().to_ascii_lowercase()) != Some(sha) {
+                return Err(bad("pic_sha is not the picture's sha256"));
+            }
+        }
+        let ask = Value::Object(ask);
+        let p = match self.post::<Value>(
+            "/api/buddy/prepare",
+            &json!({"wallet": w, "op": op, "args": ask}),
+        ) {
+            Look::Answer(p) => p,
+            other => return Ok(other),
+        };
+        let offered = p["sign_this"].as_str().unwrap_or_default().to_string();
+        let at = p["at"].as_u64();
+        let t = now();
+        let days: Vec<String> = [t, t - 86_400, t + 86_400]
+            .iter()
+            .map(|s| texts::day_of(*s))
+            .collect();
+        let fits = texts::buddy_change(&offered, &w).is_some_and(|c| {
+            c.op == op
+                && Some(c.at) == at
+                && days.contains(&c.day)
+                && texts::same_args(&ask, &c.args)
+        });
+        if !fits {
+            return Err(ActError::Mismatch {
+                offered,
+                expected: format!("{op} {ask}"),
+            });
+        }
+        let signature = sign(&offered).map_err(ActError::Sign)?;
+        let mut send =
+            json!({"wallet": w, "op": op, "args": ask, "at": at, "signature": signature});
+        if let Some(png) = picture_png {
+            send["picture_b64"] = json!(b64(png));
+        }
+        Ok(self.post("/api/buddy/act", &send))
+    }
+
+    // ── the board ───────────────────────────────────────────────────────────
+
+    /// The paid work on a title (`/api/munus?game=`, Gates when `None`): each
+    /// bounty, its price with the rule it settles by, who took it, as JSON.
+    pub fn board(&self, game: Option<&str>) -> Look<Value> {
+        match Client::slug(game.unwrap_or("gates")) {
+            Ok(s) => self.get(&format!("/api/munus?game={s}")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    fn board_act<E>(
+        &self,
+        me: &str,
+        quest_id: &str,
+        url: Option<&str>,
+        note: Option<&str>,
+        sign: &mut dyn FnMut(&str) -> Result<String, E>,
+    ) -> Result<Look<Value>, ActError<E>> {
+        let w = Client::wallet(me).map_err(|r| ActError::BadInput(r.error))?;
+        let q = Client::slug(quest_id).map_err(|_| {
+            ActError::BadInput("quest_id is a bounty's id, as GET /api/munus lists it".into())
+        })?;
+        let op = if url.is_some() { "submit" } else { "claim" };
+        let mut ask = json!({"wallet": w, "op": op});
+        if let Some(u) = url {
+            if !(u.starts_with("https://") || u.starts_with("http://"))
+                || u.len() > 400
+                || u.chars().any(char::is_whitespace)
+            {
+                return Err(ActError::BadInput(
+                    "url must be one http(s) link, 400 chars or fewer".into(),
+                ));
+            }
+            ask["url"] = json!(u);
+        }
+        if note.is_some_and(|n| n.chars().count() > 280) {
+            return Err(ActError::BadInput(
+                "a note is at most 280 characters".into(),
+            ));
+        }
+        let p = match self.post::<Value>(&format!("/api/munus/{q}/prepare"), &ask) {
+            Look::Answer(p) => p,
+            other => return Ok(other),
+        };
+        let offered = p["sign_this"].as_str().unwrap_or_default().to_string();
+        let detail = p["detail"].as_str().unwrap_or_default().to_string();
+        let fits = match url {
+            None => detail == q,
+            Some(u) => detail
+                .rsplit_once(" #")
+                .and_then(|(_, n)| n.parse::<u64>().ok().filter(|_| n.len() <= 6))
+                .is_some_and(|n| detail == texts::submit_detail(&q, u, n)),
+        };
+        let t = now();
+        let days: Vec<String> = [t, t - 86_400, t + 86_400]
+            .iter()
+            .map(|s| texts::day_of(*s))
+            .collect();
+        if !fits
+            || !days
+                .iter()
+                .any(|d| play_message(op, &w, &detail, Some(d)) == offered)
+        {
+            let want = match url {
+                None => q.clone(),
+                Some(u) => {
+                    let d = texts::submit_detail(&q, u, 0);
+                    format!("{} #n", d.trim_end_matches(" #0"))
+                }
+            };
+            return Err(ActError::Mismatch {
+                offered,
+                expected: play_message(op, &w, &want, Some(&days[0])),
+            });
+        }
+        let mut send = json!({"wallet": w, "signature": sign(&offered).map_err(ActError::Sign)?});
+        if let Some(u) = url {
+            send["url"] = json!(u);
+        }
+        if let Some(n) = note.filter(|n| !n.is_empty()) {
+            send["note"] = json!(n);
+        }
+        Ok(self.post(&format!("/api/munus/{q}/{op}"), &send))
+    }
+
+    /// Claim an exclusive bounty, signed: free, public, and what a delivery
+    /// to it lands on.
+    pub fn board_claim<E>(
+        &self,
+        me: &str,
+        quest_id: &str,
+        sign: &mut dyn FnMut(&str) -> Result<String, E>,
+    ) -> Result<Look<Value>, ActError<E>> {
+        self.board_act(me, quest_id, None, None, sign)
+    }
+
+    /// Deliver a pull request to a bounty, signed. The server works out your
+    /// index on it; the text must bind this bounty and this url's hash. It
+    /// is paid once the PR is accepted.
+    pub fn board_submit<E>(
+        &self,
+        me: &str,
+        quest_id: &str,
+        url: &str,
+        note: Option<&str>,
+        sign: &mut dyn FnMut(&str) -> Result<String, E>,
+    ) -> Result<Look<Value>, ActError<E>> {
+        self.board_act(me, quest_id, Some(url), note, sign)
+    }
+
+    // ── buying a copy, and the download grant ───────────────────────────────
+
+    /// The unsigned calls that buy a copy (`/api/ticket/{slug}/prepare`),
+    /// read off the contract now: sign and send them from the buying wallet.
+    /// `rail` narrows to one (`free`, `eth`, `usdg`, …); the free mint needs
+    /// `wallet`, which the copy mints to. Nothing is sent for you.
+    pub fn ticket_buy(&self, slug: &str, wallet: Option<&str>, rail: Option<&str>) -> Look<Value> {
+        let s = match Client::slug(slug) {
+            Ok(s) => s,
+            Err(r) => return Look::Refused(r),
+        };
+        let mut q = Vec::new();
+        if let Some(r) = rail.map(str::trim).filter(|r| !r.is_empty()) {
+            q.push(format!("rail={}", enc(r)));
+        }
+        if let Some(w) = wallet {
+            match Client::wallet(w) {
+                Ok(w) => q.push(format!("wallet={w}")),
+                Err(r) => return Look::Refused(r),
+            }
+        }
+        self.get(&with_query(&format!("/api/ticket/{s}/prepare"), &q))
+    }
+
+    /// A day's download grant for a copy this wallet owns: the text is
+    /// rebuilt here ([`texts::entitle_text`]) and signed once; the answer
+    /// carries `grant`, sent as `X-Elo-Grant`. A wallet with no copy is
+    /// refused (402).
+    pub fn entitle<E>(
+        &self,
+        slug: &str,
+        wallet: &str,
+        sign: &mut dyn FnMut(&str) -> Result<String, E>,
+    ) -> Result<Look<Value>, ActError<E>> {
+        let s = Client::slug(slug).map_err(|r| ActError::BadInput(r.error))?;
+        let w = Client::wallet(wallet).map_err(|r| ActError::BadInput(r.error))?;
+        let p = match self.get::<Value>(&format!("/api/ticket/{s}/message?wallet={w}")) {
+            Look::Answer(p) => p,
+            other => return Ok(other),
+        };
+        let offered = p["message"].as_str().unwrap_or_default().to_string();
+        let t = now();
+        let ok: Vec<String> = [t, t - 86_400, t + 86_400]
+            .iter()
+            .map(|d| texts::entitle_text(&s, &w, Some(&texts::day_of(*d))))
+            .collect();
+        if !ok.contains(&offered) {
+            return Err(ActError::Mismatch {
+                offered,
+                expected: ok[0].clone(),
+            });
+        }
+        let signature = sign(&offered).map_err(ActError::Sign)?;
+        Ok(self.post(
+            &format!("/api/ticket/{s}/entitle"),
+            &json!({"wallet": w, "signature": signature}),
+        ))
     }
 
     // ── leaderboards ────────────────────────────────────────────────────────
@@ -530,6 +1083,192 @@ impl Client {
             None => self.get(&format!("/api/leaderboard/{s}")),
         }
     }
+
+    // ── a game server's word (ServerKey) ────────────────────────────────────
+
+    fn signed(
+        &self,
+        key: &ServerKey,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        extra: &[(&str, &str)],
+    ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        let url = format!("{}/api{path}", self.origin);
+        let headers = key.headers(method, path, body, None, None);
+        macro_rules! with_headers {
+            ($req:expr) => {{
+                let mut r = $req.header("Accept", "application/json");
+                for (k, v) in &headers {
+                    r = r.header(*k, v.as_str());
+                }
+                for (k, v) in extra {
+                    r = r.header(*k, *v);
+                }
+                r
+            }};
+        }
+        match method {
+            "PUT" => with_headers!(self.agent.put(&url)).send(body),
+            "POST" => with_headers!(self.agent.post(&url)).send(body),
+            "DELETE" => with_headers!(self.agent.delete(&url)).call(),
+            _ => with_headers!(self.agent.get(&url)).call(),
+        }
+    }
+
+    fn cloud_path(key: &ServerKey, wallet: &str, slot: Option<&str>) -> Result<String, Refusal> {
+        let w = Client::holder(wallet)?;
+        if let Some(s) = slot {
+            let b = s.as_bytes();
+            let ok = !b.is_empty()
+                && b.len() <= 48
+                && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+                && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(c));
+            if !ok {
+                return Err(Refusal::here("a slot is 1 to 48 of a-z 0-9 _ . -"));
+            }
+            return Ok(format!("/cloud/{}/{w}/{s}", key.game()));
+        }
+        Ok(format!("/cloud/{}/{w}", key.game()))
+    }
+
+    /// Does the origin accept this key's signature?
+    pub fn server_check(&self, key: &ServerKey) -> Look<Value> {
+        self.read(self.signed(key, "POST", "/serverkeys/check", b"", &[]))
+    }
+
+    /// Store one save for a player. `if_match` writes only over that etag;
+    /// `create_only` writes only if no save is there.
+    pub fn cloud_put(
+        &self,
+        key: &ServerKey,
+        wallet: &str,
+        slot: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+        create_only: bool,
+    ) -> Look<Value> {
+        let path = match Client::cloud_path(key, wallet, Some(slot)) {
+            Ok(p) => p,
+            Err(r) => return Look::Refused(r),
+        };
+        let mut extra = vec![("Content-Type", "application/octet-stream")];
+        if let Some(e) = if_match {
+            extra.push(("If-Match", e));
+        } else if create_only {
+            extra.push(("If-None-Match", "*"));
+        }
+        self.read(self.signed(key, "PUT", &path, data, &extra))
+    }
+
+    /// One save's bytes, etag and version; refused 404 when there is none.
+    pub fn cloud_get(&self, key: &ServerKey, wallet: &str, slot: &str) -> Look<CloudSave> {
+        let path = match Client::cloud_path(key, wallet, Some(slot)) {
+            Ok(p) => p,
+            Err(r) => return Look::Refused(r),
+        };
+        match self.signed(key, "GET", &path, b"", &[]) {
+            Ok(mut resp) if resp.status().as_u16() == 200 => {
+                let header = |n: &str| resp.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
+                let etag = header("etag").map(|e| e.trim_matches('"').to_string()).filter(|e| !e.is_empty());
+                let version = header("x-elo-version").and_then(|v| v.parse().ok());
+                match resp.body_mut().read_to_vec() {
+                    Ok(data) => Look::Answer(CloudSave { data, etag, version }),
+                    Err(e) => Look::CouldNotLook(format!("the save could not be read: {e}")),
+                }
+            }
+            other => match self.read::<Value>(other) {
+                Look::Refused(r) => Look::Refused(r),
+                Look::CouldNotLook(w) => Look::CouldNotLook(w),
+                Look::Answer(_) => Look::CouldNotLook("the save came back in a shape this SDK does not read".into()),
+            },
+        }
+    }
+
+    pub fn cloud_delete(&self, key: &ServerKey, wallet: &str, slot: &str, if_match: Option<&str>) -> Look<Value> {
+        let path = match Client::cloud_path(key, wallet, Some(slot)) {
+            Ok(p) => p,
+            Err(r) => return Look::Refused(r),
+        };
+        let extra: Vec<(&str, &str)> = if_match.map(|e| vec![("If-Match", e)]).unwrap_or_default();
+        self.read(self.signed(key, "DELETE", &path, b"", &extra))
+    }
+
+    /// A player's slots for this key's game.
+    pub fn cloud_list(&self, key: &ServerKey, wallet: &str) -> Look<Value> {
+        match Client::cloud_path(key, wallet, None) {
+            Ok(p) => self.read(self.signed(key, "GET", &p, b"", &[])),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    /// Report stats, unlocks and scores for players:
+    /// `[{"wallet", "stats": {id: n}, "unlock": [ID], "scores": {board: n}}]`.
+    pub fn stats_report(&self, key: &ServerKey, reports: &Value) -> Look<Value> {
+        if !reports.as_array().is_some_and(|a| !a.is_empty()) {
+            return Look::Refused(Refusal::here("reports is a non-empty list"));
+        }
+        let body = json!({ "reports": reports }).to_string();
+        let path = format!("/gamestats/{}/report", key.game());
+        self.read(self.signed(key, "POST", &path, body.as_bytes(), &[("Content-Type", "application/json")]))
+    }
+
+    // ── reads a game server makes at join ───────────────────────────────────
+
+    /// Is this wallet in the playtest (an access code)?
+    pub fn playtest_access(&self, slug: &str, wallet: &str) -> Look<bool> {
+        let (s, w) = match (Client::slug(slug), Client::holder(wallet)) {
+            (Ok(s), Ok(w)) => (s, w),
+            (Err(r), _) | (_, Err(r)) => return Look::Refused(r),
+        };
+        match self.get::<Value>(&format!("/api/codes/{s}/access/{w}")) {
+            Look::Answer(v) => Look::Answer(v.get("access") == Some(&Value::Bool(true))),
+            Look::Refused(r) => Look::Refused(r),
+            Look::CouldNotLook(why) => Look::CouldNotLook(why),
+        }
+    }
+
+    /// The player's subscribed Workshop mods for a game, with file urls and sha256s.
+    pub fn workshop_subscribed(&self, slug: &str, wallet: &str) -> Look<Value> {
+        match (Client::slug(slug), Client::holder(wallet)) {
+            (Ok(s), Ok(w)) => self.get(&format!("/api/workshop/{s}/subscribed/{w}")),
+            (Err(r), _) | (_, Err(r)) => Look::Refused(r),
+        }
+    }
+
+    /// One lobby with its members; a server admits the party from this.
+    pub fn lobby(&self, id: &str) -> Look<Value> {
+        let ok = (16..=32).contains(&id.len())
+            && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-');
+        if !ok {
+            return Look::Refused(Refusal::here("not a lobby id"));
+        }
+        self.get(&format!("/api/lobbies/{id}"))
+    }
+
+    pub fn lobby_of(&self, wallet: &str) -> Look<Value> {
+        match Client::holder(wallet) {
+            Ok(w) => self.get(&format!("/api/lobbies/of/{w}")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    /// The first listed server, in the developer's order, that is up and has room for `party`.
+    pub fn quick_join(&self, slug: &str, party: u32) -> Look<Value> {
+        match Client::slug(slug) {
+            Ok(s) if (1..=64).contains(&party) => self.get(&format!("/api/lobbies/pick/{s}?party={party}")),
+            Ok(_) => Look::Refused(Refusal::here("a party is 1 to 64")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+}
+
+/// One cloud save as a game server reads it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudSave {
+    pub data: Vec<u8>,
+    pub etag: Option<String>,
+    pub version: Option<u64>,
 }
 
 #[cfg(test)]
@@ -559,6 +1298,13 @@ mod tests {
         // An origin nothing listens on: a request would be could-not-look.
         let c = Client::new("http://127.0.0.1:9");
         assert_eq!(c.friends("0x123").kind(), "refused");
+        assert_eq!(c.guilds_of("0x123").kind(), "refused");
+        assert_eq!(c.guild_tags(&[]).kind(), "refused");
+        assert_eq!(
+            c.guild_tags(&["0x1111111111111111111111111111111111111111", "nope"])
+                .kind(),
+            "refused"
+        );
         assert_eq!(c.ticket("../etc").kind(), "refused");
         assert_eq!(c.leaderboard("gates", Some("robot")).kind(), "refused");
         let mut never = |_: &str| -> Result<String, String> { panic!("nothing should be signed") };

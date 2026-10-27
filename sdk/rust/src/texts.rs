@@ -4,14 +4,24 @@
 //! signature. These functions build the text from what was asked for, so
 //! [`crate::Client`] can refuse a server that offers anything else. Each one
 //! is pinned to the meter's own code by `sdk/testdata/` (friends_texts.json,
-//! face.json), which `meter/test_sdk_fixtures.py` rebuilds on the server side.
+//! face.json, buddy_texts.json, board_texts.json, entitle_texts.json), which
+//! `meter/test_sdk_fixtures.py` rebuilds on the server side.
 
-use crate::overlay::play_message;
+use serde_json::Value;
+
+use crate::overlay::{play_message, utc_day};
 
 /// The `action:` line of a friends change (`meter/friends.py`).
 pub const FRIENDS_ACTION: &str = "friends";
 /// The `action:` line of a face change (`meter/faces.py`).
 pub const FACE_ACTION: &str = "profile";
+/// The `action:` line of a change to a wallet's agents (`meter/buddy.py`).
+pub const BUDDY_ACTION: &str = "buddy";
+
+/// Every op `/buddy/prepare` takes (`meter/buddy.py` `OPS`).
+pub const BUDDY_OPS: [&str; 10] = [
+    "trial", "create", "update", "face", "pause", "resume", "retire", "token", "fund", "gift",
+];
 
 /// Each friends op and the one argument it takes, a wallet
 /// (`meter/friends.py` `OPS`).
@@ -134,6 +144,145 @@ pub fn face_detail(
     }
     out.push('}');
     out
+}
+
+/// The day and detail of an `elo play` text, when it is one for this action
+/// and wallet and nothing else: five lines, the detail on one. None for any
+/// other text.
+pub fn read_play(text: &str, action: &str, wallet: &str) -> Option<(String, String)> {
+    let w = wallet.trim();
+    if !is_wallet(w) {
+        return None;
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    if lines.len() != 5 {
+        return None;
+    }
+    let day = lines[3].strip_prefix("day: ")?;
+    let detail = lines[4].strip_prefix("detail: ")?;
+    let b = day.as_bytes();
+    let day_ok = b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    if !day_ok || text != play_message(action, w, detail, Some(day)) {
+        return None;
+    }
+    Some((day.to_string(), detail.to_string()))
+}
+
+/// A change to a wallet's agents, read back out of the text that signs it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuddyChange {
+    pub day: String,
+    pub op: String,
+    pub args: Value,
+    pub at: u64,
+}
+
+/// The change a buddy text signs (its detail is `buddy.detail_of`'s JSON),
+/// or None when the text is not a buddy text for this wallet.
+pub fn buddy_change(text: &str, wallet: &str) -> Option<BuddyChange> {
+    let (day, detail) = read_play(text, BUDDY_ACTION, wallet)?;
+    let d: Value = serde_json::from_str(&detail).ok()?;
+    let o = d.as_object()?;
+    if o.len() != 3 || !o.get("args")?.is_object() {
+        return None;
+    }
+    Some(BuddyChange {
+        day,
+        op: o.get("op")?.as_str()?.to_string(),
+        args: o["args"].clone(),
+        at: o.get("at")?.as_u64()?,
+    })
+}
+
+fn hexish(s: &str) -> bool {
+    is_wallet(s) || (s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// A plain decimal dollar string (`buddy._USD_RE`) as a number.
+fn cents(s: &str) -> Option<f64> {
+    let (whole, frac) = s.split_once('.').unwrap_or((s, "1"));
+    let digits = |p: &str, max: usize| {
+        !p.is_empty() && p.len() <= max && p.bytes().all(|b| b.is_ascii_digit())
+    };
+    if digits(whole, 9) && digits(frac, 6) {
+        s.parse().ok()
+    } else {
+        None
+    }
+}
+
+fn same_value(asked: &Value, signed: &Value) -> bool {
+    match (asked, signed) {
+        (Value::Bool(a), Value::Bool(s)) => a == s,
+        (Value::Bool(_), _) | (_, Value::Bool(_)) => false,
+        (_, Value::Number(s)) => {
+            let a = match asked {
+                Value::Number(a) => a.as_f64(),
+                Value::String(a) => cents(a.trim()),
+                _ => None,
+            };
+            matches!((a, s.as_f64()), (Some(a), Some(s)) if (a - s).abs() <= 0.005 + 1e-9)
+        }
+        (Value::Number(a), Value::String(s)) => (a.is_i64() || a.is_u64()) && a.to_string() == *s,
+        (Value::String(a), Value::String(s)) => {
+            let a = a.split_whitespace().collect::<Vec<_>>().join(" ");
+            a == *s || (hexish(&a) && a.eq_ignore_ascii_case(s))
+        }
+        (_, Value::Object(_)) => same_args(asked, signed),
+        (Value::Null, Value::Null) => true,
+        _ => false,
+    }
+}
+
+/// Is the change signed the change asked for? The same keys, and each value
+/// the same: a string once its whitespace is collapsed (a wallet or a sha256
+/// in either case), a dollar amount to the cent, a number given as an id the
+/// same digits. What the server cleans; nothing it could swap.
+pub fn same_args(asked: &Value, signed: &Value) -> bool {
+    match (asked.as_object(), signed.as_object()) {
+        (Some(a), Some(s)) => {
+            a.len() == s.len()
+                && s.iter()
+                    .all(|(k, v)| a.get(k).is_some_and(|x| same_value(x, v)))
+        }
+        _ => false,
+    }
+}
+
+/// The text a board claim signs: the bounty's id is the detail.
+pub fn claim_text(wallet: &str, quest_id: &str, day: Option<&str>) -> String {
+    play_message("claim", wallet, quest_id, day)
+}
+
+/// A delivery's signed detail (`munus.submit_detail`): the bounty, the first
+/// 16 hex of the url's sha256, and the wallet's 0-based delivery index on
+/// that bounty. (Feature `http`, for its sha256.)
+#[cfg(feature = "http")]
+pub fn submit_detail(quest_id: &str, url: &str, n: u64) -> String {
+    let d = ring::digest::digest(&ring::digest::SHA256, url.as_bytes());
+    let hex: String = d.as_ref()[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{quest_id} {hex} #{n}")
+}
+
+/// The text a board delivery signs. (Feature `http`.)
+#[cfg(feature = "http")]
+pub fn submit_text(wallet: &str, quest_id: &str, url: &str, n: u64, day: Option<&str>) -> String {
+    play_message("submit", wallet, &submit_detail(quest_id, url, n), day)
+}
+
+/// The text a download grant signs (`tickets.entitle_message`): the game,
+/// the wallet lowercased, and the UTC day (today when `None`).
+pub fn entitle_text(game: &str, wallet: &str, day: Option<&str>) -> String {
+    let day = day.map(str::to_string).unwrap_or_else(utc_day);
+    let wallet = wallet.trim().to_ascii_lowercase();
+    format!("elo entitle\ngame: {game}\nwallet: {wallet}\nday: {day}")
 }
 
 #[cfg(test)]

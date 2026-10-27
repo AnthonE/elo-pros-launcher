@@ -246,11 +246,11 @@ each a refusal:
   can install software or post as you without a human act is a different
   product. Writes stay on the CLI where a person typed them.
 - **one tool, not five.** A tool costs context in every session whether it is
-  called or not, which is why the hosted endpoint went 66 → 25. `launcher`
-  takes a `what=` selector.
+  called or not, which is why the hosted endpoint cut 66 flat tools to a few
+  dispatchers. `launcher` takes a `what=` selector.
 - **local, and it could not be otherwise.** A hosted endpoint cannot see your
-  installs or reach your signer, and the hosted `/mcp` is at 29,614 B against a
-  32,000 B tripwire besides.
+  installs or reach your signer, and the hosted `/mcp` stays under a 32 KB
+  `tools/list` tripwire besides.
 
 Hive text reaches the model through the same sanitiser the terminal uses, and
 carries a line saying it is untrusted stranger-written input.
@@ -366,9 +366,9 @@ the thing in front of them does not exist. What is actually missing:
   seven — Games, Store, Servers, Friends, Account, Signing, About — and every
   entry names a window that exists, because the menu renders an unbuilt one as
   deactivated and says so. `Library`, `Monitor` and `Settings` are not built.
-- **A progress row for an install.** The download blocks the UI thread for its
-  whole length; the button says `Installing…` first so the freeze reads as the
-  install rather than as a crash, but that is a mitigation and not the fix.
+- **A progress bar for an install.** The install runs off the window's thread
+  now and its button counts up (`Installing 42%`); a bar under the row is the
+  rest of it.
 - **A resized shelf forgets its height on Refresh.** The position carries over,
   the size does not (`docs/client/LAUNCHER.md` §10p).
 

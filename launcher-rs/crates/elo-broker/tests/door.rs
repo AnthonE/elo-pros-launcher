@@ -138,3 +138,36 @@ fn the_open_count_follows_a_game_holding_the_door() {
     }
     assert_eq!(open.load(Ordering::Relaxed), 0, "a game that left is not counted");
 }
+
+/// **A live door is refused, a dead one is replaced.**
+///
+/// The second launcher used to unlink the first one's socket and bind over
+/// it, and when the first quit its `Drop` deleted the second's — after which
+/// no game could find a launcher that was plainly open.
+#[test]
+fn a_second_launcher_cannot_take_a_live_door_and_a_stale_one_is_replaced() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("launcher.sock");
+    let first = transport::Listener::bind(path.to_str().unwrap()).expect("bind");
+    std::thread::spawn(move || transport::serve_forever(first, || Quiet));
+    hello(&path, "gates").expect("the first door answers");
+
+    let err = transport::Listener::bind(path.to_str().unwrap())
+        .err()
+        .expect("a second bind on a live door must fail");
+    assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse, "{err}");
+    hello(&path, "gates").expect("and the first door still answers");
+
+    // A socket file nobody is listening on is a crashed launcher's leftover.
+    let stale = dir.path().join("stale.sock");
+    drop(std::os::unix::net::UnixListener::bind(&stale).expect("make a stale socket"));
+    assert!(stale.exists());
+    let fresh = transport::Listener::bind(stale.to_str().unwrap()).expect("a stale door is replaced");
+
+    // A listener whose path now names someone else's socket leaves it alone.
+    std::fs::remove_file(&stale).unwrap();
+    let other = std::os::unix::net::UnixListener::bind(&stale).expect("another socket at the path");
+    drop(fresh);
+    assert!(stale.exists(), "dropping a listener deleted a socket it did not make");
+    drop(other);
+}

@@ -220,16 +220,16 @@ else:
         ov = br.client()
         p = ov.profile("")
         check("profile answers for the watched address", p is not None and p.found)
-        check("a sworn name and a typed one stay separate fields",
-              all(k in p.raw for k in ("handle", "display_name", "sworn")))
+        check("a held handle and a typed name stay separate fields",
+              all(k in p.raw for k in ("handle", "display_name", "checked")))
         check("every link carries the /api prefix the edge strips",
               all(v is None or v.startswith("/api/")
                   for v in (p.raw.get("links") or {}).values()),
               repr(p.raw.get("links")))
         check("the avatar is a path a game can fetch",
               (p.raw.get("avatar") or "/api/").startswith("/api/"))
-        check("identities carries the count through — one party, several vows",
-              p.identities >= 1, repr(p.identities))
+        check("matches carries the count through",
+              p.matches >= 1, repr(p.matches))
         # ⚠ Three states, not two.
         dead = ov.profile("0x000000000000000000000000000000000000dEaD")
         check("a looked-up-and-absent identity is FOUND=False, not None",
@@ -264,12 +264,12 @@ else:
     # ═══ the client's own care ══════════════════════════════════════════════
     section("the client's own care")
     P = elo_overlay.Profile
-    check("a sworn handle draws bare",
-          P(raw={"handle": "moss", "sworn": True}).label == "moss")
+    check("a held handle draws bare",
+          P(raw={"handle": "moss", "checked": True}).label == "moss")
     check("⚠ a self-declared name is marked, never drawn as a checked one",
-          P(raw={"display_name": "moss", "sworn": False}).label == "~moss")
-    check("…even when a handle is present but not sworn",
-          P(raw={"handle": "moss", "display_name": "moss", "sworn": False}).label == "~moss")
+          P(raw={"display_name": "moss", "checked": False}).label == "~moss")
+    check("…even when a handle is present but not checked",
+          P(raw={"handle": "moss", "display_name": "moss", "checked": False}).label == "~moss")
     check("a nameless player falls back to a short address",
           P(raw={"address": "0x" + "ab" * 20}).label == "0xabab…abab")
     check("and to a word when there is not even that", P(raw={}).label == "anonymous")
@@ -368,7 +368,7 @@ if sums_path.is_file():
         if line.strip():
             digest, name = line.split(None, 1)
             published[name.strip()] = digest
-    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py", "js/elo-1.js"):
+    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py", "js/elo-1.js", "js/elo-2.js", "js/elo-3.js"):
         check(f"SHA256SUMS names {rel}", rel in published)
     # Every row, not only the ones named above: a listed file whose bytes
     # moved is a published number that is now false.
@@ -379,7 +379,7 @@ if sums_path.is_file():
               digest == actual,
               f"published {digest!r} vs actual {actual!r} — "
               f"regenerate: cd sdk && sha256sum rust/elo_overlay.rs "
-              f"python/elo_overlay.py js/elo-1.js > SHA256SUMS")
+              f"python/elo_overlay.py js/elo-1.js js/elo-2.js js/elo-3.js > SHA256SUMS")
 
 # The JavaScript package ships the web SDK a browser game loads from
 # elopros.com/sdk/elo-1.js. A released elo-N.js never changes, so the
@@ -388,6 +388,32 @@ served, shipped = REPO / "watchtower" / "sdk" / "elo-1.js", HERE / "js" / "elo-1
 check("sdk/js/elo-1.js is byte-identical to the served watchtower/sdk/elo-1.js",
       served.is_file() and shipped.is_file() and served.read_bytes() == shipped.read_bytes(),
       "copy it again: cp watchtower/sdk/elo-1.js sdk/js/elo-1.js")
+served2, shipped2 = REPO / "watchtower" / "sdk" / "elo-2.js", HERE / "js" / "elo-2.js"
+check("sdk/js/elo-2.js is byte-identical to the served watchtower/sdk/elo-2.js",
+      served2.is_file() and shipped2.is_file() and served2.read_bytes() == shipped2.read_bytes(),
+      "copy it again: cp watchtower/sdk/elo-2.js sdk/js/elo-2.js")
+served3, shipped3 = REPO / "watchtower" / "sdk" / "elo-3.js", HERE / "js" / "elo-3.js"
+check("sdk/js/elo-3.js is byte-identical to the served watchtower/sdk/elo-3.js",
+      served3.is_file() and shipped3.is_file() and served3.read_bytes() == shipped3.read_bytes(),
+      "copy it again: cp watchtower/sdk/elo-3.js sdk/js/elo-3.js")
+# elo-3.js loads the phone-wallet module with the sha384 it carries, from
+# /sdk/ (which answers cross-origin, so the browser can check it). The served
+# copy is the vendored bundle's bytes, and the pin is that file's own hash.
+import base64 as _b64  # noqa: E402
+import hashlib  # noqa: E402
+import re  # noqa: E402
+_wc = REPO / "watchtower" / "sdk" / "walletconnect-2.25.0.js"
+_wc_vendor = REPO / "watchtower" / "js" / "vendor" / "walletconnect-2.25.0.js"
+check("watchtower/sdk/walletconnect-2.25.0.js is the vendored bundle, byte for byte",
+      _wc.is_file() and _wc_vendor.is_file() and _wc.read_bytes() == _wc_vendor.read_bytes(),
+      "copy it again: cp watchtower/js/vendor/walletconnect-2.25.0.js watchtower/sdk/")
+_src3 = shipped3.read_text() if shipped3.is_file() else ""
+_pin = re.search(r'const WC_SRI = "(sha384-[A-Za-z0-9+/=]+)";', _src3)
+_want = "sha384-" + _b64.b64encode(hashlib.sha384(_wc.read_bytes()).digest()).decode() if _wc.is_file() else None
+check("elo-3.js pins the phone-wallet module by that file's own sha384",
+      _pin is not None and _pin.group(1) == _want, f"pinned {_pin and _pin.group(1)!r}, file is {_want!r}")
+check("…and loads it from /sdk/, the path that answers cross-origin",
+      'const WC_SCRIPT = "https://elopros.com/sdk/walletconnect-2.25.0.js";' in _src3)
 
 # A vendoring project runs its own fmt gate over everything in its tree,
 # including this file. It has happened twice that an unformatted SDK reddened

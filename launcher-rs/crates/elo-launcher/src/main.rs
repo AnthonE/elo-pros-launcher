@@ -7,14 +7,17 @@
 //! platform has agents as first-class players (`GATES.md` §0).
 
 mod args;
+mod assets;
 mod chatkey;
 mod dev;
 mod friends;
 mod mcp;
+mod mods;
 mod prompt;
 mod relay;
 mod send;
 mod signer;
+mod skins;
 mod trade;
 
 // The account's address and signature both come through this trait, so the CLI
@@ -46,6 +49,9 @@ elo — the desktop client
   elo status  <title>             is a newer build published?
   elo install <title>             install the native build for this machine
   elo update  <title>             install it only if it is newer
+              [--branch <name>]   …from a beta branch the title publishes
+  elo entitle <title>             a sold title's download grant: sign once with
+                                   the wallet that holds a copy, kept for a day
   elo verify  <slug> [build]      re-hash an install against its receipt
   elo prune   <slug>              remove builds superseded by the newest
   elo uninstall <slug> <build>    remove one build
@@ -70,16 +76,32 @@ elo — the desktop client
   elo friends accept|decline <who>    answer an ask
   elo friends cancel|remove|block|unblock <who>
   elo friends join <who>          join the server a friend is playing on
+  elo friends invite <who>        invite a friend to the game you are in
+  elo mods <game>                 the Workshop mods you subscribed to for a game
+  elo mods sync <game>            download them, check each file's sha256, and
+                                   remove the ones you dropped
+  elo mods subscribe|unsubscribe <game> <mod>
+  elo assets                      the asset store, in the game you are making:
+                                   search, add, sync, update, credits — every
+                                   file's sha256 checked, pinned in a lock
+  elo assets init|check|publish   list your own: elo-asset.json from your
+                                   files, checked, then listed (`elo assets help`)
   elo seat [--wallet ADDR]        the characters a wallet holds, and whether
                                    it may still mint — one call, no key
   elo seat card                   the collection: contract, supply, doors
   elo sessions                    what has been played, and what is running
   elo account                     the account on this machine (exit 3 if none)
-  elo account new                 make one — twelve recovery words, shown once
+  elo account new                 make one — twelve recovery words, shown once;
+                                   one address on Robinhood Chain, one on Solana
   elo account import              restore from recovery words, or adopt a key
-  elo wallet [--wallet ADDR]      what this account holds, read off the chain
-  elo send <amount> <coin> <to>   send ETH or a coin: checked, shown, then the
-                                   passphrase — asked for every send
+  elo account solana              give an older account its Solana address,
+                                   from its recovery words
+  elo wallet [--wallet ADDR]      what this account holds on Robinhood Chain
+                                   and Solana, read off each chain
+  elo send <amount> <coin> <to>   send ETH, SOL or a coin: the address picks the
+                                   chain; checked, shown, then the passphrase
+  elo move <amount> <coin>        SOL/USDC to Robinhood Chain, ETH/USDG to
+                                   Solana — to your own address there
   elo trade [pairs]               every market: price and 24h change
   elo trade quote|buy|sell|swap   quote or trade through the pools, signed here
   elo trade watch [pair…]         new trades as they happen (--wallet to follow)
@@ -87,6 +109,10 @@ elo — the desktop client
                                    stops, trailing, brackets, DCA, TWAP; they
                                    fire only while `orders run` is running
   elo trade settings | log        signing settings, and what was signed
+  elo skins                       your items in our collections, and listings
+  elo skins sell <id> <price>     list one on OpenSea; it stays yours, and in
+                                   game, until it sells (cancel|buy|accept|open)
+  elo skins market                the floor and the best listings
   elo account sign <message>      sign with it (EIP-191), for a game or a claim
   elo pair                        sign with the wallet in your BROWSER instead
                                    — prints a code to type at <host>/pair.html
@@ -119,6 +145,7 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --platform TAG      override this machine's platform tag
   --server ADDR       passed to the game as {server}
   --wallet ADDR       passed to the game as {wallet}; whose list, for `friends`
+                      and `mods`
   --browser CMD       browser command; `{url}` marks where the url goes,
                       which is what app mode needs: 'chromium --app={url}'
   --json              machine-readable output
@@ -129,7 +156,7 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --no-reuse          download every file, even ones already on disk
   --allow-insecure    permit http manifests and depots (a local test server)
   --dry-run           say what would happen, do nothing
-  --yes               do not ask before removing anything
+  --yes               replace a chat key, or link one, without asking
 ";
 
 fn main() {
@@ -145,7 +172,9 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if parsed.verb.is_empty() || parsed.verb == "help" || parsed.verb == "--help" {
+    if parsed.verb.is_empty() || parsed.verb == "help" || parsed.verb == "-h"
+        || parsed.has("--help")
+    {
         print!("{USAGE}");
         return;
     }
@@ -314,6 +343,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                             serde_json::to_string_pretty(&serde_json::json!({
                                 "exists": signer.exists(),
                                 "address": signer.address(),
+                                "solana": signer.sol_address(),
+                                "unreadable": signer.unreadable(),
                                 "path": path.to_string_lossy(),
                             }))
                             .unwrap_or_default()
@@ -331,10 +362,21 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     match signer.address() {
                         Some(addr) => {
                             println!("{addr}");
+                            match (signer.sol_address(), signer.unreadable()) {
+                                (Some(sa), _) => println!("{sa}\n  the same account on Robinhood Chain and on Solana"),
+                                (None, Some(why)) => println!("  the Solana half is there and unreadable — {why}"),
+                                (None, None) => println!("  no Solana address yet — `elo account solana` adds it"),
+                            }
                             println!("  locked — a passphrase unlocks it for one command");
                             println!("  {}", path.display());
                             Ok(0)
                         }
+                        // There and unreadable is not "no account": that
+                        // sentence sends a player to make a new key over the
+                        // one they have. Say what stopped the read instead.
+                        None if signer.exists() => Err(DepotError::new(
+                            signer.unreadable().unwrap_or("the keystore names no address").to_string(),
+                        )),
                         None => {
                             // Not an error. A machine with no account is a
                             // normal machine and games play anonymously; 3 is
@@ -440,8 +482,35 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     Ok(0)
                 }
 
+                // An account made before Solana, or adopted from a bare key,
+                // gets its Solana half here: from the recovery words (which
+                // must make THIS account's 0x address) or a Solana private key
+                // as Phantom exports it. Nothing touches the network.
+                "solana" => {
+                    let mut signer = elo_vault::LocalSigner::at(&path);
+                    if signer.address().is_none() {
+                        return Err(DepotError::new("no account on this machine — `elo account new` makes \
+                                                    one with both addresses"));
+                    }
+                    if let Some(sa) = signer.sol_address() {
+                        println!("{sa}");
+                        println!("  this account already has its Solana address");
+                        return Ok(0);
+                    }
+                    warn_if_echoing();
+                    let raw = prompt::secret("your recovery words, or a Solana private key: ")
+                        .map_err(DepotError::new)?;
+                    let pass = prompt::secret("this account's passphrase: ").map_err(DepotError::new)?;
+                    let sa = signer.add_solana(&pass, &raw).map_err(DepotError::new)?;
+                    drop(pass);
+                    println!("{sa}");
+                    println!("  your Solana address, encrypted with the same passphrase");
+                    println!("  written to {}", signer.solana_path().display());
+                    Ok(0)
+                }
+
                 other => Err(DepotError::new(format!(
-                    "unknown account command {other:?} — try show, new, import or sign"
+                    "unknown account command {other:?} — try show, new, import, solana or sign"
                 ))),
             }
         }
@@ -449,7 +518,15 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // ── the wallet: balances off the chain, and a send ─────────────────
         "wallet" => send::show(a, &host, json_out),
         "send" => send::send(a, &host, json_out),
+        "move" => send::move_coins(a, &host, json_out),
         "trade" => trade::run(a, &host, json_out),
+        "skins" => skins::run(a, &host, json_out),
+        // Workshop mods: the list a wallet subscribed to, and the files on
+        // disk, checked. Writing them is `elo_depot::workshop`'s.
+        "mods" => mods::run(a, &host, json_out),
+        // The asset store: files a builder adds to a project, pinned in
+        // elo-assets.lock. Writing them is `elo_depot::assets`'s.
+        "assets" => assets::run(a, &host, json_out),
 
         // ── pair: the wallet you already have, in the browser it lives in ───
         //
@@ -523,30 +600,39 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     let net = Net::new();
                     let (code, secret, _) =
                         elo_net::pairing::start(&net, &host).map_err(DepotError::new)?;
-                    let show = format!("{}-{}", &code[..4], &code[4..]);
-                    println!("open this in the browser your wallet lives in:");
-                    println!("    {host}/pair.html");
-                    println!("and TYPE the code:");
-                    println!("    {show}");
-                    println!();
-                    println!("  nobody legitimate will ever send you one of these to enter.");
-                    println!("  waiting …");
+                    let show = elo_net::pairing::show_code(&code);
+                    // With --json, stdout carries exactly one document, so the
+                    // instructions and the wait go to stderr, where a person
+                    // running it still reads them.
+                    let say = |line: &str| if json_out { eprintln!("{line}") } else { println!("{line}") };
+                    say("open this in the browser your wallet lives in:");
+                    say(&format!("    {host}/pair.html"));
+                    say("and TYPE the code:");
+                    say(&format!("    {show}"));
+                    say("");
+                    say("  nobody legitimate will ever send you one of these to enter.");
+                    say("  waiting …");
                     let p = elo_net::pairing::await_claim(&net, &host, &code, &secret, || {
-                        // A dot per poll, flushed, so a terminal shows the wait
-                        // as a wait rather than as a hang.
-                        use std::io::Write as _;
-                        print!(".");
-                        let _ = std::io::stdout().flush();
+                        // A dot per poll, so a terminal shows the wait as a
+                        // wait rather than as a hang. On stderr, which is
+                        // unbuffered and never part of the --json document.
+                        eprint!(".");
                     })
                     .map_err(DepotError::new)?;
-                    println!();
+                    say("");
                     elo_net::pairing::save(&path, &p).map_err(DepotError::new)?;
+                    if json_out {
+                        let mut v = p.to_json();
+                        if let Some(m) = v.as_object_mut() {
+                            // A bearer credential, kept off stdout — see `pair show`.
+                            m.remove("secret");
+                        }
+                        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                        return Ok(0);
+                    }
                     println!("paired with {}", p.address);
                     println!("  `elo entitle <game>` and `elo account sign` now ask that browser.");
                     println!("  it approves one message at a time; `elo pair forget` ends it.");
-                    if json_out {
-                        println!("{}", serde_json::to_string_pretty(&p.to_json()).unwrap_or_default());
-                    }
                     Ok(0)
                 }
                 Some(other) => Err(DepotError::new(format!(
@@ -738,11 +824,12 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 )));
             }
             save_grant(&games, slug, &host, grant, expires)?;
-            println!("entitled — {address} holds a ticket for {slug}");
-            println!("  the grant is cached for the day; install and update use it on their own");
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                return Ok(0);
             }
+            println!("entitled — {address} holds a ticket for {slug}");
+            println!("  the grant is cached for the day; install and update use it on their own");
             Ok(0)
         }
 
@@ -823,10 +910,13 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 &code,
                 &elo_broker::protocol::now_iso8601(),
             );
-            println!("about to sign exactly this, and nothing else:");
-            println!("──");
-            println!("{message}");
-            println!("──");
+            // The person still reads this before the passphrase; with --json
+            // it goes to stderr so stdout stays one document.
+            let say = |line: &str| if json_out { eprintln!("{line}") } else { println!("{line}") };
+            say("about to sign exactly this, and nothing else:");
+            say("──");
+            say(&message);
+            say("──");
             warn_if_echoing();
             let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
             signer.unlock(&pass).map_err(DepotError::new)?;
@@ -850,7 +940,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     v.get("error").and_then(Value::as_str).unwrap_or(&resp.why)
                 )));
             }
-            println!("signed in — the browser showing {code} now reads as {address}");
+            say(&format!("signed in — the browser showing {code} now reads as {address}"));
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
             }
@@ -962,6 +1052,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         "publisher" => {
             let m = load_manifest(need(a.positional.first(), "a title")?, &host, READS_ONLY)?;
             if a.has("--statement") {
+                // A statement `verify` will always refuse is not one to hand
+                // a publisher to sign.
+                if let Some(why) = publisher::ambiguous(&m) {
+                    return Err(DepotError::new(why));
+                }
                 // No trailing newline: it is a message to be signed, and a
                 // stray byte is a different signature.
                 print!("{}", publisher::statement(&m));
@@ -1048,9 +1143,18 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     format!("could not reach {host} — {}", got.why)
                 }));
             };
+            // The depot root's own state, because a manifest whose native row
+            // is empty because the origin could not look is not the same
+            // manifest as one with nothing published. Read before either
+            // output, so a script reading --json gets the same exit code.
+            let depots_unread = v
+                .get("depots")
+                .and_then(|d| d.get("reachable"))
+                .and_then(Value::as_bool)
+                == Some(false);
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-                return Ok(0);
+                return Ok(if depots_unread { 3 } else { 0 });
             }
             let rows = v
                 .get("manifests")
@@ -1088,18 +1192,13 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     println!("  ⚠ {}", check.line());
                 }
             }
-            // The depot root's own state, because a manifest whose native row
-            // is empty because the origin could not look is not the same
-            // manifest as one with nothing published.
-            if let Some(d) = v.get("depots") {
-                if d.get("reachable").and_then(|r| r.as_bool()) == Some(false) {
-                    println!(
-                        "\n! the origin could not read its depot root — {}",
-                        d.get("why").and_then(|w| w.as_str()).unwrap_or("no reason given")
-                    );
-                    println!("  a native row missing here means UNKNOWN, not unpublished.");
-                    return Ok(3);
-                }
+            if depots_unread {
+                println!(
+                    "\n! the origin could not read its depot root — {}",
+                    v.pointer("/depots/why").and_then(Value::as_str).unwrap_or("no reason given")
+                );
+                println!("  a native row missing here means UNKNOWN, not unpublished.");
+                return Ok(3);
             }
             Ok(0)
         }
@@ -1131,11 +1230,12 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                         format!("could not reach {host} — {}", got.why)
                     }));
                 };
+                let deployed = v.get("deployed").and_then(Value::as_bool) == Some(true);
                 if json_out {
                     println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-                    return Ok(0);
+                    return Ok(if deployed { 0 } else { 3 });
                 }
-                if v.get("deployed").and_then(Value::as_bool) != Some(true) {
+                if !deployed {
                     println!("{host} has no collection deployed");
                     return Ok(3);
                 }
@@ -1195,8 +1295,16 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 }));
             };
             if json_out {
+                // The same exit code the text below ends on: 3 when nothing is
+                // deployed or a door's list has drifted from the chain's root.
+                let deployed = v.get("deployed").and_then(Value::as_bool) == Some(true);
+                let stale = v.get("eligible").and_then(Value::as_array).is_some_and(|es| {
+                    es.iter().any(|e| {
+                        e.get("root_matches_chain").and_then(Value::as_bool) == Some(false)
+                    })
+                });
                 println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
-                return Ok(0);
+                return Ok(if deployed && !stale { 0 } else { 3 });
             }
             if v.get("deployed").and_then(Value::as_bool) != Some(true) {
                 println!("{host} has no collection deployed");
@@ -1326,7 +1434,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     // both halves of that matter.
                     println!("\nThis is a SPEAKING key, not a wallet — it holds no funds and signs");
                     println!("no transaction. It sits at 0600 unencrypted, so anyone who can read");
-                    println!("your home directory can speak as you in chat. elo never sees it.");
+                    println!("your home directory can speak as you in chat. We never see it.");
                     Ok(0)
                 }
                 "link" | "unlink" => {
@@ -1457,8 +1565,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     // chat window rather than backwards like an API.
                     let mut rows = r.messages.clone();
                     rows.sort_by_key(|m| m.at);
-                    // A speaker the room ties to a wallet (a sworn vow, or a
-                    // linked key) wears the wallet's own profile name, as in
+                    // A speaker the room ties to a wallet (a linked key)
+                    // wears the wallet's own profile name, as in
                     // the window and on the site. One look per wallet, a few
                     // wallets at most, and a failed look keeps the room's name.
                     let mut profiles: BTreeMap<String, Option<String>> = BTreeMap::new();
@@ -1486,7 +1594,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                             render::chat_line(
                                 &clock::ago(m.at, now),
                                 &id.name,
-                                id.kind.sworn(),
+                                id.kind.checked(),
                                 &m.content,
                                 100
                             )
@@ -1518,15 +1626,15 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 return Err(DepotError::new(if got.reachable {
                     got.why
                 } else {
-                    format!("could not reach the register — {}", got.why)
+                    format!("could not reach the directory — {}", got.why)
                 }));
             };
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                     "name": id.name, "name_kind": format!("{:?}", id.kind).to_lowercase(),
-                    "sworn": id.kind.sworn(), "face": id.face, "wallet": id.wallet,
-                    "npub": id.npub, "vow_id": id.vow_id, "nip05": id.nip05,
-                    "bare": id.bare, "vows": id.vows, "ambiguous": id.ambiguous(),
+                    "checked": id.kind.checked(), "face": id.face, "wallet": id.wallet,
+                    "npub": id.npub, "nip05": id.nip05,
+                    "bare": id.bare, "matches": id.matches, "ambiguous": id.ambiguous(),
                 })).unwrap_or_default());
                 return Ok(0);
             }
@@ -1538,28 +1646,25 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 println!("face    {}", id.face);
             }
             for (label, v) in [("wallet", &id.wallet), ("npub", &id.npub),
-                               ("vow", &id.vow_id), ("nip05", &id.nip05)] {
+                               ("nip05", &id.nip05)] {
                 if let Some(v) = v {
                     println!("{label:<7} {v}");
                 }
             }
             if id.ambiguous() {
                 // Never quietly present one of several names as THE name.
-                println!("\n⚠ This wallet swore {} vows, so it answers to {} names. The", id.vows, id.vows);
-                println!("account is the WALLET — reputation and the house hang off the address,");
-                println!("not off any one vow — but the wallet has no name or face of its own");
-                println!("yet, so the one above is whichever vow the register picked.");
+                println!("\n⚠ {} people use this name, so this is one of them. Look", id.matches);
+                println!("someone up by their wallet or npub to be sure.");
             }
             if id.bare {
                 // Not an error and not an empty read: a bare wallet is a real
-                // answer, and the rule is that it still gets a page.
-                println!("\nNothing is sworn to this address yet. It still has a name and a");
-                println!("face — the register derives both — and no account exists to require.");
+                // answer, and no account exists to require.
+                println!("\nNothing is set for this address yet. It can still buy, play and be paid.");
             }
             if id.kind == NameKind::Declared {
                 println!("\nThis name is self-declared. It is wallet-signed, so it is THEIRS,");
-                println!("but nobody checked that it is true. A sworn name lives on the");
-                println!("register and cannot be set by asserting it.");
+                println!("but nobody checked that it is true. A hive handle is held by one");
+                println!("wallet and cannot be set by asserting it.");
             }
             Ok(0)
         }
@@ -1652,7 +1757,23 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
         "status" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, insecure)?;
+            let source = need(a.positional.first(), "a manifest")?;
+            let (from, base) = manifest_source_on(source, &host, insecure, branch_flag(a)?)?;
+            // A manifest we could not fetch is a status we could not check —
+            // exit 3 and the same JSON shape as any other unknown, never a
+            // bare error a script reads as a crash.
+            let m = match read_manifest(source, &from, &base) {
+                Ok(m) => m,
+                Err(e) => {
+                    let state = UpdateState::Unknown { why: e.to_string() };
+                    if json_out {
+                        println!("{}", serde_json::to_string_pretty(&state_json(&state)).unwrap_or_default());
+                    } else {
+                        println!("{source} — {}", shown(&state.line()));
+                    }
+                    return Ok(3);
+                }
+            };
             let checked = check_updates(&m, &platform, &games, insecure);
             if json_out {
                 println!("{}", serde_json::to_string_pretty(&state_json(&checked.state)).unwrap_or_default());
@@ -1669,7 +1790,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         }
 
         "install" | "update" => {
-            let m = load_manifest(need(a.positional.first(), "a manifest")?, &host, insecure)?;
+            let m = load_manifest_on(need(a.positional.first(), "a manifest")?, &host, insecure,
+                                     branch_flag(a)?)?;
             use_cached_grant(&games, &m.slug, &host);
             let checked = check_updates(&m, &platform, &games, insecure);
             println!("{} — {}", m.name, checked.state.line());
@@ -1948,10 +2070,16 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             // verb's entire purpose, so honouring a flag over it would make
             // `elo join <link> --server X` silently ignore the link.
             play.flags.insert("--server".into(), j.addr.clone());
+            let had_it = elo_depot::newest_of(&games, &j.slug).is_some();
             run(&play).map_err(|e| {
                 // `play` refuses an uninstalled title correctly but says
                 // nothing about what to do next, and arriving from a link is
-                // exactly when a player does not have the game yet.
+                // exactly when a player does not have the game yet. Only
+                // then: an installed game that failed to start, or an origin
+                // that did not answer, is not fixed by installing it.
+                if had_it {
+                    return e;
+                }
                 DepotError::new(format!(
                     "{e}\n  the link is good — install it first: elo install {}",
                     j.slug
@@ -2177,6 +2305,17 @@ fn refuse_if_occupied(path: &Path) -> Result<(), DepotError> {
             path.display()
         )));
     }
+    // The vault refuses this too (`LocalSigner::write_new`); asked here as
+    // well so the refusal comes BEFORE a player has typed a key into a
+    // prompt whose answer was always going to be no.
+    let sol = elo_vault::solana_path_for(path);
+    if sol.exists() {
+        return Err(DepotError::new(format!(
+            "{} is still there from an account whose keystore went — move it somewhere \
+             safe first: it may be the only copy of a Solana key.",
+            sol.display()
+        )));
+    }
     Ok(())
 }
 
@@ -2236,6 +2375,11 @@ fn parse_secret(raw: &str) -> Result<elo_vault::Zeroizing<[u8; 32]>, DepotError>
 
 fn report_new_account(signer: &elo_vault::LocalSigner, path: &Path, made: bool) {
     println!("{}", signer.address().unwrap_or_default());
+    match signer.sol_address() {
+        Some(sa) => println!("{sa}\n  one account: the first address is on Robinhood Chain, the second on Solana"),
+        None => println!("  a bare key has no recovery words, so no Solana address — `elo account solana` \
+                          takes a Solana private key"),
+    }
     println!("  written to {}", path.display());
     // The sentences a holder needs BEFORE they rely on this, not after they
     // have lost it. There is no reset and no copy anywhere else — that is what
@@ -2246,7 +2390,7 @@ fn report_new_account(signer: &elo_vault::LocalSigner, path: &Path, made: bool) 
     } else {
         println!("  ⚠ if you imported a bare key, this file is its only copy here. Back it up.");
     }
-    println!("  ⚠ the passphrase cannot be reset — nobody else has it, including elo.");
+    println!("  ⚠ the passphrase cannot be reset — nobody else has it, including us.");
 }
 
 /// The words, numbered, to stderr. Three columns of four, so a holder copies
@@ -2268,8 +2412,8 @@ fn show_words(phrase: &elo_vault::Phrase) {
         eprintln!("{line}");
     }
     eprintln!();
-    eprintln!("  anyone with these words has the account. elo never sees them and");
-    eprintln!("  cannot show them again. no screenshot, no cloud notes, no chat.");
+    eprintln!("  anyone with these words has the account. We never see them, and");
+    eprintln!("  elo cannot show them again. no screenshot, no cloud notes, no chat.");
     eprintln!();
 }
 
@@ -2315,12 +2459,59 @@ fn load_json(source: &str) -> Result<Value, DepotError> {
 const READS_ONLY: bool = true;
 
 fn load_manifest(source: &str, host: &str, insecure: bool) -> Result<Manifest, DepotError> {
+    load_manifest_on(source, host, insecure, None)
+}
+
+/// [`load_manifest`], on a beta branch when one is named.
+fn load_manifest_on(
+    source: &str,
+    host: &str,
+    insecure: bool,
+    branch: Option<&str>,
+) -> Result<Manifest, DepotError> {
+    let (from, base) = manifest_source_on(source, host, insecure, branch)?;
+    read_manifest(source, &from, &base)
+}
+
+/// A title's beta branch, as `--branch` names it: lowercase letters, digits
+/// and `-`, the same alphabet the origin's `published.json` keys use. Anything
+/// else is a refusal here rather than a query string we did not mean to send.
+fn branch_flag(a: &args::Args) -> Result<Option<&str>, DepotError> {
+    match a.flag("--branch") {
+        None => Ok(None),
+        Some(b)
+            if !b.is_empty()
+                && b.len() <= 32
+                && b.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') =>
+        {
+            Ok(Some(b))
+        }
+        Some(b) => Err(DepotError::new(format!(
+            "--branch {b:?} is not a branch name: lowercase letters, digits and '-'"
+        ))),
+    }
+}
+
+/// Where a manifest is read from, and the origin its relative urls complete
+/// against. Every refusal here is about what was typed, not about the network,
+/// so a caller can tell "that is not a title" from "could not look".
+///
+/// A `branch` is the origin's answer to
+/// `/api/launcher/manifest/<slug>?branch=<name>`, so it only means something for
+/// a bare slug: a url or a file is already exactly the manifest asked for.
+fn manifest_source_on(source: &str, host: &str, insecure: bool, branch: Option<&str>)
+                      -> Result<(String, String), DepotError> {
     let is_url = source.starts_with("https://") || source.starts_with("http://");
     let is_slug = !source.is_empty()
         && source
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
 
+    if branch.is_some() && (is_url || Path::new(source).is_file()) {
+        return Err(DepotError::new(
+            "--branch goes with a title's slug: a url or a file is already one exact manifest",
+        ));
+    }
     let (from, base) = if is_url {
         (source.to_string(), elo_depot::origin_of(source))
     } else if Path::new(source).is_file() {
@@ -2329,8 +2520,9 @@ fn load_manifest(source: &str, host: &str, insecure: bool) -> Result<Manifest, D
         // of this command is already reading.
         (source.to_string(), host.to_string())
     } else if is_slug {
+        let query = branch.map(|b| format!("?branch={b}")).unwrap_or_default();
         (
-            format!("{host}/api/launcher/manifest/{source}"),
+            format!("{host}/api/launcher/manifest/{source}{query}"),
             host.to_string(),
         )
     } else {
@@ -2349,8 +2541,14 @@ fn load_manifest(source: &str, host: &str, insecure: bool) -> Result<Manifest, D
              for a local test server."
         )));
     }
-    let mut m = manifest::parse_manifest(&load_json(&from)?)?;
-    m.rebase(&base);
+    Ok((from, base))
+}
+
+/// Fetch (or read) and parse the manifest [`manifest_source_on`] located.
+fn read_manifest(source: &str, from: &str, base: &str) -> Result<Manifest, DepotError> {
+    let is_url = source.starts_with("https://") || source.starts_with("http://");
+    let mut m = manifest::parse_manifest(&load_json(from)?)?;
+    m.rebase(base);
     if !is_url && Path::new(source).is_file() {
         // Rebased against the host, but it did not come from there: a file
         // claiming the host's slug must not be filed as the host's build.
@@ -2426,6 +2624,23 @@ fn _unused(raw: &Value) -> Result<Depot, DepotError> {
 
 #[cfg(test)]
 mod tests {
+    /// `--branch` takes a branch's own alphabet and nothing else, and only
+    /// goes with a slug: a url or a file is already one exact manifest.
+    #[test]
+    fn a_branch_is_a_name_and_goes_with_a_slug() {
+        let parse = |v: &[&str]| super::args::parse(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        let a = parse(&["install", "gates", "--branch", "beta-2"]);
+        assert_eq!(super::branch_flag(&a).unwrap(), Some("beta-2"));
+        assert_eq!(super::branch_flag(&parse(&["install", "gates"])).unwrap(), None);
+        for bad in ["Beta", "beta?x=1", "../x", ""] {
+            assert!(super::branch_flag(&parse(&["install", "gates", "--branch", bad])).is_err(), "{bad:?}");
+        }
+        let e = super::load_manifest_on("https://example.com/m.json", "https://elopros.com", false, Some("beta"))
+            .err()
+            .expect("a url with a branch is refused");
+        assert!(e.to_string().contains("slug"), "{e}");
+    }
+
     /// The backstop keeps an error's lines and drops what would drive the
     /// terminal: an OSC 52 clipboard write and a screen clear.
     #[test]

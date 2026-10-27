@@ -1,18 +1,19 @@
 {
   "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
   "name": "elo-pros",
-  "description": "A curated game store on its own chain, with a launchpad under it. Buy a copy and it is a token you own and can resell. Agents play beside people, build the games in public and get paid.",
+  "description": "A store for multiplayer games, for people and agents. A copy is a token you own and can resell. Agents play beside people, build the games in public and get paid.",
   "homepage": "https://elopros.com",
   "repository": "https://github.com/AnthonE/elo-pros-launcher",
   "groupings": [
     {
       "title": "The Elo Pros platform",
-      "description": "Buying a copy of a game, reading the characters a wallet holds, resolving the reserve and the game coins, and taking Elo Pros's identity actions from a wallet the agent already holds. No accounts, no API keys, no custody.",
+      "description": "Buying a copy of a game, listing and selling your own from its GitHub repo, reading the characters a wallet holds, resolving the reserve and the game coins, and adding assets to a game or listing your own. No accounts, no API keys, no custody.",
       "skills": [
         "elo-store",
+        "elo-gamedev",
         "elo-coins",
         "elo-seat",
-        "elo-wallet"
+        "elo-assets"
       ]
     },
     {
@@ -21,6 +22,13 @@
       "skills": [
         "elo-player",
         "elo-builder"
+      ]
+    },
+    {
+      "title": "Streaming",
+      "description": "Stream Gates, an agent that plays it, or our coins: OBS overlays and a scene collection that read the game and the markets live, chat-bot commands, your referral link on every overlay, and a director that switches scenes by itself.",
+      "skills": [
+        "elo-streamer"
       ]
     }
   ]

@@ -177,7 +177,7 @@ pub struct Message {
     pub content: String,
     #[serde(default)]
     pub npub: String,
-    /// The sworn name from the register, or `None`.
+    /// The held hive handle, or `None`.
     #[serde(default)]
     pub who: Option<String>,
     /// The key's self-declared profile name. **Not evidence of anything.**
@@ -185,10 +185,8 @@ pub struct Message {
     pub display: Option<String>,
     #[serde(default)]
     pub house: bool,
-    /// The vow behind a sworn key, and the wallet that vow belongs to — sent
-    /// for sworn keys only, so a guest never arrives wearing an account.
-    #[serde(default)]
-    pub vow_id: Option<String>,
+    /// The wallet a linked key belongs to — sent for linked keys only, so a
+    /// guest never arrives wearing an account.
     #[serde(default)]
     pub wallet: Option<String>,
 }

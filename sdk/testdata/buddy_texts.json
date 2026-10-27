@@ -1,0 +1,220 @@
+{
+  "about": "POST /api/buddy/prepare hands back sign_this = playauth.play_message('buddy', wallet, buddy.detail_of(op, check_args(op, asked), at)) for today (UTC); a client reads the change back out of the text and checks it is the one asked for (`asked`): strings equal once whitespace is collapsed (a wallet or a sha256 in any case), dollars to the cent, the same keys. `refused` are texts a client must not sign for their `asked`.",
+  "action": "buddy",
+  "ops": [
+    "trial",
+    "create",
+    "update",
+    "face",
+    "pause",
+    "resume",
+    "retire",
+    "token",
+    "fund",
+    "gift"
+  ],
+  "cases": [
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "trial",
+      "asked": {},
+      "args": {},
+      "at": 1761003600,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{},\"at\":1761003600,\"op\":\"trial\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{},\"at\":1761003600,\"op\":\"trial\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "create",
+      "asked": {
+        "kind": "buddy",
+        "name": "  Pip ",
+        "character": "medic",
+        "look": {
+          "wood": "oak",
+          "gear": "none",
+          "face": "smile",
+          "coat": "white"
+        },
+        "line": "  likes   boats  ",
+        "clips": true
+      },
+      "args": {
+        "kind": "buddy",
+        "name": "Pip",
+        "character": "medic",
+        "line": "likes boats",
+        "look": {
+          "wood": "oak",
+          "gear": "none",
+          "face": "smile",
+          "coat": "white"
+        },
+        "clips": true
+      },
+      "at": 1761003601,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"character\":\"medic\",\"clips\":true,\"kind\":\"buddy\",\"line\":\"likes boats\",\"look\":{\"coat\":\"white\",\"face\":\"smile\",\"gear\":\"none\",\"wood\":\"oak\"},\"name\":\"Pip\"},\"at\":1761003601,\"op\":\"create\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"character\":\"medic\",\"clips\":true,\"kind\":\"buddy\",\"line\":\"likes boats\",\"look\":{\"coat\":\"white\",\"face\":\"smile\",\"gear\":\"none\",\"wood\":\"oak\"},\"name\":\"Pip\"},\"at\":1761003601,\"op\":\"create\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "update",
+      "asked": {
+        "id": "a1a1a1a1a1",
+        "model": "",
+        "brain": "own"
+      },
+      "args": {
+        "id": "a1a1a1a1a1",
+        "brain": "own",
+        "model": ""
+      },
+      "at": 1761003602,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"brain\":\"own\",\"id\":\"a1a1a1a1a1\",\"model\":\"\"},\"at\":1761003602,\"op\":\"update\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"brain\":\"own\",\"id\":\"a1a1a1a1a1\",\"model\":\"\"},\"at\":1761003602,\"op\":\"update\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "face",
+      "asked": {
+        "id": "a1a1a1a1a1",
+        "pic_sha": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
+      },
+      "args": {
+        "id": "a1a1a1a1a1",
+        "pic_sha": "abababababababababababababababababababababababababababababababab"
+      },
+      "at": 1761003603,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"id\":\"a1a1a1a1a1\",\"pic_sha\":\"abababababababababababababababababababababababababababababababab\"},\"at\":1761003603,\"op\":\"face\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"id\":\"a1a1a1a1a1\",\"pic_sha\":\"abababababababababababababababababababababababababababababababab\"},\"at\":1761003603,\"op\":\"face\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "pause",
+      "asked": {
+        "id": "a1a1a1a1a1"
+      },
+      "args": {
+        "id": "a1a1a1a1a1"
+      },
+      "at": 1761003604,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"id\":\"a1a1a1a1a1\"},\"at\":1761003604,\"op\":\"pause\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"id\":\"a1a1a1a1a1\"},\"at\":1761003604,\"op\":\"pause\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A7A",
+        "usd": "5"
+      },
+      "args": {
+        "to": "0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+        "usd": 5.0
+      },
+      "at": 1761003605,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"to\":\"0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a\",\"usd\":5.0},\"at\":1761003605,\"op\":\"gift\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a\",\"usd\":5.0},\"at\":1761003605,\"op\":\"gift\"}"
+    },
+    {
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 2.5
+      },
+      "args": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 2.5
+      },
+      "at": 1761003606,
+      "day": "2025-10-20",
+      "detail": "{\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\",\"usd\":2.5},\"at\":1761003606,\"op\":\"gift\"}",
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\",\"usd\":2.5},\"at\":1761003606,\"op\":\"gift\"}"
+    }
+  ],
+  "refused": [
+    {
+      "why": "a gift to another wallet",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 5
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x8888888888888888888888888888888888888888\",\"usd\":5.0},\"at\":1761003600,\"op\":\"gift\"}"
+    },
+    {
+      "why": "ten times the dollars",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 5
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\",\"usd\":50.0},\"at\":1761003600,\"op\":\"gift\"}"
+    },
+    {
+      "why": "another op",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "pause",
+      "asked": {
+        "id": "a1a1a1a1a1"
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"id\":\"a1a1a1a1a1\"},\"at\":1761003600,\"op\":\"retire\"}"
+    },
+    {
+      "why": "another agent",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "pause",
+      "asked": {
+        "id": "a1a1a1a1a1"
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"id\":\"b2b2b2b2b2\"},\"at\":1761003600,\"op\":\"pause\"}"
+    },
+    {
+      "why": "an argument nobody asked for",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "update",
+      "asked": {
+        "id": "a1a1a1a1a1"
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"brain\":\"own\",\"id\":\"a1a1a1a1a1\"},\"at\":1761003600,\"op\":\"update\"}"
+    },
+    {
+      "why": "another wallet's text",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 5.0
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x2222222222222222222222222222222222222222\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\",\"usd\":5.0},\"at\":1761003600,\"op\":\"gift\"}"
+    },
+    {
+      "why": "another action",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "gift",
+      "asked": {
+        "to": "0x7777777777777777777777777777777777777777",
+        "usd": 5.0
+      },
+      "text": "elo play\naction: friends\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"to\":\"0x7777777777777777777777777777777777777777\",\"usd\":5.0},\"at\":1761003600,\"op\":\"gift\"}"
+    },
+    {
+      "why": "a second line in the detail",
+      "wallet": "0x1111111111111111111111111111111111111111",
+      "op": "pause",
+      "asked": {
+        "id": "a1a1a1a1a1"
+      },
+      "text": "elo play\naction: buddy\nwallet: 0x1111111111111111111111111111111111111111\nday: 2025-10-20\ndetail: {\"args\":{\"id\":\"a1a1a1a1a1\"},\"at\":1761003600,\"op\":\"pause\"}\naction: buddy"
+    }
+  ]
+}
