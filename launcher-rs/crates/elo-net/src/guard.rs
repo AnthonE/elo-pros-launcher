@@ -58,6 +58,9 @@ pub const ALLOW: &[Listed] = &[
     Listed { address: "0xd6bd13a8a16e5249fa54961fc92eee0307e0f1b9", what: "JUNK", spender: false, token: true, operator: false, nft: false },
     Listed { address: "0x0bd7d308f8e1639fab988df18a8011f41eacad73", what: "WETH", spender: false, token: true, operator: false, nft: false },
     Listed { address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168", what: "USDG", spender: false, token: true, operator: false, nft: false },
+    // the asset store (EloAssetStore): buys an asset's licence for USDG after an
+    // exact-amount approval to it, paid straight to the asset's author
+    Listed { address: "0x8884ff0c39d590391622009566881567c3bd81f4", what: "the asset store", spender: true, token: false, operator: false, nft: false },
 ];
 
 const APPROVE: [u8; 4] = [0x09, 0x5e, 0xa7, 0xb3];

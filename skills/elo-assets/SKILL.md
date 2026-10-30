@@ -54,8 +54,11 @@ elo assets help                                                 # the launcher, 
    `elo assets sync` rebuilds the files from the lock on another machine.
 
 A priced asset installs only for a wallet that holds its licence. Pass that
-wallet (`--wallet 0x…`, or `wallet=` over MCP). If the read says buying is
-not open yet, tell the person; never fetch a priced asset's files around it.
+wallet (`--wallet 0x…`, or `wallet=` over MCP). To buy one, `elo assets buy
+<id>` pays its price in USDG on Robinhood Chain straight to its author (or GET
+/api/assets/<id>/prepare/buy?wallet=0x… for the unsigned steps), then `elo
+assets add` installs it. If the read says buying is not open yet, tell the
+person; never fetch a priced asset's files around it.
 
 ## Make one and list it
 

@@ -57,6 +57,8 @@ each 99¢ or less, managed for you
                                       --price CENTS --tags a,b --version 1.1.0)
                                       Run it again with a new --version to update;
                                       files already uploaded are not sent twice.
+  elo assets buy <id>                 buy a priced asset's licence in USDG on Robinhood
+                                      Chain, paid straight to its author; then `add`
   elo assets unlist <id>              take your upload off the shelf (kept: projects
                                       that added it still sync; upload brings it back)
 
@@ -88,6 +90,7 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
         Some("outdated") => outdated(&net, a, host, json_out).map(|_| 0),
         Some("update") => update(&net, a, host, json_out),
         Some("credits") => credits(a, json_out),
+        Some("buy") => buy(&net, a, host, json_out),
         Some("init") => init(a, json_out),
         Some("check") => check(&net, a, host, json_out),
         Some("publish") => publish(&net, a, host, json_out),
@@ -859,4 +862,57 @@ mod tests {
     fn a_query_is_encoded() {
         assert_eq!(urlencode("low poly&kind=x"), "low%20poly%26kind%3Dx");
     }
+}
+
+
+/// `elo assets buy <id>`: the licence for a priced asset, bought on chain from
+/// its author in USDG. The origin prepares the steps (an exact approval when
+/// the allowance is short, then `buy`); every step goes through the guard's
+/// compiled-in list and is checked against the chain before the key signs.
+fn buy(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
+    use elo_broker::signer::Signer;
+    use elo_net::chain::{self, HttpRpc};
+    use elo_net::guard::{self, Settings};
+    let Some(id) = a.positional.get(1) else {
+        return Err(DepotError::new("usage: elo assets buy <id>"));
+    };
+    if !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+        return Err(DepotError::new("an asset id is lowercase letters, digits and '-'"));
+    }
+    let local = elo_vault::LocalSigner::at(elo_vault::keystore_path());
+    let who = local.address().ok_or_else(|| DepotError::new(
+        "no account on this machine — `elo account new` makes one, or buy on the site"))?.to_lowercase();
+    let me = elo_vault::parse_address(&who).map_err(DepotError::new)?;
+    let prep = told(net.get_json_told(&format!("{host}/api/assets/{id}/prepare/buy?wallet={who}")))?;
+    let cents = prep.get("price_cents").and_then(Value::as_u64).unwrap_or(0);
+    if cents == 0 || cents > 99 {
+        return Err(DepotError::new("the origin prepared a price outside the store's 1¢ to 99¢ — nothing was signed"));
+    }
+    eprintln!("  {} — {}¢ in USDG, paid to its author {}", safe_line(id), cents,
+              safe_line(prep.get("payee").and_then(Value::as_str).unwrap_or("?")));
+    for t in prep.get("txs").and_then(Value::as_array).into_iter().flatten() {
+        eprintln!("  step  {}", safe_line(t.get("what").and_then(Value::as_str).unwrap_or("a step")));
+    }
+    if a.has("--dry-run") {
+        println!("nothing was signed — drop --dry-run to buy");
+        return Ok(0);
+    }
+    if !a.has("--yes") && !crate::prompt::confirm("  buy it? [y/N] ").map_err(DepotError::new)? {
+        println!("nothing was signed");
+        return Ok(1);
+    }
+    let pass = crate::prompt::secret("passphrase: ").map_err(DepotError::new)?;
+    let rpc = HttpRpc::new();
+    let settings = Settings::load(&guard::settings_path());
+    let sign = |tx: &elo_vault::tx::Tx| local.sign_transaction(&pass, tx);
+    let hash = elo_net::trading::execute(&prep, &rpc, &me, &settings, &guard::activity_path(), "assets", &sign,
+                                         &|line: &str| eprintln!("{line}")).map_err(DepotError::new)?;
+    drop(pass);
+    if json_out {
+        println!("{}", json!({"id": id, "hash": hash, "url": chain::tx_url(&hash)}));
+    } else {
+        println!("  bought: {}", chain::tx_url(&hash));
+        println!("  `elo assets add {id}` installs it");
+    }
+    Ok(0)
 }

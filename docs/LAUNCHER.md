@@ -2586,7 +2586,9 @@ The store submits it and pays the gas, and the credits land on this wallet's
 account. The balance read signs in with the same wallet (the OAuth wallet
 grant) and keeps no token on disk. A paired browser cannot sign a pack: buy on
 the site instead. Credits pay for hosting, Claude builds, buddies and the
-relay; an asset is bought on chain from its maker, never with credits.
+relay; an asset is bought on chain from its maker, never with credits:
+`elo assets buy <id>` pays a priced asset's licence in USDG through the guard
+(an exact approval, then the store's `buy`), straight to its author.
 
 ## Reading order
 
