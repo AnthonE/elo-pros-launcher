@@ -41,6 +41,8 @@ pub mod digest;
 /// Where the client keeps its state, for both binaries.
 pub mod dirs;
 pub mod error;
+/// Game mode — GameMode on Linux, above-normal priority on Windows.
+pub mod gamemode;
 pub mod install;
 pub mod launch;
 pub mod manifest;

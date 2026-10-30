@@ -513,6 +513,29 @@ Godot or Go server needs no crypto stack and no RPC endpoint. It stores
 nothing; the nonce stays the game's to retire. `sdk/testdata/signin_check.json`
 pins the bytes `elo-3.js` composes to the bytes the route parses.
 
+### 5b′ · Sign in with Elo Pros: `elo-signin-1.js`
+
+A separate, smaller file for a game that never wants a wallet prompt:
+`EloSignIn.popup({game, nonce, callback?})`, `EloSignIn.start({game, nonce,
+returnTo})`, `EloSignIn.result()` and `EloSignIn.cancel()`. A page that opens
+the popup (or its `callback`) loads the script too, so a popup a provider cut
+off can still hand the pass back (`ACCOUNTS.md` §6). It sends the player to `game-signin.html` and hands
+back a ten-minute pass for that game, that site and that nonce; the server
+checks it with `checkPass` (JavaScript), `check_pass` (Python and Rust). Same
+release rule as `elo-N.js`: a released file is never edited, `sdk/js/` ships
+the same bytes, and `SHA256SUMS` names it. `ACCOUNTS.md` §6 is the flow.
+
+### 5b″ · Clips: `elo-clip-1.js`
+
+A video of what a player just did, made in their browser and sent nowhere:
+`EloClip.keep(canvas, {seconds, audio})` keeps an instant replay of any
+canvas (encoded as it runs, decoded again to crop and dress it at save), and
+`EloClip.film({shape})` takes frames from a game that replays its own match,
+which is what Gates' F9 does with its netcode (`create.html`). Both write an
+H.264 MP4 with the index first, 9:16 by default, with an optional line, tag
+and end card. `EloClip.share` hands it to the share sheet or saves it. Same
+release rule, and `sdk/test_sdk.py` holds the file to naming no network call.
+
 ### 5c · The packages: Rust, Python, JavaScript
 
 Vendoring one file stays supported and stays the leanest way in. A game, a
@@ -528,8 +551,11 @@ instead; each carries the client above unchanged and adds one for `/api/`:
 One API in all three (`sdk/README.md` has the table): friends with buddies,
 ticket ownership, items, faces, profiles, leaderboards, and the payout file a
 game server writes when a wipe closes, and a game server's half: the sign-in
-check (`checkSignIn`), the paged roster sweep (`checkRoster`) and a nonce
-(`newNonce`). Two rules from this page hold in each.
+check (`checkSignIn`), the pass check for Sign in with Elo Pros (`checkPass`),
+the paged roster sweep (`checkRoster`) and a nonce
+(`newNonce`), and moving a connected player to another of your servers with
+a handoff (`ServerKey.handoff`, `HandoffDoor`; `HANDOFF.md`). Two rules from
+this page hold in each.
 A read keeps "could not look" apart from "no": every call answers an answer, a
 refusal, or could-not-look, and a ticket read that timed out is never "does
 not own". A signed change rebuilds the text it signs locally and refuses a

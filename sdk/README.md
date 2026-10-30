@@ -52,6 +52,13 @@ and [`python/elo_overlay.py`](python/elo_overlay.py), which the packages
 include and a game may also vendor on its own. No launcher is a normal state:
 play anonymously, and never ask the player for a key instead.
 
+**Clips.** [`js/elo-clip-1.js`](js/elo-clip-1.js) (served at
+`https://elopros.com/sdk/elo-clip-1.js`, `integrity="sha384-Re+5WqYHjETW0y5g2IsOdVitwKBwiHGCF5qwK2DFfrOTrNfWC4ZCPSgfHIdLe7JN"`)
+makes a video of what a player just did, in their browser, for TikTok,
+Reels or Shorts: an instant replay of any canvas, or frames a game that
+replays its own match hands over. [`js/README.md`](js/README.md) has both. A
+desktop game pipes the same frames to ffmpeg, as Gates' `gates --clip` does.
+
 A browser game has no launcher to reach. It uses the web SDK,
 [`js/elo-3.js`](js/elo-3.js) (served at `https://elopros.com/sdk/elo-3.js`),
 to connect the player's wallet, Ethereum or Solana, sign them in to its own
@@ -107,6 +114,9 @@ and the payout file a game server writes when a wipe closes.
 | cloud saves (server) | `cloud_put`, `cloud_get`, `cloud_delete`, `cloud_list` | the same names | `cloudPut`, `cloudGet`, `cloudDelete`, `cloudList` |
 | stats, unlocks and scores (server) | `stats_report(&key, &reports)` | `stats_report(key, reports)` | `statsReport(key, reports)` |
 | at join: playtest, mods, lobby, quick join | `playtest_access`, `workshop_subscribed`, `lobby`, `lobby_of`, `quick_join` | the same names | `playtestAccess`, `workshopSubscribed`, `lobby`, `lobbyOf`, `quickJoin` |
+| move a player to another of your servers (server) | `key.handoff(player, from, to, carry, ttl)` | `key.handoff(player, frm, to, carry=…)` | `await key.handoff(player, from, to, { carry })` |
+| admit a moved player (server) | `HandoffDoor::with_source(game, &[addr], Box::new(client)).admit_now(&token, carry)` | `HandoffDoor(game, [addr], client=client).admit(token, carry)` | `await new HandoffDoor(game, [addr], { client }).admit(token, carry)` |
+| a game's public server keys | `server_keys(game)` | `server_keys(game)` | `serverKeys(game)` |
 
 ## Your server's key
 

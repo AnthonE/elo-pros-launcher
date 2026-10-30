@@ -135,6 +135,41 @@ or from the package: `import "@elopros/sdk/elo-3.js"`, which sets
 `examples/web-game/` puts both halves together; `examples/friends.mjs`,
 `examples/owns.mjs` and `examples/payout.mjs` show the other parts.
 
+## Clips: a video of what a player just did
+
+`elo-clip-1.js` makes an MP4 for TikTok, Reels or Shorts in the player's
+browser (WebCodecs): 9:16, 16:9 or square, with a line over the first
+seconds, a corner tag and an end card with your title and link. It sends
+nothing anywhere. Two ways in:
+
+```html
+<script src="https://elopros.com/sdk/elo-clip-1.js"
+        integrity="sha384-Re+5WqYHjETW0y5g2IsOdVitwKBwiHGCF5qwK2DFfrOTrNfWC4ZCPSgfHIdLe7JN"
+        crossorigin="anonymous"></script>
+<script type="module">
+  // Any canvas game: an instant replay of the last 30 seconds.
+  const keep = EloClip.keep(canvas, { seconds: 30, audio: masterGain });
+  clipButton.onclick = async () => {
+    const video = await keep.save({ shape: "tall", title: "My Game",
+                                    link: "elopros.com/games/my-game" });
+    await EloClip.share(video, { name: "my-game.mp4" });  // share sheet, or a download
+  };
+
+  // A game that can replay its own match: draw it with any camera, at any speed.
+  const film = EloClip.film({ shape: "tall", title: "My Game" });
+  for (const t of replay) { drawAt(t); await film.frame(canvas); }
+  film.audio(pcm, 48000, 2);
+  const video2 = await film.done();
+</script>
+```
+
+`keep` reads a WebGL canvas as the browser last showed it: if clips come out
+black, make the context with `preserveDrawingBuffer: true`, or pass
+`manual: true` and call `keep.frame()` after each draw. `audio` is the
+AudioNode everything you play goes through. Types:
+`/// <reference types="@elopros/sdk/elo-clip-1" />`. Gates' F9 is the `film`
+way: it replays its own netcode on the player's GPU.
+
 ## "Could not look" is never "no"
 
 Every call resolves to a Look:

@@ -44,6 +44,13 @@ pub const ALLOW: &[Listed] = &[
     // exact-amount approval to it, so it is a spender and takes calls
     Listed { address: "0x54538c224ae8c5bacc6382b86eed301e10d3e5e6", what: "Gates copies", spender: true, token: false, operator: false, nft: true },
     Listed { address: "0x2f2169bcd4e674c76c417191d23ef3c1cfdabf7b", what: "Elo Pros", spender: false, token: true, operator: false, nft: true },
+    // trading cards: approved to the market to list and to the kiln to craft
+    Listed { address: "0x520259be81b84af336f8c2ab7c2b7ac2529a1c66", what: "Elo Pros cards", spender: false, token: true, operator: false, nft: true },
+    Listed { address: "0xd71045e27d97814bb8f998876ab671e835d22d80", what: "Elo Pros badges", spender: false, token: true, operator: false, nft: true },
+    Listed { address: "0xe77642f54a083e0703fd5485d8547d1fb84e5ee5", what: "the card market", spender: false, token: false, operator: true, nft: false },
+    Listed { address: "0xbf513e02670f0c147ff47652359acf65fe76478e", what: "the card kiln", spender: false, token: false, operator: true, nft: false },
+    // booster packs: bought for ETH, or for JUNK after an exact-amount approval
+    Listed { address: "0xc29c3f56cdcd799c8cafba0e1a5830abab45f45c", what: "booster packs", spender: true, token: false, operator: false, nft: false },
     // the Gates skin shop (EloItemStore:GATES): buys a skin for JUNK after an
     // exact-amount approval to it
     Listed { address: "0x6ca8f8c4657c08ee291cead3caf827530220c260", what: "the Gates skin shop", spender: true, token: false, operator: false, nft: false },

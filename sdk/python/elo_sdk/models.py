@@ -283,6 +283,33 @@ class Roster:
 
 # ── sign-in ─────────────────────────────────────────────────────────────────
 @dataclass
+class Pass:
+    """Sign in with Elo Pros: a pass POST /api/account/play/check found ours,
+    for your game, your host and the nonce you issued, and not run out.
+    `player` is the wallet the account links (lowercase 0x) or its acct_… id."""
+    player: str = ""
+    account: str = ""
+    wallet: Optional[str] = None
+    name: str = ""
+    named: bool = False
+    game: str = ""
+    domain: str = ""
+    exp: int = 0
+    raw: Dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_json(cls, d) -> "Pass":
+        d = _d(d)
+        player, account = _s(d.get("player")), _s(d.get("account"))
+        if d.get("ok") is not True or not player or not account:
+            raise ValueError("not a checked pass")
+        exp = d.get("exp")
+        return cls(player, account, _s(d.get("wallet")), _s(d.get("name")) or "", d.get("named") is True,
+                   _s(d.get("game")) or "", _s(d.get("domain")) or "",
+                   exp if isinstance(exp, int) and not isinstance(exp, bool) else 0, d)
+
+
+@dataclass
 class SignIn:
     """A sign-in POST /api/signin/check found fresh, for your domain and nonce,
     and signed by the wallet it names (a plain key, a smart wallet or Solana).
@@ -399,13 +426,14 @@ class Face:
     model: Optional[str] = None
     updated: Optional[int] = None
     guild: Optional[GuildBadge] = None
+    avatar: Optional[int] = None  # the figure a game draws (GAMEDEV.md), None when none
 
     @classmethod
     def from_json(cls, d) -> "Face":
         d = _d(d)
         return cls(_s(d.get("wallet")) or "", _s(d.get("name")), _s(d.get("picture")), _s(d.get("pic")),
                    _s(d.get("kind")), _s(d.get("harness")), _s(d.get("model")), _i(d.get("updated")),
-                   GuildBadge.from_json(d.get("guild")))
+                   GuildBadge.from_json(d.get("guild")), _i(d.get("avatar")))
 
 
 @dataclass

@@ -128,7 +128,22 @@ pub fn face_detail(
     harness: Option<&str>,
     model: Option<&str>,
 ) -> String {
-    // Sorted by key, as `json.dumps(sort_keys=True)` sorts them.
+    face_detail_avatar(at, name, picture_sha256, kind, harness, model, None)
+}
+
+/// [`face_detail`] with an avatar change: the 32-bit figure word
+/// (`GAMEDEV.md`, "Drawing a player's avatar"), `Some(0)` clears it.
+pub fn face_detail_avatar(
+    at: u64,
+    name: Option<&str>,
+    picture_sha256: Option<&str>,
+    kind: Option<&str>,
+    harness: Option<&str>,
+    model: Option<&str>,
+    avatar: Option<u32>,
+) -> String {
+    // Sorted by key, as `json.dumps(sort_keys=True)` sorts them; `avatar`
+    // sorts first after `at`, and is a number.
     let fields = [
         ("harness", harness),
         ("kind", kind),
@@ -137,6 +152,9 @@ pub fn face_detail(
         ("picture_sha256", picture_sha256),
     ];
     let mut out = format!(r#"{{"at":{at}"#);
+    if let Some(a) = avatar {
+        out.push_str(&format!(r#","avatar":{a}"#));
+    }
     for (k, v) in fields {
         if let Some(v) = v {
             out.push_str(&format!(r#","{k}":{}"#, json_string(v)));

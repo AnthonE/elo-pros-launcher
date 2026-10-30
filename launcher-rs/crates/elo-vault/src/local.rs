@@ -294,6 +294,24 @@ impl LocalSigner {
         account.sign_listing(order)
     }
 
+    /// Sign a USDG transfer authorization for a credit pack (`crate::usdg`),
+    /// with the passphrase asked for THIS payment, like a transaction. The
+    /// vault refuses any authorization that is not from this account, to the
+    /// credits address, for at most one pack, valid now and briefly.
+    pub fn sign_usdg_authorization(&self, passphrase: &str, a: &crate::usdg::Authorization, now: u64)
+                                   -> Result<String, String> {
+        let raw = std::fs::read_to_string(&self.path)
+            .map_err(|e| format!("cannot read {}: {e}", self.path.display()))?;
+        let doc: Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("{} is not JSON: {e}", self.path.display()))?;
+        let secret = keystore::decrypt(&doc, passphrase)?;
+        let account = Account::from_secret(secret.as_ref())?;
+        if self.address.as_deref() != Some(account.address().as_str()) {
+            return Err("this keystore's key is not the address it names — refusing to sign".into());
+        }
+        account.sign_usdg(a, now)
+    }
+
     /// The shared write half. Every door refuses the same things, in the
     /// same order, because a refusal that depends on which verb you typed is a
     /// refusal a caller can route around.

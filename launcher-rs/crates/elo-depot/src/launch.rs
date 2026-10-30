@@ -27,7 +27,11 @@ use std::process::Command;
 /// and the interpreters' option variables. Each lets a depot that passed
 /// every hash run a library it never shipped. The `VK_`, `LIBGL_` and
 /// `__EGL_` families are covered by [`ENV_DENY_PREFIX`].
-pub const ENV_DENY: [&str; 41] = [
+///
+/// `GAMEMODERUNEXEC` is the one that is ours to cause: with game mode on, a
+/// Linux launch goes through `gamemoderun` (`gamemode.rs`), which runs that
+/// variable as a command in front of the game.
+pub const ENV_DENY: [&str; 42] = [
     "LD_PRELOAD",
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
@@ -69,6 +73,7 @@ pub const ENV_DENY: [&str; 41] = [
     "LIBVA_DRIVERS_PATH",
     "GBM_BACKENDS_PATH",
     "OCL_ICD_FILENAMES",
+    "GAMEMODERUNEXEC",
 ];
 
 /// Whole families of loader variables: the glibc and macOS loaders, the
@@ -346,6 +351,24 @@ pub struct Launch {
     pub argv: Vec<String>,
     pub cwd: PathBuf,
     pub env: BTreeMap<String, String>,
+    /// What game mode adds to this launch (`gamemode.rs`), decided when it was
+    /// resolved. [`Effect::Nothing`](crate::gamemode::Effect) with it off.
+    pub boost: crate::gamemode::Effect,
+}
+
+impl Launch {
+    /// What is actually run: the game's argv, behind `gamemoderun` when game
+    /// mode starts it through GameMode. `--dry-run` prints this.
+    pub fn command_line(&self) -> Vec<String> {
+        match &self.boost {
+            crate::gamemode::Effect::GameMode(runner) => {
+                let mut v = vec![runner.to_string_lossy().to_string()];
+                v.extend(self.argv.iter().cloned());
+                v
+            }
+            _ => self.argv.clone(),
+        }
+    }
 }
 
 /// Resolve an installed build into an argv, a cwd and an environment.
@@ -407,14 +430,21 @@ pub fn resolve(
     // Streamer mode rides every launch from here, so no door can start a game
     // that shows what the launcher is hiding (`streamer.rs`).
     env.extend(crate::streamer::launch_env());
-    Ok(Launch { argv, cwd, env })
+    // Game mode rides every launch from here for the same reason.
+    Ok(Launch { argv, cwd, env, boost: crate::gamemode::boost() })
 }
 
 fn command(launch: &Launch) -> Command {
-    let mut cmd = Command::new(&launch.argv[0]);
-    cmd.args(&launch.argv[1..]).current_dir(&launch.cwd);
+    let argv = launch.command_line();
+    let mut cmd = Command::new(&argv[0]);
+    cmd.args(&argv[1..]).current_dir(&launch.cwd);
     for (k, v) in &launch.env {
         cmd.env(k, v);
+    }
+    #[cfg(windows)]
+    if launch.boost == crate::gamemode::Effect::AboveNormal {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(crate::gamemode::ABOVE_NORMAL_PRIORITY_CLASS);
     }
     cmd
 }

@@ -1,5 +1,6 @@
 //! Assets in a project: what a builder added from the asset store, fetched
-//! from each author's GitHub release, held to the sha256 the author published,
+//! from each author's GitHub release (or, for an asset uploaded to the store,
+//! from an IPFS gateway by its CID), held to the sha256 the author published,
 //! and pinned in a lockfile beside the project.
 //!
 //! The origin half is `meter/assetstore.py`. `GET /api/assets/<id>/install`
@@ -22,7 +23,10 @@
 //! The rules, each a refusal:
 //!
 //! * **A file lands only after its bytes check** — `place_file`'s rule.
-//! * **A url is the author's own release** — `workshop::check_release_url`.
+//! * **A url is the author's own release** — `workshop::check_release_url` —
+//!   or, for an uploaded asset (`author.host == "elo"`), an IPFS gateway's
+//!   `https://<host>/ipfs/<cid>` ([`check_ipfs_url`]): content-addressed, so
+//!   the gateway is only a door, and the sha256 is still checked.
 //! * **The folder is the asset's.** The origin's `path` must be relative,
 //!   canonical, and end in the asset's id (`assets/elo/<id>`), so the folder
 //!   an install tidies and a remove deletes can only ever be one an asset
@@ -66,10 +70,40 @@ pub struct Asset {
     pub files: Vec<ModFile>,
     pub license: String,
     pub credit: String,
+    /// A GitHub account, or for an uploaded asset its wallet (or `elopros`).
     pub owner: String,
+    /// Empty for an uploaded asset.
     pub repo: String,
+    /// Uploaded to the store and pinned to IPFS, not a GitHub release.
+    pub hosted: bool,
     pub source: Option<String>,
     pub requires: Vec<String>,
+}
+
+/// The house's own shelf on the store (`meter/assetstore.HOUSE`).
+pub const HOUSE: &str = "elopros";
+
+/// An uploaded file's url: `https://<gateway host>/ipfs/<cid>`, nothing more.
+pub fn check_ipfs_url(url: &str) -> Result<()> {
+    let refuse = || DepotError::new(format!("{url:?} is not a file on an IPFS gateway"));
+    let rest = url.strip_prefix("https://").ok_or_else(refuse)?;
+    let (host, path) = rest.split_once('/').ok_or_else(refuse)?;
+    let cid = path.strip_prefix("ipfs/").ok_or_else(refuse)?;
+    let host_ok = !host.is_empty()
+        && host.len() <= 253
+        && host.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'.' || c == b'-')
+        && host.contains('.');
+    let cid_ok = (20..=130).contains(&cid.len()) && cid.bytes().all(|c| c.is_ascii_alphanumeric());
+    if host_ok && cid_ok {
+        Ok(())
+    } else {
+        Err(refuse())
+    }
+}
+
+fn is_hosted_owner(s: &str) -> bool {
+    s == HOUSE
+        || (s.len() == 42 && s.starts_with("0x") && s[2..].bytes().all(|c| c.is_ascii_hexdigit()))
 }
 
 fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -116,8 +150,11 @@ pub fn parse_asset(v: &Value) -> Result<Asset> {
     }
     let engine = text(v, "engine").filter(|e| is_engine(e)).unwrap_or("any");
     let author = v.get("author").unwrap_or(&Value::Null);
+    let hosted = text(author, "host") == Some("elo");
     let (owner, repo) = match (text(author, "owner"), text(author, "repo")) {
-        (Some(o), Some(r)) if is_github_name(o) && is_github_name(r) => (o, r),
+        (Some(o), _) if hosted && is_hosted_owner(o) => (o, ""),
+        (Some(o), Some(r)) if !hosted && is_github_name(o) && is_github_name(r) => (o, r),
+        _ if hosted => return Err(DepotError::new("it names no author the store knows")),
         _ => return Err(DepotError::new("it names no GitHub repo")),
     };
     let rows = v
@@ -135,7 +172,12 @@ pub fn parse_asset(v: &Value) -> Result<Asset> {
             return Err(DepotError::new(format!("file {n}: {name:?} is listed twice")));
         }
         let url = text(f, "url").unwrap_or_default();
-        check_release_url(url, owner, repo).map_err(|e| DepotError::new(format!("file {n}: {e}")))?;
+        if hosted {
+            check_ipfs_url(url)
+        } else {
+            check_release_url(url, owner, repo)
+        }
+        .map_err(|e| DepotError::new(format!("file {n}: {e}")))?;
         let sha256 = text(f, "sha256")
             .filter(|h| h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()))
             .ok_or_else(|| DepotError::new(format!("file {n}: no sha256 to check it by")))?
@@ -160,6 +202,7 @@ pub fn parse_asset(v: &Value) -> Result<Asset> {
         credit: plain(text(v, "credit").unwrap_or(id), 200),
         owner: owner.to_string(),
         repo: repo.to_string(),
+        hosted,
         source,
         requires: v
             .get("requires")
@@ -178,7 +221,8 @@ pub fn asset_json(a: &Asset) -> Value {
     json!({
         "id": a.id, "version": a.version, "engine": a.engine, "path": a.path,
         "license": a.license, "credit": a.credit, "source": a.source, "requires": a.requires,
-        "author": {"owner": a.owner, "repo": a.repo},
+        "author": if a.hosted { json!({"host": "elo", "owner": a.owner, "repo": ""}) }
+                  else { json!({"owner": a.owner, "repo": a.repo}) },
         "files": a.files.iter().map(|f| json!({
             "name": f.name, "url": f.url, "sha256": f.sha256, "size": f.size,
         })).collect::<Vec<_>>(),
@@ -377,7 +421,11 @@ pub fn credits_markdown(lock: &Lock) -> String {
         out.push_str(&format!("\n## {}\n\n", a.id));
         out.push_str(&format!("- {}\n", a.credit));
         out.push_str(&format!("- version {} · licence {}\n", a.version, a.license));
-        out.push_str(&format!("- https://github.com/{}/{}\n", a.owner, a.repo));
+        if a.hosted {
+            out.push_str(&format!("- https://elopros.com/assets.html#{}\n", a.id));
+        } else {
+            out.push_str(&format!("- https://github.com/{}/{}\n", a.owner, a.repo));
+        }
         if let Some(s) = &a.source {
             out.push_str(&format!("- source: {s}\n"));
         }
@@ -475,6 +523,109 @@ pub fn build_manifest(dir: &Path, owner: &str, repo: &str, tag: &str, meta: &Met
     if let Some(p) = preview {
         // A preview the card shows is read from the repo, not the release.
         m["_preview_hint"] = json!(format!("commit {p} to the repo too, and set \"preview\": \"{p}\""));
+    }
+    Ok(m)
+}
+
+/// The picture `upload` sends for the card: `preview.png`, `.jpg` or `.jpeg`
+/// in the folder, never one of the files.
+fn is_preview_name(n: &str) -> bool {
+    let l = n.to_ascii_lowercase();
+    l.starts_with("preview") && (l.ends_with(".png") || l.ends_with(".jpg") || l.ends_with(".jpeg"))
+}
+
+/// `elo-asset.json` for uploading the files in `dir` to the store (no GitHub):
+/// no url on any file (the store pins them and writes one), every file's
+/// sha256 and size read off the disk now, and a `preview.png`/`.jpg` beside
+/// them sent as the card's picture. `prior` is the manifest already in the
+/// folder from an earlier upload: what it says stands (tags, made_with,
+/// credit, source, payee…) unless `meta` says otherwise, so an update is the
+/// same command with a new `--version`.
+pub fn build_upload_manifest(dir: &Path, meta: &Meta, prior: Option<&Value>) -> Result<Value> {
+    if prior.and_then(|p| p.get("files")).and_then(Value::as_array).into_iter().flatten()
+        .any(|f| f.get("url").is_some())
+    {
+        return Err(DepotError::new(
+            "this folder's elo-asset.json names release urls: it is published from GitHub \
+             (`elo assets publish --repo …`), not uploaded",
+        ));
+    }
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .map_err(|e| DepotError::new(format!("{}: {e}", dir.display())))?
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| !n.starts_with('.') && n != MANIFEST_NAME)
+        .collect();
+    names.sort();
+    let preview = names.iter().find(|n| is_preview_name(n)).cloned();
+    names.retain(|n| Some(n) != preview.as_ref());
+    if names.is_empty() {
+        return Err(DepotError::new(format!("{} holds no files to upload", dir.display())));
+    }
+    if names.len() > FILES_MAX {
+        return Err(DepotError::new(format!(
+            "{} holds {} files and an asset lists {FILES_MAX} at most — zip them",
+            dir.display(),
+            names.len()
+        )));
+    }
+    let mut files = Vec::with_capacity(names.len());
+    for n in &names {
+        check_file_name(n).map_err(|e| DepotError::new(format!("{e} — rename it")))?;
+        let p = dir.join(n);
+        let size = std::fs::metadata(&p)?.len() as i64;
+        if !(1..=FILE_SIZE_MAX).contains(&size) {
+            return Err(DepotError::new(format!("{n} is {size} bytes; a file is 1 byte to 2 GiB")));
+        }
+        let mut f = json!({"name": n, "sha256": sha256_file(&p)?, "size": size});
+        // an engine the earlier manifest pinned this file to stays pinned
+        let was = prior.and_then(|p| p.get("files")).and_then(Value::as_array).into_iter().flatten()
+            .find(|x| x.get("name").and_then(Value::as_str) == Some(n.as_str()));
+        if let Some(e) = was.and_then(|x| x.get("engine")) {
+            f["engine"] = e.clone();
+        }
+        files.push(f);
+    }
+    let mut m = prior.cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    let pick = |m: &Value, k: &str, given: &str, fallback: &str| -> Value {
+        if !given.is_empty() {
+            json!(given)
+        } else {
+            m.get(k).cloned().unwrap_or_else(|| json!(fallback))
+        }
+    };
+    let id = if meta.id.is_empty() { m.get("id").and_then(Value::as_str).unwrap_or("").to_string() }
+             else { meta.id.clone() };
+    if !is_mod_id(&id) {
+        return Err(DepotError::new("the id is lowercase letters, digits and '-' — --id <id>"));
+    }
+    m["elo_asset"] = json!(1);
+    m["id"] = json!(id);
+    m["name"] = pick(&m, "name", &meta.name, &id);
+    m["about"] = pick(&m, "about", &meta.about, "");
+    m["kind"] = pick(&m, "kind", &meta.kind, "model");
+    m["version"] = pick(&m, "version", &meta.version, "1.0.0");
+    m["license"] = pick(&m, "license", &meta.license, "CC-BY-4.0");
+    if !meta.engines.is_empty() {
+        m["engines"] = json!(meta.engines);
+    } else if m.get("engines").is_none() {
+        m["engines"] = json!(["any"]);
+    }
+    if meta.price_cents > 0 || m.get("price_cents").is_none() {
+        m["price_cents"] = json!(meta.price_cents);
+    }
+    m["files"] = json!(files);
+    match preview {
+        Some(p) => m["preview"] = json!(p),
+        None => {
+            if let Some(o) = m.as_object_mut() {
+                o.remove("preview");
+            }
+        }
+    }
+    if m.get("about").and_then(Value::as_str).unwrap_or("").trim().is_empty() {
+        return Err(DepotError::new("say what it is — --about \"…\" (or fill in about in elo-asset.json)"));
     }
     Ok(m)
 }
@@ -577,6 +728,90 @@ mod tests {
         let b = parse_asset(&install(vec![file("tree.glb", b"a tree")])).unwrap();
         land(root.path(), &b, &f, false, &mut |_, _| {});
         assert!(!root.path().join("assets/elo/low-poly-forest/rock.glb").exists());
+    }
+
+    #[test]
+    fn an_uploaded_asset_lands_from_ipfs_and_the_lock_keeps_its_host() {
+        const CID: &str = "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy";
+        let gw = format!("https://gw.example/ipfs/{CID}");
+        let w = "0x00000000000000000000000000000000000000ab";
+        let v = json!({"id": "fel-wolf", "version": "1.0.0", "engine": "any",
+                       "path": "assets/elo/fel-wolf", "license": "CC-BY-4.0",
+                       "credit": "Fel wolf by Elo Pros, CC-BY-4.0",
+                       "author": {"host": "elo", "owner": w, "repo": "", "name": "0x0000…00ab"},
+                       "files": [{"name": "wolf.glb", "url": gw, "sha256": sha(b"a wolf"), "size": 6}]});
+        let a = parse_asset(&v).unwrap();
+        assert!(a.hosted && a.owner == w && a.repo.is_empty());
+        let root = tempfile::tempdir().unwrap();
+        let f = Fake { bytes: [(gw.clone(), b"a wolf".to_vec())].into_iter().collect(),
+                       asked: AtomicUsize::new(0) };
+        let got = land(root.path(), &a, &f, false, &mut |_, _| {});
+        assert!(got.complete() && got.bad() == 0, "{:?}", got.files);
+        let mut lock = Lock { engine: "any".into(), assets: vec![] };
+        lock.put(a.clone());
+        lock.write(root.path()).unwrap();
+        assert_eq!(Lock::read(root.path()).unwrap().unwrap(), lock, "hosted survives the lock");
+        assert!(credits_markdown(&lock).contains("https://elopros.com/assets.html#fel-wolf"));
+
+        // The house is an author too; a GitHub-shaped name with host "elo" is not.
+        let mut house = v.clone();
+        house["author"]["owner"] = json!(HOUSE);
+        assert!(parse_asset(&house).is_ok());
+        let mut stranger = v.clone();
+        stranger["author"]["owner"] = json!("ann");
+        assert!(parse_asset(&stranger).is_err());
+        // An uploaded asset's files are on a gateway, by CID, and nowhere else.
+        for bad in ["https://gw.example/wolf.glb", "http://gw.example/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgp",
+                    "https://gw.example/ipfs/../../etc", "https://user@gw.example/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3",
+                    "https://github.com/ann/x/releases/download/v1/wolf.glb"] {
+            let mut x = v.clone();
+            x["files"][0]["url"] = json!(bad);
+            assert!(parse_asset(&x).is_err(), "{bad}");
+        }
+        // …and a GitHub asset still may not point at a gateway.
+        let mut gh = install(vec![file("tree.glb", b"t")]);
+        gh["files"][0]["url"] = json!(gw);
+        assert!(parse_asset(&gh).is_err());
+    }
+
+    #[test]
+    fn an_upload_manifest_is_read_off_the_folder_and_keeps_what_it_said() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("crate.glb"), b"a crate").unwrap();
+        std::fs::write(dir.path().join("crate.png"), b"its texture").unwrap();
+        std::fs::write(dir.path().join("preview.jpg"), b"\xff\xd8\xffpic").unwrap();
+        std::fs::write(dir.path().join(".DS_Store"), b"x").unwrap();
+        let meta = Meta { id: "wood-crate".into(), about: "A wooden crate.".into(), ..Meta::default() };
+        let m = build_upload_manifest(dir.path(), &meta, None).unwrap();
+        let names: Vec<&str> = m["files"].as_array().unwrap().iter()
+            .map(|f| f["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["crate.glb", "crate.png"], "the picture and hidden files are not files");
+        assert_eq!(m["preview"], "preview.jpg");
+        assert_eq!(m["files"][0]["sha256"], sha(b"a crate"));
+        assert!(m["files"][0].get("url").is_none(), "the store writes the url");
+        assert_eq!((m["version"].as_str(), m["license"].as_str(), m["kind"].as_str()),
+                   (Some("1.0.0"), Some("CC-BY-4.0"), Some("model")));
+
+        // The next upload keeps what the manifest said, and takes a new version.
+        let mut prior = m.clone();
+        prior["tags"] = json!(["crate"]);
+        prior["made_with"] = json!({"parts": []});
+        prior["files"][0]["engine"] = json!("any");
+        std::fs::write(dir.path().join("crate.glb"), b"a better crate").unwrap();
+        let next = Meta { version: "1.1.0".into(), ..Meta::default() };
+        let m2 = build_upload_manifest(dir.path(), &next, Some(&prior)).unwrap();
+        assert_eq!((m2["id"].as_str(), m2["version"].as_str()), (Some("wood-crate"), Some("1.1.0")));
+        assert_eq!(m2["tags"], json!(["crate"]));
+        assert_eq!(m2["made_with"], json!({"parts": []}));
+        assert_eq!(m2["files"][0]["engine"], "any");
+        assert_eq!(m2["files"][0]["sha256"], sha(b"a better crate"), "sha256s are read off the disk again");
+
+        // A GitHub manifest is not an upload's, and an upload says what it is.
+        let mut gh = prior.clone();
+        gh["files"][0]["url"] = json!("https://github.com/a/b/releases/download/v1/crate.glb");
+        assert!(build_upload_manifest(dir.path(), &next, Some(&gh)).is_err());
+        let bare = Meta { id: "x".into(), ..Meta::default() };
+        assert!(build_upload_manifest(dir.path(), &bare, None).is_err());
     }
 
     #[test]

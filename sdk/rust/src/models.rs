@@ -283,6 +283,25 @@ model! {
     }
 }
 
+model! {
+    /// `POST /api/account/play/check`: Sign in with Elo Pros. A pass we
+    /// signed for your game, your host and the nonce you issued, not run out.
+    pub struct Pass {
+        pub ok: bool,
+        /// The wallet the account links (lowercase 0x), or its `acct_…` id.
+        pub player: String,
+        pub account: String,
+        pub wallet: Option<String>,
+        /// The account's name; `named` is false when it is a placeholder.
+        pub name: String,
+        pub named: bool,
+        pub game: String,
+        pub domain: String,
+        /// When the pass runs out, in unix seconds.
+        pub exp: u64,
+    }
+}
+
 // ── items ───────────────────────────────────────────────────────────────────
 
 model! {
@@ -356,6 +375,8 @@ model! {
         /// The guild tag this wallet shows, the same badge as
         /// [`crate::Client::guild_tags`]; `None` when it shows none.
         pub guild: Option<GuildBadge>,
+        /// The figure a game draws (`GAMEDEV.md`); `None` when none is set.
+        pub avatar: Option<u32>,
     }
 }
 

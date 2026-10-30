@@ -215,14 +215,15 @@ pub const REFUSALS_PER_GAME: u32 = 3;
 /// GatesBench, buddy links, witness pledges and readings, and a trade on a
 /// prediction (`predict`), a lobby act (`lobby`), reading out or deleting
 /// cloud saves (`cloud`), a Workshop subscription (`workshop`) and being
-/// listed live on the site while streaming (`stream`). A grant
+/// listed live on the site while streaming (`stream`), and the daily
+/// check-in, which can name a friend's link (`checkin`). A grant
 /// never covers the next one: each is shown, each time, whatever count was
 /// clicked.
 /// `meter/test_playauth_platform.py` fails on a meter action missing here.
-pub const ONE_AT_A_TIME: [&str; 25] = [
+pub const ONE_AT_A_TIME: [&str; 26] = [
     "npub", "listing", "report", "face", "herald", "profile", "chatkey", "vote", "drops",
     "friends", "guilds", "grant", "revoke", "swear", "claim", "submit", "bench", "buddy",
-    "pledge", "reading", "predict", "lobby", "cloud", "workshop", "stream",
+    "pledge", "reading", "predict", "lobby", "cloud", "workshop", "stream", "checkin",
 ];
 
 /// What [`Host::ask_consent`] returns when the prompt went unanswered: the

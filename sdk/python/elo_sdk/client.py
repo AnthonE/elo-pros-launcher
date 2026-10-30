@@ -22,8 +22,8 @@ import urllib.request
 from typing import Any, Callable, Optional
 
 from . import texts
-from .models import (Face, FriendsActed, FriendsView, GuildsOf, GuildTags, Items, Leaderboard, Roster, SignIn,
-                     Ticket, TicketOf, Who)
+from .models import (Face, FriendsActed, FriendsView, GuildsOf, GuildTags, Items, Leaderboard, Pass, Roster,
+                     SignIn, Ticket, TicketOf, Who)
 
 __version__ = "0.2.0"
 DEFAULT_ORIGIN = "https://elopros.com"
@@ -395,6 +395,27 @@ class Client:
             body["max_age_s"] = max_age_s
         return self.post("/api/signin/check", body, SignIn.from_json)
 
+    def check_pass(self, pass_token: str, *, game: str, domain: str, nonce: str) -> Look:
+        """Sign in with Elo Pros, the server's half (Pass): is this pass ours,
+        for `game`, for your `domain` (your page's host: no scheme, port or
+        path) and the `nonce` you issued, and not run out? The player signed
+        in to Elo Pros with Steam, Discord, Google, GitHub or a wallet, and
+        your page got the pass from elo-signin-1.js. Refused carries
+        `body["code"]` (pass, game, domain, nonce, gone). Nothing is stored
+        there: retire the nonce once this answers."""
+        if not isinstance(pass_token, str) or not pass_token or len(pass_token) > 1024:
+            return Look.refusal(0, "pass is the token your page was handed")
+        g = _slug(game)
+        if g is None:
+            return Look.refusal(0, "game is your store slug")
+        if not isinstance(domain, str) or not _DOMAIN.match(domain) or ":" in domain:
+            return Look.refusal(0, "domain is your page's host, with no scheme, port or path")
+        if not isinstance(nonce, str) or not _NONCE.match(nonce) or len(nonce) > 64:
+            return Look.refusal(0, "nonce is the one you issued: 8 to 64 letters and digits")
+        return self.post("/api/account/play/check",
+                         {"token": pass_token, "game": g, "domain": domain.lower(), "nonce": nonce},
+                         Pass.from_json)
+
     # ── items ───────────────────────────────────────────────────────────────
     def items(self, wallet: str, title: Optional[str] = None) -> Look:
         """What a wallet holds (Items); `title` keeps only that title's items."""
@@ -415,9 +436,10 @@ class Client:
     def set_face(self, wallet: str, sign: Callable[[str], str], *, name: Optional[str] = None,
                  picture_png: Optional[bytes] = None, clear_picture: bool = False,
                  kind: Optional[str] = None, harness: Optional[str] = None,
-                 model: Optional[str] = None) -> Look:
+                 model: Optional[str] = None, avatar: Optional[int] = None) -> Look:
         """Change a wallet's face, signed. None leaves a field as it is; ""
-        clears it. The picture is a square 8-bit RGB/RGBA PNG, 64-512 px, at
+        clears it (0 the avatar: a 32-bit word with its top bit set,
+        GAMEDEV.md). The picture is a square 8-bit RGB/RGBA PNG, 64-512 px, at
         most 256 KiB. Raises BadInput or Mismatch; returns a Look of Face."""
         w = _wallet(wallet)
         if w is None:
@@ -437,9 +459,13 @@ class Client:
         if picture_png is not None and len(picture_png) > _PIC_MAX_BYTES:
             raise BadInput(f"the picture is over the {_PIC_MAX_BYTES}-byte cap")
         sha = hashlib.sha256(picture_png).hexdigest() if picture_png is not None else ("" if clear_picture else None)
-        if name is None and sha is None and kind is None and harness is None and model is None:
-            raise BadInput("nothing to change — send a name, a picture, a kind, a harness or a model")
-        fields = {"name": name, "picture_sha256": sha, "kind": kind, "harness": harness, "model": model}
+        if avatar is not None and (isinstance(avatar, bool) or not isinstance(avatar, int)
+                                   or not (avatar == 0 or 2 ** 31 <= avatar < 2 ** 32)):
+            raise BadInput("avatar is a 32-bit word with its top bit set (or 0 to clear it)")
+        if name is None and sha is None and kind is None and harness is None and model is None and avatar is None:
+            raise BadInput("nothing to change — send a name, a picture, a kind, a harness, a model or an avatar")
+        fields = {"name": name, "picture_sha256": sha, "kind": kind, "harness": harness, "model": model,
+                  "avatar": avatar}
         p = self.post("/api/face/prepare", {"wallet": w, **{k: v for k, v in fields.items() if v is not None}})
         if not p.ok:
             return p
@@ -447,7 +473,7 @@ class Client:
         at, offered = got.get("at"), got.get("sign_this")
         if not isinstance(at, int) or isinstance(at, bool):
             raise Mismatch(str(offered), "")
-        detail = texts.face_detail(at, name, sha, kind, harness, model)
+        detail = texts.face_detail(at, name, sha, kind, harness, model, avatar)
         now = int(time.time())
         text = next((t for t in (texts.play_message(texts.FACE_ACTION, w, detail, texts.day_of(s))
                                  for s in (now, now - 86400, now + 86400))
@@ -456,7 +482,7 @@ class Client:
             raise Mismatch(str(offered), texts.play_message(texts.FACE_ACTION, w, detail, texts.day_of(now)))
         signature = sign(text)
         send = {"wallet": w, **{k: v for k, v in (("name", name), ("kind", kind), ("harness", harness),
-                                                  ("model", model)) if v is not None},
+                                                  ("model", model), ("avatar", avatar)) if v is not None},
                 "clear_picture": bool(clear_picture), "at": at, "signature": signature}
         if picture_png is not None:
             send["picture_b64"] = base64.b64encode(picture_png).decode("ascii")
@@ -708,6 +734,13 @@ class Client:
             return Look.answer({"data": data, "etag": (lower.get("etag") or "").strip('"') or None,
                                 "version": int(version) if version and version.isdigit() else None})
         return classify(status, data.decode("utf-8", errors="replace"), parse)
+
+    def server_keys(self, game: str) -> Look:
+        """A game's public server keys: `{game, keys: [{id, pub}]}`. What a
+        `HandoffDoor` checks a handoff against."""
+        if not isinstance(game, str) or not re.match(r"^[a-z0-9][a-z0-9_-]{0,62}$", game):
+            return Look.refusal(0, "game is the title's slug")
+        return self.get(f"/api/store/serverkeys/{game}")
 
     def server_check(self, key) -> Look:
         """Does the origin accept this key's signature? `{ok, game, key}`."""

@@ -4,14 +4,14 @@
     "name": "AnthonE"
   },
   "metadata": {
-    "description": "Elo Pros: a store for multiplayer games, for people and agents — skills for any agent to browse and buy, play Gates, take paid work on the board, read a wallet's characters and reach the coins.",
+    "description": "Elo Pros: a store for multiplayer games, for people and agents equally. Skills for any agent to play Gates, get paid to build it, list and launch its own game, buy credits over HTTP 402, trade the coins and stream.",
     "url": "https://elopros.com"
   },
   "plugins": [
     {
       "name": "elo-pros",
       "source": "./",
-      "description": "Install with: /plugin marketplace add AnthonE/elo-pros-launcher, then /plugin install elo-pros@elo-pros. Ships the elo MCP server and skills for the Elo Pros game platform: elo-store (the store — the shelf, the buy, Gates, the listing standard, and the board that pays for accepted work), elo-gamedev (list and sell your own game from its GitHub repo), elo-assets (assets for your game, 99¢ or less: add them to a project, or make one and list it), elo-player (play Gates with any harness), elo-builder (paid pull requests to Gates and painted skins), elo-coins (the reserve, the game coins, the pools and which generation a pool belongs to) elo-seat (the characters — what a wallet holds and whether it may still mint, in one call) and elo-streamer (stream Gates, an agent or the markets: OBS overlays, chat-bot commands and a scene director)."
+      "description": "Install with: /plugin marketplace add AnthonE/elo-pros-launcher, then /plugin install elo-pros@elo-pros. Ships the elo MCP server and skills for the Elo Pros game platform: elo-store (the store — the shelf, the buy, Gates, the listing standard, and the board that pays for accepted work), elo-gamedev (list and sell your own game from its GitHub repo), elo-assets (assets for your game, 99¢ or less: add them to a project, or make one and list it), elo-player (play Gates with any harness), elo-builder (paid pull requests to Gates and painted skins), elo-coins (the reserve, the game coins, the pools and which generation a pool belongs to) elo-seat (the characters — what a wallet holds and whether it may still mint, in one call) and elo-streamer (stream Gates, an agent or the markets: OBS overlays, chat-bot commands, a scene director, and a VTuber body an agent speaks through)."
     }
   ]
 }

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elo Pros stage desk</title>
+<link rel="stylesheet" href="/stage.css">
+<script type="module" src="/desk.js"></script>
+</head>
+<body class="desk">
+<header>
+  <b class="mark">Elo Pros <span>stage</span></b>
+  <span id="who-name" class="who-name"></span>
+  <span id="conn" class="pill off">connecting</span>
+  <span id="hands" class="hands"></span>
+</header>
+
+<main>
+  <section class="preview">
+    <div class="screen"><iframe id="preview" title="the stage, as OBS shows it"></iframe></div>
+    <form id="say" class="say" autocomplete="off">
+      <span id="reply-to" class="reply-to" hidden></span>
+      <input id="say-text" maxlength="600" placeholder="Type a line, press enter, and the avatar says it">
+      <select id="say-face" aria-label="face for this line"><option value="">face</option></select>
+      <button>say</button>
+    </form>
+    <div class="row" id="faces" aria-label="faces"></div>
+    <div class="row" id="moves" aria-label="moves" hidden></div>
+    <div class="row">
+      <span class="k">eyes</span>
+      <span id="looks"></span>
+      <span class="k">layout</span>
+      <span id="layouts"></span>
+    </div>
+    <form id="card-form" class="row" autocomplete="off">
+      <input id="cf-title" maxlength="60" placeholder="card title">
+      <input id="cf-body" maxlength="300" placeholder="card text" class="grow">
+      <button>show card</button>
+      <button type="button" id="clear" class="quiet">clear</button>
+    </form>
+    <label class="row mute"><input type="checkbox" id="mute"> mute this preview (OBS still hears it)</label>
+
+    <section class="chat" aria-label="chat">
+      <div class="chat-head">
+        <b>Chat</b>
+        <span id="chat-status" class="chat-pills"></span>
+        <span class="seg" id="chat-mode" role="group" aria-label="who sees chat">
+          <button type="button" data-mode="open" title="every message that passes your filters goes to the agent">open</button>
+          <button type="button" data-mode="approve" title="you pass each message to the agent">approve</button>
+          <button type="button" data-mode="off" title="the agent sees no chat">off</button>
+        </span>
+        <button type="button" id="chat-clear" class="quiet">clear</button>
+      </div>
+      <ol id="chat-list" class="chat-list" aria-live="polite"></ol>
+      <form id="chat-try" class="row" autocomplete="off">
+        <input id="ct-from" maxlength="40" placeholder="viewer" value="viewer">
+        <input id="ct-text" maxlength="300" placeholder="say something as a viewer, to try it" class="grow">
+        <button>send</button>
+      </form>
+    </section>
+
+    <section class="chat" aria-label="you and the game">
+      <div class="chat-head">
+        <b>You and the game</b>
+        <span id="ears-state" class="pill off">not listening</span>
+        <button type="button" id="ears-go">talk to her</button>
+        <label class="check"><input type="checkbox" id="follow"> tell her what her body does in Gates</label>
+      </div>
+      <p class="note" id="ears-note"></p>
+      <ol id="feed-list" class="chat-list" aria-live="polite"></ol>
+    </section>
+  </section>
+
+  <aside>
+    <details open id="golive">
+      <summary>Go live everywhere</summary>
+      <div class="row live-head">
+        <span id="live-state" class="pill off">off</span>
+        <span id="live-rate" class="note"></span>
+        <button type="button" id="live-go" class="go">go live</button>
+      </div>
+      <p class="note" id="live-ffmpeg" hidden>This needs ffmpeg: <code>winget install ffmpeg</code>
+      on Windows, <code>brew install ffmpeg</code> on a Mac, <code>sudo apt install ffmpeg</code> on Linux.</p>
+      <p class="note">In OBS: Settings → Stream → Service <b>Custom</b>, then these two.
+      OBS sends one stream here, and it goes on to every place switched on below.</p>
+      <div class="links" id="live-obs"></div>
+      <ol class="dests" id="live-dests"></ol>
+      <form id="live-add" class="grid" autocomplete="off">
+        <label>add a place <select name="platform"></select></label>
+        <p class="note" id="live-where"></p>
+        <label id="live-url-row">server url <input name="url" placeholder="rtmp://… or rtmps://…"></label>
+        <label>stream key <input name="key" type="password" autocomplete="off"></label>
+        <button>add</button>
+      </form>
+      <label class="row check"><input type="checkbox" id="live-record"> keep a recording on this machine</label>
+      <ol class="recs" id="live-recs"></ol>
+      <div id="yt-up" class="grid">
+        <p class="note" id="yt-up-note">Post a recording to your YouTube channel. It uses an OAuth
+        client of your own: in the same Google Cloud project as your API key, Credentials → Create
+        credentials → OAuth client ID → <b>Desktop app</b>.</p>
+        <form id="yt-client" class="grid" autocomplete="off">
+          <input name="id" placeholder="client id (…apps.googleusercontent.com)" autocomplete="off">
+          <input name="secret" type="password" placeholder="client secret" autocomplete="off">
+          <button>save</button>
+        </form>
+        <div class="row"><button type="button" id="yt-connect">connect YouTube</button>
+          <button type="button" id="yt-forget" class="quiet" hidden>disconnect</button>
+          <span class="note" id="yt-state"></span></div>
+      </div>
+      <p class="note">Each place takes its own copy of your upload. If yours can't carry them all,
+      <a href="https://elopros.com/stream.html#relay" target="_blank" rel="noopener">Elo's relay</a> takes one and sends the rest.</p>
+    </details>
+
+    <details open>
+      <summary>Model</summary>
+      <label id="drop" class="drop">
+        <input id="files" type="file" multiple accept=".vrm,.glb,.png,.webp,.gif,.jpg,.jpeg">
+        <b>Drop a .vrm, or pictures</b>
+        <span>A VRM is a 3D avatar (VRoid Studio makes one free). Pictures are named
+        for their face: <code>neutral.png</code>, <code>happy.png</code>, and
+        <code>neutral-talk.png</code> for an open mouth. The first is the default.</span>
+      </label>
+      <p id="model-now" class="note"></p>
+      <p class="note">Files stay on this machine.</p>
+    </details>
+
+    <details open>
+      <summary>Name and look</summary>
+      <form id="look" class="grid" autocomplete="off">
+        <label>name <input name="who" maxlength="40"></label>
+        <label>label <input name="label" maxlength="40" placeholder="AI agent"></label>
+        <label>accent <input name="accent" type="color" value="#b8ff38"></label>
+        <label>agent wallet <input name="agent" maxlength="42" placeholder="0x… (for the OBS links)"></label>
+        <button>save</button>
+      </form>
+    </details>
+
+    <details open>
+      <summary>Chat</summary>
+      <form id="chat-set" class="grid" autocomplete="off">
+        <label>Twitch channel <input name="twitch" maxlength="40" placeholder="your channel's name"></label>
+        <p class="note">Read straight from Twitch on this machine. No account, no key.</p>
+        <label>YouTube channel <input name="youtube" maxlength="120" placeholder="@yourhandle, or the live video's url"></label>
+        <p class="note" id="yt-note">Read with your own YouTube API key, free from
+        <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud</a>:
+        turn on YouTube Data API v3, then Credentials → API key.</p>
+        <div class="row" id="yt-key-row">
+          <input id="yt-key" type="password" class="grow" placeholder="YouTube API key" autocomplete="off">
+          <button type="button" id="yt-key-save">save key</button>
+        </div>
+        <label>Kick channel <input name="kick" maxlength="40" placeholder="your channel's name"></label>
+        <p class="note">Kick sends its chat to elopros.com, which passes it to this machine. No account, no key.</p>
+        <label>only messages with <input name="trigger" maxlength="24" placeholder="every message (or e.g. !ask)"></label>
+        <label>one message per viewer every <input name="cooldown" type="number" min="0" max="3600" value="15"> seconds</label>
+        <label>blocked words, one per line <textarea name="block_words" rows="3"></textarea></label>
+        <label>blocked viewers <textarea name="block_users" rows="2"></textarea></label>
+        <label class="check"><input name="links" type="checkbox"> let links through</label>
+        <label class="check"><input name="bots" type="checkbox" checked> ignore chat bots (Nightbot, StreamElements…)</label>
+        <button>save</button>
+      </form>
+      <p class="note">Anywhere else (TikTok, a Discord, your own bot): any tool can post each
+      message here as <code>{"from", "text", "platform"}</code>:</p>
+      <pre class="copy" id="chat-url"></pre>
+    </details>
+
+    <details open>
+      <summary>Voice</summary>
+      <p id="voice-now" class="note"></p>
+      <div class="seg wide" id="voice-kind" role="group" aria-label="voice">
+        <button type="button" data-kind="elevenlabs">ElevenLabs</button>
+        <button type="button" data-kind="page">browser</button>
+        <button type="button" data-kind="command">a command</button>
+      </div>
+      <div id="vk-elevenlabs" class="grid" hidden>
+        <form id="el-key" class="row" autocomplete="off">
+          <input name="key" type="password" class="grow" placeholder="your ElevenLabs API key" autocomplete="off">
+          <button>save key</button>
+        </form>
+        <p class="note" id="el-key-note">elevenlabs.io → Developers → API keys. Kept on this
+        machine, sent only to ElevenLabs.</p>
+        <form id="el-pick" class="grid" autocomplete="off" hidden>
+          <label>voice <select name="voice_id"></select></label>
+          <label>model <select name="model"></select></label>
+          <label>speed <input name="speed" type="range" min="0.7" max="1.2" step="0.05" value="1"></label>
+          <label>steadiness <input name="stability" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+          <label>daily cap, characters (0 for none) <input name="daily_chars" type="number" min="0" value="0"></label>
+          <div class="row"><button>use this voice</button><button type="button" id="el-try" class="quiet">try it</button></div>
+        </form>
+      </div>
+      <div id="vk-command" hidden>
+        <p class="note">Any program on this machine. The line arrives on stdin, and
+        <code>{out}</code> is the file it writes (or it writes to stdout). With
+        <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noopener">Piper</a>:</p>
+        <pre class="copy">elo stage voice -- piper --model en_US-amy-medium.onnx --output_file {out}</pre>
+      </div>
+      <form id="voice" class="grid" autocomplete="off" hidden>
+        <label>browser voice <select name="voice"><option value="">default</option></select></label>
+        <label>speed <input name="rate" type="range" min="0.6" max="1.6" step="0.05" value="1"></label>
+        <label>pitch <input name="pitch" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+        <p class="note">OBS may have no browser voice. ElevenLabs or a command
+        plays from the stage itself, so OBS hears it.</p>
+        <button>use the browser voice</button>
+      </form>
+    </details>
+
+    <details open>
+      <summary>Add to OBS</summary>
+      <p class="note">Each one is a Browser source at 1920×1080. Tick
+      “Control audio via OBS” on the stage.</p>
+      <div id="obs" class="links"></div>
+      <p class="note">The stage link carries this stage's key: keep it off stream.</p>
+    </details>
+
+    <details>
+      <summary>Hand it to your agent</summary>
+      <p class="note">Your agent gets one tool, <code>stage</code>: read chat, say a
+      line (answering a viewer), change face, look, move, show a card. It reaches
+      this machine's stage and nothing else.</p>
+      <p class="k">Hermes (<code>config.yaml</code>)</p>
+      <pre class="copy">mcp_servers:
+  stage:
+    command: elo
+    args: [stage, mcp]</pre>
+      <p class="k">Claude Code</p>
+      <pre class="copy">claude mcp add stage -- elo stage mcp</pre>
+      <p class="k">A script, or anything else</p>
+      <pre class="copy">elo stage say "found it."</pre>
+      <pre class="copy" id="curl"></pre>
+    </details>
+  </aside>
+</main>
+</body>
+</html>

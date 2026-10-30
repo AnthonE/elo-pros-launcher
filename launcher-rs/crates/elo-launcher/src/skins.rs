@@ -3,7 +3,7 @@
 //!
 //! The origin prepares every step (`/api/collections/*`); `elo_net::skins`
 //! checks a listing against what was typed, and the vault signs it as a
-//! Seaport 1.6 order — the one kind of typed data this client makes. Every
+//! Seaport 1.6 order — one of the two kinds of typed data this client makes. Every
 //! transaction (the one-time approval, a cancel, a buy, accepting an offer)
 //! goes through `elo_net::trading::execute`: the compiled-in allowlist, the
 //! check against the chain, the activity log. A listing never moves the item:

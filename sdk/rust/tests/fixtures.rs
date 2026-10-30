@@ -157,13 +157,17 @@ fn face_body_and_signed_texts() {
     assert_eq!(unset.guild, None);
     for c in f["cases"].as_array().unwrap() {
         let g = |k: &str| c["fields"].get(k).and_then(Value::as_str);
-        let detail = texts::face_detail(
+        let detail = texts::face_detail_avatar(
             c["at"].as_u64().unwrap(),
             g("name"),
             g("picture_sha256"),
             g("kind"),
             g("harness"),
             g("model"),
+            c["fields"]
+                .get("avatar")
+                .and_then(Value::as_u64)
+                .map(|a| a as u32),
         );
         assert_eq!(detail, c["detail"].as_str().unwrap());
         let text = play_message(

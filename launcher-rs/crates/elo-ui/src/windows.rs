@@ -223,6 +223,10 @@ pub struct MainMenu {
     /// The line beside it, which says what turning it on does and, after a
     /// press, that windows already drawn keep what they drew until a restart.
     pub streamer_line: frame::Frame,
+    /// Game mode (`elo_depot::gamemode`), and the line saying what it does on
+    /// this machine.
+    pub gamemode: button::CheckButton,
+    pub gamemode_line: frame::Frame,
 }
 
 /// What the streamer line says, given the switch.
@@ -235,11 +239,29 @@ pub fn streamer_note(on: bool, changed: bool) -> &'static str {
     }
 }
 
+/// What the game mode line says, given the switch and what it does here.
+/// GOLD when it is on and doing nothing, because that wants an install.
+pub fn gamemode_note(on: bool, effect: &elo_depot::gamemode::Effect) -> (&'static str, enums::Color) {
+    use elo_depot::gamemode::Effect;
+    match (on, effect) {
+        (true, Effect::GameMode(_)) => ("on — games start through GameMode", theme::GOLD),
+        (true, Effect::AboveNormal) => ("on — games start at above-normal priority", theme::GOLD),
+        (true, Effect::Missing) => ("on, but GameMode is not installed — install `gamemode`",
+                                    theme::GOLD),
+        (false, Effect::GameMode(_)) => ("starts games through GameMode: CPU at full speed",
+                                         theme::MUTED),
+        (false, Effect::AboveNormal) => ("starts games at above-normal priority", theme::MUTED),
+        (false, Effect::Missing) => ("needs GameMode — install your distro's `gamemode`",
+                                     theme::MUTED),
+        (_, Effect::Nothing) => ("does nothing on this system", theme::DIM),
+    }
+}
+
 pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
     // Sized to the content rather than to a round number — the first capture
     // had 150px of empty olive under the last row, which reads as a window
     // that failed to draw something rather than as a window that is finished.
-    let height = 64 + (MENU.len() as i32 * 38) + 46 + 30 + if has_account { 0 } else { 20 };
+    let height = 64 + (MENU.len() as i32 * 38) + 46 + 60 + if has_account { 0 } else { 20 };
     let mut w = window::Window::new(100, 100, 560, height, None);
     mark(&mut w);
     w.set_label("elo");
@@ -282,6 +304,16 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
                                       if on { theme::GOLD } else { theme::MUTED }, 12);
     y += 30;
 
+    // Game mode: the same kind of switch, for the next game started.
+    let on = elo_depot::gamemode::on();
+    let mut gamemode = button::CheckButton::new(16, y + 4, 150, 22, "game mode");
+    gamemode.set_label_color(theme::INK);
+    gamemode.set_label_size(13);
+    gamemode.set_checked(on);
+    let (note, ink) = gamemode_note(on, &elo_depot::gamemode::effect());
+    let gamemode_line = chrome::label(178, y + 6, 366, 18, note, ink, 12);
+    y += 30;
+
     // The one setup nudge this menu carries, and only while it is true. A
     // player measured the alternative as "idk how to make a new key" — the
     // fact was only discoverable behind the Account button. GOLD because it
@@ -303,7 +335,7 @@ pub fn main_menu(has_account: bool, version: &str) -> MainMenu {
                   "nothing you own lives in here — your copies are tokens and items are on chain",
                   theme::DIM, 11);
     w.end();
-    MainMenu { window: w, version_line, streamer, streamer_line }
+    MainMenu { window: w, version_line, streamer, streamer_line, gamemode, gamemode_line }
 }
 
 /// The controls on one drawn Games row, handed back for a caller to wire.

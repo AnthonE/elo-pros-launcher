@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/elo-depot", "crates/elo-net", "crates/elo-hive", "crates/elo-launcher", "crates/elo-ui", "crates/elo-broker", "crates/elo-vault"]
+members = ["crates/elo-depot", "crates/elo-net", "crates/elo-hive", "crates/elo-launcher", "crates/elo-ui", "crates/elo-broker", "crates/elo-vault", "crates/elo-rig"]
 
 # ── the dependency policy ────────────────────────────────────────────────────
 #

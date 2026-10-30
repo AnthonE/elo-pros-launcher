@@ -486,7 +486,9 @@ fn a_depot_may_not_redirect_the_dynamic_loader() {
     install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
     let mut i = installed(tmp.path()).remove(0);
 
-    for bad in ["LD_PRELOAD", "LD_AUDIT", "PATH", "PYTHONPATH", "DYLD_INSERT_LIBRARIES"] {
+    // GAMEMODERUNEXEC is a command `gamemoderun` runs in front of the game.
+    for bad in ["LD_PRELOAD", "LD_AUDIT", "PATH", "PYTHONPATH", "DYLD_INSERT_LIBRARIES",
+                "GAMEMODERUNEXEC"] {
         i.launch_env = BTreeMap::from([(bad.to_string(), "/tmp/evil".to_string())]);
         let err = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap_err();
         assert!(err.0.contains("may not set"), "{bad}: {}", err.0);
@@ -722,6 +724,44 @@ fn a_supervised_launch_measures_real_elapsed_time() {
     let done = &session::load(state.path())[0];
     assert!(!done.is_running());
     assert_eq!(done.playtime(), Some(elapsed.as_secs() as i64));
+}
+
+#[test]
+fn game_mode_starts_the_game_through_the_runner_and_keeps_its_pid() {
+    // `gamemoderun` execs the game, so the pid a session records is still the
+    // game's. A runner that forked instead would make every playtime the
+    // runner's. This one stands in for GameMode's, which ends in `exec`.
+    use elo_depot::gamemode::Effect;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let game: &[u8] = b"#!/bin/sh\necho $$ > \"$ELO_TEST_OUT\"\n";
+    let files: Vec<FileRow> = vec![("run", game, true)];
+    let served: Vec<Served> = vec![("run".into(), game.to_vec())];
+    install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    let i = installed(tmp.path()).remove(0);
+
+    let runner = out.path().join("gamemoderun");
+    std::fs::write(&runner, "#!/bin/sh\necho ran > \"$ELO_TEST_OUT.runner\"\nexec \"$@\"\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let mut l = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap();
+    assert_eq!(l.boost, Effect::Nothing, "off is the default and adds nothing");
+    assert_eq!(l.command_line(), l.argv);
+    l.boost = Effect::GameMode(runner.clone());
+    assert_eq!(l.command_line()[0], runner.to_string_lossy());
+    assert_eq!(&l.command_line()[1..], &l.argv[..], "the game's argv is unchanged behind it");
+
+    let said = out.path().join("said");
+    l.env.insert("ELO_TEST_OUT".into(), said.to_string_lossy().into());
+    let mut child = launch::spawn_supervised(&l).unwrap();
+    let pid = child.id();
+    assert!(child.wait().unwrap().success());
+    assert!(out.path().join("said.runner").is_file(), "the runner ran");
+    assert_eq!(std::fs::read_to_string(&said).unwrap().trim(), pid.to_string());
 }
 
 /// A depot is hundreds of files and they are fetched several at a time: every

@@ -29,6 +29,24 @@ async function stub(route) {
     close: () => new Promise((ok) => server.close(ok)) };
 }
 
+test("checkPass sends the pass, the game, your host and your nonce", async () => {
+  const PASS = { ok: true, player: "acct_" + "a".repeat(20), account: "acct_" + "a".repeat(20), wallet: null,
+    name: "Bob", named: true, game: "my-game", domain: "play.example", exp: 1900000000 };
+  const s = await stub((url) => (url === "/api/account/play/check" ? [200, PASS] : [404, { error: "no" }]));
+  try {
+    const c = new Client(s.origin);
+    const got = await c.checkPass("pass.sig", { game: "my-game", domain: "Play.Example", nonce: "a".repeat(32) });
+    assert.equal(got.kind, "answer");
+    assert.equal(got.value.player, PASS.player);
+    assert.deepEqual(s.seen[0].body, { token: "pass.sig", game: "my-game", domain: "play.example", nonce: "a".repeat(32) });
+    assert.equal((await c.checkPass("pass.sig", { game: "my-game", domain: "play.example:443", nonce: "a".repeat(32) })).status, 0);
+    assert.equal((await c.checkPass("pass.sig", { game: "my-game", domain: "play.example", nonce: "a".repeat(65) })).status, 0);
+    assert.equal(s.seen.length, 1);
+  } finally {
+    await s.close();
+  }
+});
+
 test("checkSignIn sends the message, the signature, your domain and nonce", async () => {
   const s = await stub((url, body) => (url === "/api/signin/check" && body.domain === EVM.domain
     ? [200, { ok: true, address: EVM.expect.address, chain: "evm", chain_id: "4663" }]

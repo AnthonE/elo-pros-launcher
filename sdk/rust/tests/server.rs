@@ -79,6 +79,42 @@ fn w(i: u32) -> String {
 }
 
 #[test]
+fn check_pass_sends_pass_game_domain_and_nonce() {
+    let reply = json!({"ok": true, "player": "acct_aaaaaaaaaaaaaaaaaaaa", "account": "acct_aaaaaaaaaaaaaaaaaaaa",
+                       "wallet": null, "name": "Bob", "named": true, "game": "my-game",
+                       "domain": "play.example", "exp": 1900000000u64})
+    .to_string();
+    let (origin, seen) = stub(Box::new(move |path, _| match path {
+        "/api/account/play/check" => (200, reply.clone()),
+        _ => (404, r#"{"error":"no"}"#.into()),
+    }));
+    let nonce = "a".repeat(32);
+    let c = client(&origin);
+    let got = c.check_pass("pass.sig", "my-game", "play.example", &nonce);
+    let Look::Answer(p) = got else {
+        panic!("{got:?}")
+    };
+    assert_eq!(p.player, "acct_aaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(p.name, "Bob");
+    assert_eq!(p.exp, 1900000000);
+    let (path, body) = seen.lock().unwrap()[0].clone();
+    assert_eq!(path, "/api/account/play/check");
+    assert_eq!(
+        body,
+        json!({"token": "pass.sig", "game": "my-game", "domain": "play.example", "nonce": nonce})
+    );
+    assert!(matches!(
+        c.check_pass("pass.sig", "my-game", "play.example:443", &nonce),
+        Look::Refused(_)
+    ));
+    assert!(matches!(
+        c.check_pass("pass.sig", "my-game", "play.example", &"a".repeat(65)),
+        Look::Refused(_)
+    ));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn check_sign_in_sends_message_signature_domain_and_nonce() {
     let evm = case(0);
     let addr = s(&evm["expect"], "address");

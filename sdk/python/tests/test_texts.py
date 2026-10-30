@@ -39,7 +39,7 @@ class FaceTexts(unittest.TestCase):
             f = c["fields"]
             with self.subTest(at=c["at"]):
                 detail = texts.face_detail(c["at"], f.get("name"), f.get("picture_sha256"), f.get("kind"),
-                                           f.get("harness"), f.get("model"))
+                                           f.get("harness"), f.get("model"), f.get("avatar"))
                 self.assertEqual(detail, c["detail"])
                 self.assertEqual(texts.play_message(texts.FACE_ACTION, c["wallet"], detail, c["day"]), c["text"])
 

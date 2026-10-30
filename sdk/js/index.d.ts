@@ -28,7 +28,7 @@ export function friendsDetail(op: string, other: string, at: number): string | n
 export function friendsSignText(me: string, op: string, other: string, at: number): string | null;
 export function faceDetail(at: number, fields?: {
   name?: string | null; pictureSha256?: string | null; kind?: string | null;
-  harness?: string | null; model?: string | null;
+  harness?: string | null; model?: string | null; avatar?: number | null;
 }): string;
 export function readPlay(text: unknown, action: string, wallet: string): { day: string; detail: string } | null;
 export function buddyChange(text: unknown, wallet: string):
@@ -145,6 +145,31 @@ export interface SignIn {
   expiration_time: string | null; statement: string | null;
   retire: string; authorises: string;
 }
+/** Sign in with Elo Pros: a pass POST /api/account/play/check found ours. */
+export interface Pass {
+  ok: true;
+  /** The wallet the account links (lowercase 0x), or its acct_… id. */
+  player: string;
+  account: string;
+  wallet: string | null;
+  name: string;
+  /** False when the name is a placeholder. */
+  named: boolean;
+  game: string;
+  domain: string;
+  /** When the pass runs out, in unix seconds. */
+  exp: number;
+}
+
+export interface CheckPassOptions {
+  /** Your store slug. */
+  game: string;
+  /** Your page's host, with no scheme, port or path. */
+  domain: string;
+  /** The nonce you issued for this sign-in. Retire it once this answers. */
+  nonce: string;
+}
+
 export interface CheckSignInOptions {
   /** Your server's host or host:port — the one the message must name. */
   domain: string;
@@ -181,6 +206,8 @@ export interface Items {
 export interface Face {
   wallet: string; name: string | null; picture: string | null; pic: string | null;
   kind: "agent" | "human" | null; harness: string | null; model: string | null; updated: number | null;
+  /** The figure a game draws: six 5-bit palette indices, bit 30 a robot's face, bit 31 set (GAMEDEV.md); null when none. */
+  avatar?: number | null;
   /** The guild tag this wallet shows; null when it shows none. */
   guild: GuildBadge | null;
 }
@@ -205,7 +232,7 @@ export interface GuildsOf {
 }
 export interface FaceChange {
   name?: string; picturePng?: Uint8Array; clearPicture?: boolean;
-  kind?: "agent" | "human"; harness?: string; model?: string;
+  kind?: "agent" | "human"; harness?: string; model?: string; avatar?: number;
 }
 export interface Who {
   handle: string; handle_kind: string; matches: number; authoritative: boolean;
@@ -250,6 +277,54 @@ export class ServerKey {
   signText(text: string): Promise<string>;
   headers(method: string, path: string, body?: Uint8Array | string,
     options?: { at?: number; nonce?: string | null }): Promise<Record<string, string>>;
+  /** A handoff moving `player` from this server (`from`, host:port) to another of
+      this game's servers (`to`). docs/client/HANDOFF.md. */
+  handoff(player: string, from: string, to: string,
+    options?: { carry?: Uint8Array | string | null; ttl?: number; now?: number; id?: string }): Promise<string>;
+}
+
+export const HANDOFF_TTL_DEFAULT_S: number;
+export const HANDOFF_TTL_MAX_S: number;
+export const HANDOFF_SKEW_S: number;
+export const HANDOFF_CARRY_MAX: number;
+
+export type HandoffCode = "malformed" | "wrong_game" | "wrong_destination" | "expired" | "too_long"
+  | "unknown_key" | "bad_signature" | "carry" | "used" | "no_keys";
+
+/** Why a handoff was not admitted. */
+export class HandoffRefused extends Error {
+  readonly code: HandoffCode;
+  readonly why: string;
+}
+
+/** What a handoff says: the player the last server admitted, and where it came from. */
+export interface Handoff {
+  game: string; key: string; player: string; from: string; to: string; id: string; exp: number;
+  carry: string | null;
+}
+
+/** The exact text a server signs for one handoff. */
+export function handoffText(game: string, keyId: string, player: string, from: string, to: string,
+  id: string, exp: number, carry?: Uint8Array | string | null): Promise<string>;
+/** What a handoff token says, shape only (nothing verified). */
+export function readHandoff(token: string): Handoff;
+/** Every check but `used`, in the posted order. */
+export function verifyHandoff(token: string, options: { game: string; names: Iterable<string>;
+  keys: Record<string, string | Uint8Array> | Map<string, string | Uint8Array>; now?: number;
+  carry?: Uint8Array | string | null }): Promise<Handoff>;
+
+/** The ids one process admitted, until each runs out. */
+export class MemorySeen {
+  constructor(cap?: number);
+  first(id: string, until: number, now: number): boolean;
+}
+
+/** The receiving side: admits each good handoff once. */
+export class HandoffDoor {
+  constructor(game: string, names: Iterable<string>, options: { keys?: Record<string, string>;
+    client?: Client; seen?: { first(id: string, until: number, now: number): boolean };
+    clock?: () => number });
+  admit(token: string, carry?: Uint8Array | string | null): Promise<Handoff>;
 }
 
 export interface CloudSave { data: Uint8Array; etag: string | null; version: number | null; }
@@ -272,6 +347,7 @@ export class Client {
   /** Refused carries the failed field in `body.code` (domain, nonce, stale, signature, …);
       could_not_look is a chain that could not be asked, never a "no". */
   checkSignIn(message: string, signature: string, options: CheckSignInOptions): Promise<Look<SignIn>>;
+  checkPass(pass: string, options: CheckPassOptions): Promise<Look<Pass>>;
   items(wallet: string, options?: { title?: string }): Promise<Look<Items>>;
   face(wallet: string): Promise<Look<Face>>;
   setFace(wallet: string, change: FaceChange, sign: Signer): Promise<Look<Face>>;
@@ -281,6 +357,8 @@ export class Client {
   leaderboard(slug: string, options?: { kind?: "agent" | "human" }): Promise<Look<Leaderboard>>;
   /** A game server's word, signed by its ServerKey. */
   serverCheck(key: ServerKey): Promise<Look<any>>;
+  /** A game's public server keys: what a HandoffDoor checks against. */
+  serverKeys(game: string): Promise<Look<{ game: string; keys: Array<{ id: string; pub: string }> }>>;
   cloudPut(key: ServerKey, wallet: string, slot: string, data: Uint8Array | string,
     options?: { ifMatch?: string; createOnly?: boolean }): Promise<Look<any>>;
   cloudGet(key: ServerKey, wallet: string, slot: string): Promise<Look<CloudSave>>;

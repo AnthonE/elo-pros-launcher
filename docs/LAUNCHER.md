@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-25
-about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window. §10t is the same account on Solana: one set of words, two addresses, sends on either chain and moves between them. §10u is Skins: selling our items on OpenSea from `elo skins` and the window, the one typed-data signature. §10v is the October review of every crate: signing, the door, installs, the windows and the command line. §10w is speed: parallel installs, faster hashing and unlock, and no network on the window's thread."
+updated: 2026-10-30
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window. §10t is the same account on Solana: one set of words, two addresses, sends on either chain and moves between them. §10u is Skins: selling our items on OpenSea from `elo skins` and the window, the one typed-data signature. §10v is the October review of every crate: signing, the door, installs, the windows and the command line. §10w is speed: parallel installs, faster hashing and unlock, and no network on the window's thread. §10x is game mode: GameMode on Linux, above-normal priority on Windows, and the booster tricks it refuses. §10y is the stage: an agent's body on your screen for OBS, a VRM, a rigged glb with moves, or pictures with captions and a voice (ElevenLabs built in), driven by the agent over a local MCP tool; the owner's own voice through a microphone and its body's moves in Gates reaching it; viewers' chat from Twitch, YouTube and Kick reaching it past the owner's filters; going live everywhere from one OBS stream; and posting recordings to YouTube. §10z is the rig desk: clips moved between any two humanoid rigs, a clip as a VRMA, a model as a README block, in `crates/elo-rig` and in the browser at animate.html."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -2354,6 +2354,239 @@ numbers are that link's; the ratios are the point.
   dots, `:`, device names, non-ASCII) are refused and file urls are
   percent-encoded; slugs are lowercase; more code-loading variables are kept
   from a depot's env; Ctrl-C at a passphrase gives the terminal its echo back.
+
+### 10x · Game mode
+
+> Operator, 2026-10-27: *"how hard is one of them game optimizers to make? …
+> kinda seems cool for the launcher"*
+
+One switch, `elo gamemode on|off` or **game mode** on the main menu, kept as
+`<state>/gamemode` like streamer mode (`ELO_GAMEMODE=1` for one run). It is
+decided in `launch::resolve`, so every door that starts a game gets it: Play,
+`elo play`, a Servers Join and a friend's link.
+
+| on | what a started game gets |
+|---|---|
+| Linux, GameMode installed | started through `gamemoderun`: CPU governor to performance, the game's CPU and I/O priority raised, the GPU's performance level where the driver allows, no screensaver. GameMode undoes all of it when the game exits or dies |
+| Linux, no GameMode | nothing; the window and `elo gamemode` say to install the distro's `gamemode` package |
+| Windows | above-normal priority, as a creation flag; it ends with the process |
+| macOS | nothing |
+
+`gamemoderun` execs the game, so the supervised pid, playtime and presence are
+still the game's (`tests/install.rs` pins it). It is found on the launcher's
+own `PATH`, which a depot cannot set, and `GAMEMODERUNEXEC` (a command the
+runner puts in front of the game) joined `ENV_DENY`. `elo play --dry-run`
+prints the runner when there is one.
+
+**What it refuses, each of which a Windows booster ships:** an admin prompt;
+killing or suspending the player's other programs; "RAM cleaning", registry,
+network and driver tweaks; a power plan switch (machine-wide, outlives a
+launcher that crashes mid-game, missing on many laptops, paid for by the
+battery; GameMode's governor change is the version that cleans up after
+itself); and a speed claim. It says what it changed, never what you gained.
+
+Compiling is not running: the Windows half type-checks on the cross target
+and has not been run on Windows (§12).
+
+### 10y · The stage — an agent's body on your screen
+
+Operator, 2026-10-28: *"i want to manage a vtuber from this site… i just wish
+hermes had a tcp connection and could change what i see on the screen… the
+less load on our backend the better and the more decentralized we can get."*
+
+`elo stage` is a hub on `127.0.0.1` (port 7357) that serves two pages out of
+the binary: the **stage**, a transparent 16:9 page OBS loads as one Browser
+source (the avatar, its captions, a card, a name with its *AI agent* label),
+and the **desk**, where a person imports a model, sets the name and voice,
+and drives the avatar by hand. The origin is not involved: models, audio and
+every line stay on the machine.
+
+- **The body.** A VRM (three.js + three-vrm, bundled once from npm tarballs
+  checked against the registry's sha512 by `stage/vendor/build.sh`, pinned by
+  sha256 in `tests/stage.rs`), or pictures named for their faces
+  (`happy.png`, and `happy-talk.png` for an open mouth). Both breathe, blink
+  and glance. **The mouth follows the words** (2026-10-29: *"do the lip sync
+  next"*): ElevenLabs' `with-timestamps` says when each character is spoken,
+  and `stage_voice::mouth` turns that into a timeline of shapes (the VRM's
+  five visemes, lips shut on m, b, p, at rest on pauses) that the page plays
+  on the audio's clock, opened wider when the voice is loud. Another voice
+  gets a timeline read from the text and stretched to the line's length.
+- **A rigged glTF that is no VRM** (2026-10-29, a Meshy model of Tarshish:
+  *"i dont have any more credits so we have to figured something out"*).
+  A Meshy, Mixamo or Rigify export has a skeleton and clips but a face
+  painted into its texture, with no shapes to move. The stage poses it (arms
+  down from the T-pose, breathing, looking about), and a pack's `face` block
+  places eyelids and a mouth that the page draws over the painted face,
+  fixed to the head bone: a blink, ^^ for *happy*, a small open mouth for
+  *surprised*, and the line's mouth shapes. `face` is the skin colour and,
+  for each eye and the mouth, `{at, normal, size}` in the model's metres at
+  rest; `bones` names the head, neck and arms where the usual Rigify, Mixamo
+  and VRoid names miss; `clips.dance` plays in the brb layout. A bare `.glb`
+  works too, posed but faceless.
+- **Moves** (2026-10-29: *"wire it into elo stage for tarshish"*). A glb
+  pack's `moves` names a file of clips (a `.glb` or `.vrma`, any humanoid
+  rig), and its `clips` names a use for each (`idle`, `talk`, `wave`, …),
+  from that file or the model's own. On import the hub retargets the named
+  clips onto the model's bare skeleton with `elo-rig` (§10z), in place, and
+  keeps them beside it as `<model>.moves.glb`; the page plays them on the
+  model by node name. `idle` loops at rest, `talk` while a line plays,
+  `dance` on brb, and the `move` op (the agent's `stage` what=move,
+  `elo stage move`, the desk's *move* row) plays any use once and eases back.
+  The eyes still follow `look` on top of a clip. A use the pack doesn't name
+  is refused with the ones it does; a clip in neither file fails the import
+  with the clips there are.
+- **The voice.** Any command on this machine (`elo stage voice -- <cmd>`): the
+  line on stdin, `{out}` the file it writes. The audio plays from the stage
+  page, so OBS captures it with *Control audio via OBS*. Without one, the page
+  uses the browser's voice. **Only the CLI sets the command**: nothing that
+  talks to the hub can choose what runs.
+- **The hands.** `elo stage mcp` is an MCP server with one tool, `stage`
+  (`say`, `expression`, `look`, `layout`, `card`, `clear`, `status`), and it
+  starts the hub if none is running, so a harness that launches it gets a
+  working stage. `say` waits until a stage page reports the line heard, so an
+  agent never talks over itself. It is a second server and not a branch of
+  `elo mcp`, which stays read-only (§10g): this one changes pixels and sound
+  on this machine, and signs, posts, spends and installs nothing. Anything
+  else drives the same ops through the websocket, `POST /op`, or
+  `elo stage say`.
+- **ElevenLabs, built in.** A key and a pick from your own voice list, on the
+  desk or with `elo stage voice elevenlabs`; the call goes from this machine
+  to ElevenLabs. The key is kept 0600 (or read from `ELEVENLABS_API_KEY`) and
+  never handed to a page or a driver: the desk can replace it, not read it.
+  Characters are counted per day against an optional cap; past it, the page's
+  voice speaks.
+- **Chat.** Operator, 2026-10-29: *"do the chat piece next so viewers can talk
+  to her."* Twitch is read anonymously from this machine (a channel name, no
+  account); anything else is a `POST /chat` from whatever relays it. Each
+  message passes the owner's filter first (blocked words, folded for
+  stand-ins, and viewers; links; a trigger like `!ask`; a cooldown per viewer;
+  chat bots), and in *approve* mode waits on the desk. The agent reads with
+  `stage` what=chat (`listen` waits for one), each read labelled as strangers'
+  words and handed over once; it answers with `say` and `reply_to`, which
+  quotes the viewer above the caption. A message Twitch's mods take down is
+  dropped before the agent can answer it, and the owner's blocked words hold
+  for the agent's own lines too.
+- **Chat from three platforms, each by its official door** (2026-10-29: *"do
+  youtube and kick chat natively too"*). Twitch as above. YouTube with the
+  YouTube Data API and the streamer's own key: the live stream found from the
+  channel's public feed and one `videos.list` (a unit), polls ten seconds
+  apart (five units each) and a daily budget that stops before Google's quota
+  does. Kick through the origin, because Kick's official chat is webhooks to a
+  registered app (`meter/stagechat.py`, `docs/ops/RELAY.md` §2). Kick's own
+  anonymous chat socket now wants a token from its internal auth endpoints,
+  and we don't take one that way.
+- **Go live everywhere** (*"a restream rip for in house … even X"*). OBS
+  streams to `rtmp://127.0.0.1:1936/live` with a key of the stage's own;
+  ffmpeg copies that stream untouched to each place switched on (Twitch,
+  YouTube, Kick, X, TikTok, Facebook, pump.fun, any RTMP url) and to a Matroska
+  recording, and listens again when the stream ends (`stage_live.rs`,
+  `elo stage live`). Stream keys stay in `stage/live.json` (0600); ffmpeg's
+  lines that name a url are never shown. It costs one upload per place; Elo's
+  relay (`meter/relay.py`, billed in credits) takes one stream and sends the
+  rest from our box. Going live has no verb in the agent's tool.
+- **Post a recording to YouTube** (*"with us and youtube id probably upload
+  over streaming"*). OAuth with `youtube.upload` from the streamer's own
+  Desktop-app client, answered to the hub on loopback (PKCE, a one-time
+  state), and YouTube's resumable upload in 8 MiB pieces
+  (`stage_youtube.rs`). The refresh token stays in
+  `stage/youtube-oauth.json` (0600).
+- **Ears: the owner talks to the agent** (2026-10-29: *"lets make our setup
+  best"*, after a demo of a character that talks with its streamer). *Talk to
+  her* on the desk opens the microphone; the desk cuts what the owner says at
+  a 0.7 s pause (Gates' agent constants) and posts each piece as a 16 kHz WAV.
+  It becomes text through ElevenLabs speech-to-text with the voice's key, or a
+  command set by the CLI alone (`elo stage ears -- <command> {in}`); the hub
+  keeps no audio. Talking over a line stops it (`hush`) and `say` answers *cut
+  off*. Off until switched on; headphones keep her from hearing herself.
+- **The game.** With *tell her what her body does* on, the hub reads the
+  agent wallet's row on `/api/agents/floor` every 20 s (the origin caches it
+  15 s) and tells her what changed: on or off the island, her place on the
+  board, her body's goal (at most once a minute). Any program here adds its
+  own with `POST /event` or `elo stage event` (a game, a bot, a script).
+- **Listen.** `stage` what=listen waits for whichever comes first and hands
+  over everything waiting, the owner's words first, then the game, then chat,
+  each labelled for what it is. A stream is a loop: listen, say, listen.
+- **The walls.** Loopback only; a 0600 key in every url that does anything;
+  Host checked against DNS rebinding and Origin against a page elsewhere, so
+  a site you have open cannot puppet the avatar even holding the key. Against
+  a process running as you it is no boundary, like the broker (§10b4).
+
+Tarshish is the first on it (`agents/tarshish/stage/`, her README step 7);
+her 3D pack (`stage-3d/`) carries twelve of Mesh2Motion's CC0 clips as her
+moves, beside her own wave and dance.
+
+### 10z · The rig desk — moves for any character, in the browser
+
+Operator, 2026-10-29, after a look at what three.ws open-sourced: *"take the
+open source stuff just so we are at least compatible with the work flow people
+might use. and if we can wrap it into a WASM web app for modders and vtubers we
+will."* Nothing was copied: three.ws's locked folders (its Robinhood Chain
+suite, its multiplayer server, its avatar SDKs) carry "All rights reserved",
+and the open parts are ideas written again here in Rust.
+
+`crates/elo-rig` reads a GLB, VRM or VRMA and does four things. Its only
+dependency is `serde_json`, so it adds one package to the tree and no new
+third-party code.
+
+- **Which bone is which.** VRM 1.0's humanoid names. A VRM or VRMA states its
+  map; anything else is read from names and shape: Mixamo, Unreal and
+  Quaternius, Rigify and Meshy (`spine` is the hips, `spine.005` the head),
+  VRoid, Character Creator, Daz. Limbs are found by name; the hips are where
+  the legs meet the path to the head, and the spine, chest and neck are cut
+  from that path at the bone the shoulders hang from.
+- **Retarget.** Each mapped bone keeps the source bone's turn in the world,
+  applied from the target's rest, after turning the target bone onto the
+  source's rest direction (an A-pose takes a T-pose clip) and lining the
+  frames up. Up and facing snap to world axes: a body's own hips-to-head line
+  leans, and reading it as "up" tilted every clip by the difference in
+  posture, ten degrees between the Quaternius mannequin and Tarshish. The hips
+  carry the travel, scaled by hip height, or stay in place.
+- **VRMA.** A clip on a bare T-pose skeleton with the `VRMC_vrm_animation`
+  map, the format three-vrm, UniVRM, the Blender VRM add-on and VRoid Hub play.
+- **Moves for a stage.** `skeleton` gives a model's bare nodes, and the stage
+  bakes a pack's moves onto them at import (§10y). The page's *ticked moves
+  as one file* is such a moves file.
+- **A README model.** The model at rest, Z-up, thinned to about 1,500
+  triangles by vertex clustering, as a fenced ASCII STL that github.com draws
+  as a 3D viewer (three.ws's `readme-3d` idea).
+
+`watchtower/animate.html` is the page: the crate compiled to wasm32 (no
+imports, a plain C ABI, `js/animate.js` is the whole caller), three.js r160
+from `js/vendor/` for the preview, and Mesh2Motion's three CC0 clip packs
+(built on Quaternius's Universal Animation Library), cut to their skeletons.
+Files are read in the page and sent nowhere. The page's CSP is the page
+policy with `'wasm-unsafe-eval'` added, its own nginx location, held by
+`deploy/test_nginx_conf.py`. The preview retargets onto the model's bare
+skeleton, so a clip costs kilobytes, not the model's megabytes.
+
+`crates/elo-rig/build_web.sh` builds the module and the packs (Mesh2Motion
+pinned by commit and sha256) and records them in `web.sha256`;
+`tests/web_is_current.rs` fails when a source file changed without a rebuild.
+The checks in `src/checks.rs` measure a retarget rather than look at it: after
+the clip is written and read back, every bone must point where the source's
+does, frame by frame, in a frame the test states (a check that read the frame
+the way the retarget does agreed with the ten-degree tilt), and the head
+must turn from its rest as the source's does: a head has no bone beyond it
+to point at, and while it took its neck's correction the Quaternius
+mannequin's forward-leaning neck bowed Tarshish's head 32° in every clip. They read
+Tarshish's model from `agents/` and the served files from `watchtower/`, so
+they run in this repo and not in the launcher mirror. Not read: FBX (Blender
+converts it) and Draco-compressed meshes.
+
+### 10za · Credits: a pack paid from this wallet
+
+`elo credits` shows the account's dev credits and its last lines; `elo credits
+buy ten` (or `fifty`) pays a pack in USDG on Robinhood Chain through the
+store's HTTP 402 door (`docs/money/CREDITS.md`). The CLI reads the x402
+challenge and checks it is an exact USDG payment on chain 4663. The vault
+(`elo-vault/src/usdg.rs`) signs only a transfer authorization from this
+account to the compiled-in credits address, for at most the largest pack,
+valid for at most fifteen minutes; the passphrase is asked for each payment.
+The store submits it and pays the gas, and the credits land on this wallet's
+account. The balance read signs in with the same wallet (the OAuth wallet
+grant) and keeps no token on disk. A paired browser cannot sign a pack: buy on
+the site instead. Credits pay for hosting, Claude builds, buddies and the
+relay; an asset is bought on chain from its maker, never with credits.
 
 ## Reading order
 

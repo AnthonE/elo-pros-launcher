@@ -1,0 +1,87 @@
+{
+ "note": "A handoff (meter/handoff.py, docs/client/HANDOFF.md): what one of a game's servers signs to move a player to another of its servers. Verify at `now` with game `my-game`, this server answering to `to`, and the key set `keys`; then admit each case once. Every SDK and meter/test_handoff.py answer this file. The seed is server_texts.json's test key and signs nothing real.",
+ "seed_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+ "game": "my-game",
+ "key_id": "island-1",
+ "public_b64": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+ "keys": {
+  "island-1": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ="
+ },
+ "from": "play.my-game.example:7000",
+ "to": "play.my-game.example:7100",
+ "now": 1800000000,
+ "exp": 1800000060,
+ "ttl_max_s": 120,
+ "skew_s": 30,
+ "carry_max": 4096,
+ "cases": [
+  {
+   "name": "a wallet",
+   "player": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+   "id": "h4nd0ff-0123456789ab",
+   "carry_utf8": null,
+   "text": "elo handoff\ngame: my-game\nkey: island-1\nplayer: 0x24445efddb08d4938e3e3627042b2cf4063d9092\nfrom: play.my-game.example:7000\nto: play.my-game.example:7100\nid: h4nd0ff-0123456789ab\nexp: 1800000060\ncarry: none",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtMDEyMzQ1Njc4OWFiCmV4cDogMTgwMDAwMDA2MApjYXJyeTogbm9uZQ.rr3fGJWhCcPWxUYUk6TEAyjdbng8NIKp7krelpQMDwYQF9-CwZn0HFDdfxhNRl8yIzKpvGD2X0EDM3B1IKbfCg"
+  },
+  {
+   "name": "an account with no wallet",
+   "player": "acct_0123456789abcdef0123",
+   "id": "h4nd0ff-acct-0000001",
+   "carry_utf8": null,
+   "text": "elo handoff\ngame: my-game\nkey: island-1\nplayer: acct_0123456789abcdef0123\nfrom: play.my-game.example:7000\nto: play.my-game.example:7100\nid: h4nd0ff-acct-0000001\nexp: 1800000060\ncarry: none",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogYWNjdF8wMTIzNDU2Nzg5YWJjZGVmMDEyMwpmcm9tOiBwbGF5Lm15LWdhbWUuZXhhbXBsZTo3MDAwCnRvOiBwbGF5Lm15LWdhbWUuZXhhbXBsZTo3MTAwCmlkOiBoNG5kMGZmLWFjY3QtMDAwMDAwMQpleHA6IDE4MDAwMDAwNjAKY2Fycnk6IG5vbmU.TvAdDyCo3OrxwcJKyJuHx1zX7q5NOW8WNBDVoATImERZmu-5AAPvBbUEOd0XvTHR5ThFTedAdG5YQH18fLT5Bw"
+  },
+  {
+   "name": "with a carry",
+   "player": "0x24445efddb08d4938e3e3627042b2cf4063d9092",
+   "id": "h4nd0ff-carry-000001",
+   "carry_utf8": "{\"match\":\"m-1729\",\"side\":1}",
+   "text": "elo handoff\ngame: my-game\nkey: island-1\nplayer: 0x24445efddb08d4938e3e3627042b2cf4063d9092\nfrom: play.my-game.example:7000\nto: play.my-game.example:7100\nid: h4nd0ff-carry-000001\nexp: 1800000060\ncarry: ce2fb07bd860616098f4e9e8bed8ac73bcf1183b9a72edc69ab8fca4b4d118a6",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtY2FycnktMDAwMDAxCmV4cDogMTgwMDAwMDA2MApjYXJyeTogY2UyZmIwN2JkODYwNjE2MDk4ZjRlOWU4YmVkOGFjNzNiY2YxMTgzYjlhNzJlZGM2OWFiOGZjYTRiNGQxMThhNg.yBatUADNyonVUuOGnePR6419YiXe0Hp_6fbhpr2g8EObJPKmq0bY1_2VODsO3obM2hOyBZ0XvoFErjScTDqVBg"
+  }
+ ],
+ "refused": [
+  {
+   "code": "malformed",
+   "why": "not two base64url halves",
+   "token": "not-a-handoff"
+  },
+  {
+   "code": "wrong_game",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogb3RoZXItZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtMDEyMzQ1Njc4OWFiCmV4cDogMTgwMDAwMDA2MApjYXJyeTogbm9uZQ.oZpDIEb1HaT6PSWzKdRdqE8SYW7ZpSLkaw_TbOoHE48Do4rJxG4oRNv8PPsBtrp7zoqdiNIxErPjtAw-0U3xDA"
+  },
+  {
+   "code": "wrong_destination",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcyMDAKaWQ6IGg0bmQwZmYtMDEyMzQ1Njc4OWFiCmV4cDogMTgwMDAwMDA2MApjYXJyeTogbm9uZQ.m8jM_zDMlGdcPawnQqjtDPZOPJiCLtvPXUaX8rQRHVlbHi0haQIoA9bouvGzXGOclWDbwWfoGqKKZyuu14f-DQ"
+  },
+  {
+   "code": "expired",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtZXhwaXJlZC0wMDAxCmV4cDogMTc5OTk5OTk2OQpjYXJyeTogbm9uZQ.lCJ1XoM0eZJ43F7EthaJ4fZ7aZv_ec8Pq-76j931ZsLZfuj6g2Fd3DATPsJmEvNRWjOIBsKd_H12uUrzezsKDg"
+  },
+  {
+   "code": "too_long",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtdG9vbG9uZy0wMDAxCmV4cDogMTgwMDAwMDYwMApjYXJyeTogbm9uZQ.g1ZTmC3lY63JnJyr98ZyAnEhMfKyfSvLEDHle5o716xwgboX9nI5EDBgOkyLlv_YEVIDYy91y3j6BnK6BW2xAA"
+  },
+  {
+   "code": "unknown_key",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IHJldGlyZWQtMQpwbGF5ZXI6IDB4MjQ0NDVlZmRkYjA4ZDQ5MzhlM2UzNjI3MDQyYjJjZjQwNjNkOTA5Mgpmcm9tOiBwbGF5Lm15LWdhbWUuZXhhbXBsZTo3MDAwCnRvOiBwbGF5Lm15LWdhbWUuZXhhbXBsZTo3MTAwCmlkOiBoNG5kMGZmLTAxMjM0NTY3ODlhYgpleHA6IDE4MDAwMDAwNjAKY2Fycnk6IG5vbmU.FpgbACFdduHFi3a3koVoEpPQrWM5X8eFnig2vju3id5ZgnaSdXN7jxYSnxRVdZy6UDNq7ZjjzvlpWzt-rI11Ag"
+  },
+  {
+   "code": "bad_signature",
+   "why": "signed by a key that is not island-1's",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtZm9yZ2VkLTAwMDAxCmV4cDogMTgwMDAwMDA2MApjYXJyeTogbm9uZQ.9RQ5N-HDWAN_bL-9B_bGGxOQTbAbUndL_b7jYNFlr1iEfPplIvfWeyDfEE7c_g5oBmExu2w3R415qeh4gagnCw"
+  },
+  {
+   "code": "carry",
+   "why": "a carry was signed and different bytes came with it",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtY2FycnktMDAwMDAxCmV4cDogMTgwMDAwMDA2MApjYXJyeTogY2UyZmIwN2JkODYwNjE2MDk4ZjRlOWU4YmVkOGFjNzNiY2YxMTgzYjlhNzJlZGM2OWFiOGZjYTRiNGQxMThhNg.yBatUADNyonVUuOGnePR6419YiXe0Hp_6fbhpr2g8EObJPKmq0bY1_2VODsO3obM2hOyBZ0XvoFErjScTDqVBg",
+   "carry_utf8": "{\"match\":\"m-1729\",\"side\":2}"
+  },
+  {
+   "code": "used",
+   "why": "the first case, admitted a second time",
+   "token": "ZWxvIGhhbmRvZmYKZ2FtZTogbXktZ2FtZQprZXk6IGlzbGFuZC0xCnBsYXllcjogMHgyNDQ0NWVmZGRiMDhkNDkzOGUzZTM2MjcwNDJiMmNmNDA2M2Q5MDkyCmZyb206IHBsYXkubXktZ2FtZS5leGFtcGxlOjcwMDAKdG86IHBsYXkubXktZ2FtZS5leGFtcGxlOjcxMDAKaWQ6IGg0bmQwZmYtMDEyMzQ1Njc4OWFiCmV4cDogMTgwMDAwMDA2MApjYXJyeTogbm9uZQ.rr3fGJWhCcPWxUYUk6TEAyjdbng8NIKp7krelpQMDwYQF9-CwZn0HFDdfxhNRl8yIzKpvGD2X0EDM3B1IKbfCg",
+   "after": "the first case"
+  }
+ ]
+}

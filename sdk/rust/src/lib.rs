@@ -69,6 +69,8 @@ pub mod texts;
 pub mod http;
 #[cfg(feature = "http")]
 pub mod server;
+#[cfg(feature = "http")]
+pub mod handoff;
 
 pub use look::{classify, Look, Refusal};
 pub use payout::{PayoutFile, PayoutRow};
@@ -77,3 +79,7 @@ pub use payout::{PayoutFile, PayoutRow};
 pub use http::{new_nonce, ActError, Client, CloudSave, FaceChange, SignInCheck, DEFAULT_ORIGIN, ROSTER_PAGE};
 #[cfg(feature = "http")]
 pub use server::{new_server_nonce, server_text, ServerKey};
+#[cfg(feature = "http")]
+pub use handoff::{
+    handoff_text, read_handoff, verify_handoff, Handoff, HandoffDoor, HandoffRefused, KeySource, MemorySeen, Seen,
+};

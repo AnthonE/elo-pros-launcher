@@ -8,6 +8,7 @@
 
 mod args;
 mod assets;
+mod credits;
 mod chatkey;
 mod dev;
 mod friends;
@@ -18,7 +19,17 @@ mod relay;
 mod send;
 mod signer;
 mod skins;
+mod stage;
+mod stage_chat;
+mod stage_cli;
+mod stage_ears;
+mod stage_live;
+mod stage_mcp;
+mod stage_sources;
+mod stage_voice;
+mod stage_youtube;
 mod trade;
+mod voice;
 
 // The account's address and signature both come through this trait, so the CLI
 // and the window use one implementation rather than two that agree today.
@@ -58,6 +69,8 @@ elo — the desktop client
   elo play    <title>             start the installed build (or open the page)
   elo streamer [on|off]           streamer mode: games start with it on, and
                                    the window hides wallets and server addresses
+  elo gamemode [on|off]           game mode: GameMode on Linux, above-normal
+                                   priority on Windows, for every game started
   elo join    <link>              follow a friend's elo://join/… link
   elo servers <title>             the shards that title is serving, live
   elo digest  <depot>             the bytes32 a notary would commit
@@ -86,6 +99,9 @@ elo — the desktop client
                                    file's sha256 checked, pinned in a lock
   elo assets init|check|publish   list your own: elo-asset.json from your
                                    files, checked, then listed (`elo assets help`)
+  elo credits [buy ten|fifty]     your dev credits, and a pack paid in USDG
+                                   from this wallet; they pay for hosting,
+                                   Claude builds, buddies and the relay
   elo seat [--wallet ADDR]        the characters a wallet holds, and whether
                                    it may still mint — one call, no key
   elo seat card                   the collection: contract, supply, doors
@@ -113,6 +129,9 @@ elo — the desktop client
   elo skins sell <id> <price>     list one on OpenSea; it stays yours, and in
                                    game, until it sells (cancel|buy|accept|open)
   elo skins market                the floor and the best listings
+  elo voice <game>                party voice: start or join a party, or talk
+                                   in the game's open room (opens the page;
+                                   `elo voice party|guild …`)
   elo account sign <message>      sign with it (EIP-191), for a game or a claim
   elo pair                        sign with the wallet in your BROWSER instead
                                    — prints a code to type at <host>/pair.html
@@ -130,6 +149,9 @@ elo — the desktop client
   elo dev help                    the whole desk
   elo prove <game> <server> <nonce>   sign in to a game server (SIWE, EIP-4361)
   elo mcp                         serve this machine's reads over MCP on stdio
+  elo stage                       an agent's body on your screen, for OBS: a
+                                   VRM or pictures, captions and a voice, driven
+                                   by your agent (`elo stage mcp`) or by hand
 
 <title> is a SLUG (`gates`), a path to a manifest, or an https url. A slug is
 read from the origin at /api/launcher/manifest/<slug>; a local file wins over
@@ -215,6 +237,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
     let json_out = a.has("--json");
     // Every game this run starts is told (`elo_depot::streamer`).
     elo_depot::streamer::load(&state_root());
+    elo_depot::gamemode::load(&state_root());
 
     match a.verb.as_str() {
         "streamer" => {
@@ -234,6 +257,33 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                           wallets and server addresses");
             } else {
                 println!("streamer mode is off (`elo streamer on` to turn it on)");
+            }
+            Ok(0)
+        }
+        "gamemode" => {
+            match a.positional.first().map(String::as_str) {
+                Some("on") => elo_depot::gamemode::save(&state_root(), true)?,
+                Some("off") => elo_depot::gamemode::save(&state_root(), false)?,
+                Some(other) => {
+                    return Err(DepotError::new(format!("gamemode: on or off, not {other:?}")))
+                }
+                None => {}
+            }
+            let on = elo_depot::gamemode::on();
+            let effect = elo_depot::gamemode::effect();
+            if json_out {
+                let runner = match &effect {
+                    elo_depot::gamemode::Effect::GameMode(p) => Some(p.display().to_string()),
+                    _ => None,
+                };
+                println!("{}", serde_json::json!({
+                    "gamemode": on, "does": effect.describe(), "runner": runner
+                }));
+            } else if on {
+                println!("game mode is on: {}", effect.describe());
+            } else {
+                println!("game mode is off (`elo gamemode on` to turn it on)");
+                println!("  turned on here: {}", effect.describe());
             }
             Ok(0)
         }
@@ -524,9 +574,21 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // Workshop mods: the list a wallet subscribed to, and the files on
         // disk, checked. Writing them is `elo_depot::workshop`'s.
         "mods" => mods::run(a, &host, json_out),
+        // Party voice: the page for a party, a guild or a game's open room.
+        // The site's voice panel does the talking (voice.rs says why).
+        "voice" => voice::run(a, &host, json_out),
+        // An agent's body on your screen: a hub on 127.0.0.1, the stage OBS
+        // loads, and `elo stage mcp` for the agent (stage.rs says why local).
+        "stage" => {
+            stage::set_origin(&host);
+            stage_cli::run(a, &state_root(), json_out)
+        }
         // The asset store: files a builder adds to a project, pinned in
         // elo-assets.lock. Writing them is `elo_depot::assets`'s.
         "assets" => assets::run(a, &host, json_out),
+        // Dev credits: the balance, and a pack paid from this wallet over the
+        // store's HTTP 402 door. The vault signs only a USDG pack (usdg.rs).
+        "credits" => credits::run(a, &host, json_out),
 
         // ── pair: the wallet you already have, in the browser it lives in ───
         //
@@ -1903,7 +1965,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             if let Some(i) = elo_depot::newest_from(&games, &m.slug, &m.origin) {
                 let l = launch::resolve(&i, &values, &BTreeMap::new())?;
                 if a.has("--dry-run") {
-                    println!("{}", l.argv.join(" "));
+                    println!("{}", l.command_line().join(" "));
                     return Ok(0);
                 }
                 let started = clock::now();

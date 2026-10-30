@@ -138,8 +138,18 @@ impl ServerKey {
         b64(self.pair.public_key().as_ref())
     }
 
+    /// The key id, as the desk names it.
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
     pub fn sign_text(&self, text: &str) -> String {
         b64(self.pair.sign(text.as_bytes()).as_ref())
+    }
+
+    /// The raw Ed25519 signature over `msg`.
+    pub(crate) fn sign_bytes(&self, msg: &[u8]) -> Vec<u8> {
+        self.pair.sign(msg).as_ref().to_vec()
     }
 
     /// The four headers for one request; `path` is the route without `/api`.

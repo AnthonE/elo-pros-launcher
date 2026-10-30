@@ -17,7 +17,9 @@ Two halves:
   included — and sweep who still holds a copy. With a `ServerKey` (your
   server's Ed25519 key, named with us): cloud saves, stats, achievements and
   scores, and the reads a server makes at join (playtest access, a player's
-  Workshop mods, a lobby, quick join).
+  Workshop mods, a lobby, quick join). And moving a player between your
+  servers: `ServerKey.handoff` on the one they leave, `HandoffDoor` on the
+  one they reach (docs/client/HANDOFF.md).
 
     from elo_sdk import Client
 
@@ -40,6 +42,7 @@ from . import models, payout, texts
 from .client import (DEFAULT_ORIGIN, DEFAULT_TIMEOUT, ROSTER_PAGE, ActError, BadInput, Client, Look, Mismatch,
                      SignRefused, __version__, classify, new_nonce, overlay_signer)
 from .payout import PayoutFile, PayoutRow, check_doc, check_row
+from .handoff import Handoff, HandoffDoor, HandoffRefused, handoff_text, read_handoff, verify_handoff
 from .server import ServerKey, new_server_nonce, server_text
 
 __all__ = [
@@ -47,5 +50,6 @@ __all__ = [
     "play_message", "models", "payout", "texts", "DEFAULT_ORIGIN", "DEFAULT_TIMEOUT", "ActError", "BadInput",
     "Client", "Look", "Mismatch", "SignRefused", "__version__", "classify", "overlay_signer", "PayoutFile",
     "PayoutRow", "check_doc", "check_row", "ROSTER_PAGE", "new_nonce", "ServerKey", "new_server_nonce",
-    "server_text",
+    "server_text", "Handoff", "HandoffDoor", "HandoffRefused", "handoff_text", "read_handoff",
+    "verify_handoff",
 ]

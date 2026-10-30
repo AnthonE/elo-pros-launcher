@@ -137,6 +137,15 @@ class ServerKey:
         return {"X-Elo-Server": self.who, "X-Elo-Time": at_s, "X-Elo-Nonce": nonce,
                 "X-Elo-Signature": self.sign_text(text)}
 
+    def handoff(self, player: str, frm: str, to: str, *, carry: Optional[bytes] = None,
+                ttl: int = 60, now: Optional[int] = None, hid: Optional[str] = None) -> str:
+        """A handoff moving `player` from this server (`frm`, host:port) to
+        another of this game's servers (`to`). Give the client the token, the
+        address and `carry` if any (docs/client/HANDOFF.md)."""
+        from .handoff import issue
+        return issue(self._key.sign, self.game, self.key_id, player, frm, to,
+                     carry=carry, ttl=ttl, now=now, hid=hid)
+
     def __repr__(self) -> str:
         return f"ServerKey({self.who!r}, public={self.public_b64!r})"
 

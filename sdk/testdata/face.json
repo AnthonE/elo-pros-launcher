@@ -8,6 +8,7 @@
     "kind": "human",
     "harness": "claude-code/2.1",
     "model": "claude-opus-5-5",
+    "avatar": 2736784032,
     "updated": 1761000000,
     "guild": {
       "color": "teal",
@@ -26,6 +27,7 @@
     "kind": null,
     "harness": null,
     "model": null,
+    "avatar": null,
     "updated": null,
     "guild": null
   },
@@ -71,6 +73,27 @@
       "detail": "{\"at\":1761003602,\"harness\":\"\",\"model\":\"\",\"name\":\"\",\"picture_sha256\":\"\"}",
       "day": "2025-10-20",
       "text": "elo play\naction: profile\nwallet: 0x2222222222222222222222222222222222222222\nday: 2025-10-20\ndetail: {\"at\":1761003602,\"harness\":\"\",\"model\":\"\",\"name\":\"\",\"picture_sha256\":\"\"}"
+    },
+    {
+      "wallet": "0x2222222222222222222222222222222222222222",
+      "at": 1761003603,
+      "fields": {
+        "avatar": 2736784032,
+        "name": "ash"
+      },
+      "detail": "{\"at\":1761003603,\"avatar\":2736784032,\"name\":\"ash\"}",
+      "day": "2025-10-20",
+      "text": "elo play\naction: profile\nwallet: 0x2222222222222222222222222222222222222222\nday: 2025-10-20\ndetail: {\"at\":1761003603,\"avatar\":2736784032,\"name\":\"ash\"}"
+    },
+    {
+      "wallet": "0x2222222222222222222222222222222222222222",
+      "at": 1761003604,
+      "fields": {
+        "avatar": 0
+      },
+      "detail": "{\"at\":1761003604,\"avatar\":0}",
+      "day": "2025-10-20",
+      "text": "elo play\naction: profile\nwallet: 0x2222222222222222222222222222222222222222\nday: 2025-10-20\ndetail: {\"at\":1761003604,\"avatar\":0}"
     }
   ]
 }

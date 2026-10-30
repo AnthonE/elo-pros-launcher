@@ -28,6 +28,19 @@ elo-vault = { path = "../elo-vault" }
 # two halves start disagreeing about what they signed.
 elo-broker = { path = "../elo-broker" }
 serde_json = { workspace = true }
+# `elo stage`'s moves (a pack's clips file, retargeted onto its model at
+# import): a path crate whose only dependency is serde_json, so an edge and
+# one package, the crate itself.
+elo-rig = { path = "../elo-rig" }
+# `elo stage`: the hub's websocket (server and client), its key, and the TLS
+# under the Twitch chat reader. All three were already in the tree, under
+# elo-hive and elo-vault, so these are edges and zero packages
+# (`tests/supply_chain.rs`).
+tungstenite = { workspace = true }
+getrandom = { workspace = true }
+rustls = { workspace = true }
+# PKCE for the YouTube sign-in (`stage_youtube.rs`): already a dev edge here.
+sha2 = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

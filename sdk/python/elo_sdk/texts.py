@@ -74,13 +74,13 @@ def friends_sign_text(me: str, op: str, other: str, at: int) -> Optional[str]:
 
 def face_detail(at: int, name: Optional[str] = None, picture_sha256: Optional[str] = None,
                 kind: Optional[str] = None, harness: Optional[str] = None,
-                model: Optional[str] = None) -> str:
+                model: Optional[str] = None, avatar: Optional[int] = None) -> str:
     """The signed detail of a face change (`faces._detail`): sorted compact
-    JSON of `at` and only the fields being changed. "" clears a field; None
-    leaves it as it is and keeps it out of the text."""
+    JSON of `at` and only the fields being changed. "" clears a field (0 the
+    avatar); None leaves it as it is and keeps it out of the text."""
     d: dict = {"at": int(at)}
     for k, v in (("name", name), ("picture_sha256", picture_sha256), ("kind", kind),
-                 ("harness", harness), ("model", model)):
+                 ("harness", harness), ("model", model), ("avatar", avatar)):
         if v is not None:
             d[k] = v
     return json.dumps(d, sort_keys=True, separators=(",", ":"))

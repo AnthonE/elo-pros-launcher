@@ -1,7 +1,7 @@
 ---
 status: design
 lane: [platform]
-updated: 2026-10-25
+updated: 2026-10-27
 about: "guilds, voice and game lobbies on Elo Pros, so a multiplayer-only store keeps its players' groups and their talk instead of losing them to Discord: what Steam ships, what we already have (the hive's rooms, friends and presence, the launcher's join link, trade chat), the guild as a signed roster with its own room and voice, lobbies that join a server together, self-hosted voice, and the calls only the operator can make"
 ---
 # GUILDS.md — guilds, voice and lobbies
@@ -17,7 +17,7 @@ builds no new social organ … guilds point at the covenant"* (`SENTENCES.md`).
 The hive still carries the talk. A guild is a new organ, because the covenant
 is the wrong shape for one (§2).
 
-## Status — trade chat, guilds and lobbies are built; voice is not
+## Status — trade chat, guilds, lobbies and voice are built; voice waits on its box
 
 **G0, trade chat:** the terminal's **chat** button opens the hive's `trade`
 room beside every pane (`js/tradechat.js`). It needs no sign-up and no wallet
@@ -47,6 +47,22 @@ row of the title's own server list; `GET /lobbies/pick/<slug>?party=<n>` is
 quick join without a lobby, the first row in the developer's order that is up
 and has room.
 
+**G2, voice, and G3's party page** (built 2026-10-27; operator: *"lets start
+cooking either way i want it all"*, which also made call 2 below: LiveKit on
+our own box). `meter/voicechat.py`, with `test_voicechat.py`: the meter checks
+who may be in a room and signs a ten-minute LiveKit ticket for that room, the
+microphone only. Rooms: `lobby:<id>` (its members; the host mutes),
+`guild:<TAG>` and `guild:<TAG>:officers` (the roster; officers mute), and
+`lfg:<game>` (anyone, an unlinked key as a guest). The chat key proves who you
+are with a signed NIP-98 event, so joining asks no wallet; a lobby or guild
+room reads the wallet the key is linked to. A leave, kick, close, demote or
+disband takes whoever left out of the room's voice. The game page has a **play
+together** panel (`js/party.js`): start a party, send its link, ready, launch
+onto one server, with the party's voice and the game's open room beside it
+(`js/voice.js`); the guild page has the guild's channels; `elo voice` opens
+either from the launcher. Dark until the voice box runs (`docs/ops/VOICE.md`),
+which is on its own VM because media cannot ride Cloudflare.
+
 What the build settled that this plan left open:
 - **The routes are the friends shape** (`/guilds/prepare` then `/guilds/act`),
   not `/guilds/{tag}/message`, so the page, the MCP tool and an SDK reuse one
@@ -68,7 +84,7 @@ What the build settled that this plan left open:
 |---|---|---|
 | Friends, presence, "join game" | who is on, what they play, one click into their server | built: `meter/friends.py`, `FRIENDS.md`; the launcher owns `elo://join/<title>/<host:port>` |
 | Steam Chat: group chats with text channels | a group's own rooms | the hive: NIP-29 groups on our buzz relay (`HIVE-RUNBOOK.md`) |
-| Voice channels in group chats, party voice | talk while you play | **none** (§4) |
+| Voice channels in group chats, party voice | talk while you play | **built, waiting on its box** (§4, `docs/ops/VOICE.md`) |
 | Steam Groups / clans | a named group with members, officers, announcements, events | **none**; `EloCovenant` is not one (§2) |
 | Lobbies and invites (Steamworks matchmaking) | a party forms, readies up, lands on one server together | half: the join link exists, the party does not (§5) |
 | Overlay | chat and voice over the game | the launcher, later (§6) |
@@ -220,8 +236,8 @@ the web, because the web is where a guild page is shared.
 | G0 | trade chat | ✅ built |
 | G1 | guilds: the roster and its signed acts, the guild's hive rooms, `/g/<tag>`, the profile's guild line, MCP | ✅ built; the rooms wait on the first armed run (`HIVE-RUNBOOK.md` §1a) |
 | G1b | the tag in every game: `wear`, `/guilds/tags`, the face's `guild`, the SDK calls, Gates draws it | ✅ built (§3a) |
-| G2 | voice: LiveKit on the box, tokens for chat keys, guild channels, the open `lfg` rooms | a host for it (§4) |
-| G3 | lobbies: party, ready, launch together, lobby voice | G2 for voice; text works without it |
+| G2 | voice: LiveKit on the box, tokens for chat keys, guild channels, the open `lfg` rooms | ✅ built 2026-10-27; the voice box (`docs/ops/VOICE.md`) |
+| G3 | lobbies: party, ready, launch together, lobby voice | ✅ built (the game page's play together); a lobby's text room is not |
 | G4 | the launcher: guild rail, lobbies, voice, the overlay | G1–G3 |
 
 ## 8 · The calls only the operator makes
@@ -234,7 +250,8 @@ are code. Call 2 waits on G2.
 1. **The roster:**
    - **Recommended:** off chain, signed (§3).
    - **Or:** a new `EloGuild` contract (gas to join, welded rules).
-2. **The voice host:**
+2. **The voice host:** ✅ decided 2026-10-27, LiveKit on our own box (its own
+   VM: `docs/ops/VOICE.md` §1).
    - **Recommended:** LiveKit on our own box.
    - **Or:** LiveKit Cloud (paid, a third party in the call), or no voice yet.
 3. **Tags:**

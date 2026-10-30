@@ -150,7 +150,10 @@ fn extra_roots(store: &mut rustls::RootCertStore) -> usize {
     added
 }
 
-fn tls_config() -> Arc<rustls::ClientConfig> {
+/// The relay's TLS settings, shared with `elo stage`'s Twitch chat reader so
+/// the client has one trust policy (bundled roots, `SSL_CERT_FILE` added,
+/// distrusted CAs dropped) rather than two.
+pub fn tls_config() -> Arc<rustls::ClientConfig> {
     let mut roots = elo_net::tls::root_store();
     extra_roots(&mut roots);
     // Again after SSL_CERT_FILE: a system bundle carries the same roots, and

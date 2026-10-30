@@ -3,7 +3,7 @@
  "game": "your-slug",
  "version": "0.1.0",
  "_version": "What your game SAYS it is. elo never copies this onto your store row — it serves it beside the version actually published in the depot and flags the gap, because a tag ahead of a build is a signal and a typed field would erase it.",
- "terms": "2026-10-26",
+ "terms": "2026-10-27",
  "_terms": "The version of the community terms you accept: https://elopros.com/terms.html#community. Committing it says you made this game or have the right to list it. The checklist names the current version if this one is out of date.",
  "multiplayer": "match",
  "_multiplayer": "How people play together: shard, match, persistent or co-op.",
@@ -14,11 +14,9 @@
   "about": "The long paragraph on the game page.",
   "tags": ["survival", "multiplayer", "open source"],
   "engine": {"name": "Godot", "license": "MIT"},
-  "made_with": {"parts": []},
-  "repo": "https://github.com/you/your-game",
-  "repo_public": true
+  "made_with": {"parts": []}
  },
- "_listing": "Every field a steward may write: name, kind, blurb, about, state, tags, engine, made_with, repo, repo_public, room, play_url, capsule, hero, media, record, coins, collections, economy, receipts. engine is what it is built on and must take no cut. made_with lists where a model helped (art, code, audio, writing, translation, qa); an empty list means none. Add play_url when the game is up. The house keeps band, hidden, placeholder, lane, note, buddy_url and marquee — a game cannot commit its way onto a shelf.",
+ "_listing": "Every field a steward may write: name, kind, blurb, about, state, tags, engine, made_with, repo, repo_public, room, play_url, capsule, hero, media, record, coins, collections, economy, receipts. engine is what it is built on. A game listed from its repo gets repo filled in by the door, so leave it out. made_with lists where a model helped (art, code, audio, writing, translation, qa); an empty list means none. Add play_url when the game is up. The house keeps band, hidden, placeholder, lane, note, buddy_url and marquee — a game cannot commit its way onto a shelf.",
  "_sell": "To sell copies, add \"sell\": {\"usd_cents\": 1000} for $10.00. We list the sale, pay the gas and keep the price on the dollar. Add \"wallet\": \"0x…\" when you have one; until then we hold your money for you. The dev console writes both lines for you: https://elopros.com/dev-console.html#sell",
  "updates": [
   {

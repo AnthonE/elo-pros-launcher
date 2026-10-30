@@ -47,6 +47,19 @@ each 99¢ or less, managed for you
   elo assets check --repo URL         validate ./elo-asset.json before you commit
   elo assets publish --repo URL       list it: the store reads the committed one
 
+  or, with no GitHub at all:
+  elo assets upload <folder>          list the files in <folder> in one command:
+                                      writes <folder>/elo-asset.json (sha256 of
+                                      every file), signs once with this machine's
+                                      wallet, uploads, and the store pins them.
+                                      A preview.png/.jpg there is the card's picture.
+                                      (--id --name --about --kind --license --engine
+                                      --price CENTS --tags a,b --version 1.1.0)
+                                      Run it again with a new --version to update;
+                                      files already uploaded are not sent twice.
+  elo assets unlist <id>              take your upload off the shelf (kept: projects
+                                      that added it still sync; upload brings it back)
+
   --dir PATH       the project (default: this folder)
   --engine NAME    godot, bevy, unity, unreal, three, fyrox, any (default: read
                    off the project, then the lock)
@@ -78,6 +91,8 @@ pub fn run(a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
         Some("init") => init(a, json_out),
         Some("check") => check(&net, a, host, json_out),
         Some("publish") => publish(&net, a, host, json_out),
+        Some("upload") => upload(&net, a, host, json_out),
+        Some("unlist") => unlist(&net, a, host, json_out),
         Some(other) => Err(DepotError::new(format!(
             "unknown assets command {} — `elo assets help`",
             safe_line(other)
@@ -196,16 +211,18 @@ pub fn search_lines(got: &Value) -> Vec<String> {
             safe_line(s(r, "kind")),
             safe_line(&engines.join(", "))
         ));
+        let au = r.get("author").unwrap_or(&Value::Null);
+        let by = if s(au, "host") == "elo" {
+            format!("by {}", s(au, "name"))
+        } else {
+            format!("github.com/{}/{}", s(au, "owner"), s(au, "repo"))
+        };
         out.push(format!(
-            "  {:<24} {:<6} {} · github.com/{}",
+            "  {:<24} {:<6} {} · {}",
             "",
             "",
             safe_line(s(r, "license")),
-            safe_line(&format!(
-                "{}/{}",
-                s(r.get("author").unwrap_or(&Value::Null), "owner"),
-                s(r.get("author").unwrap_or(&Value::Null), "repo")
-            ))
+            safe_line(&by)
         ));
     }
     if !rows.is_empty() {
@@ -625,10 +642,174 @@ fn publish(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, Depot
     Ok(0)
 }
 
+/// An asset id from a folder's name: lowercase, `-` for anything else.
+pub fn id_from_folder(folder: &Path) -> String {
+    let raw = folder
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mut out = String::new();
+    for c in raw.chars() {
+        let c = if c.is_ascii_alphanumeric() { c } else { '-' };
+        if !(c == '-' && (out.is_empty() || out.ends_with('-'))) {
+            out.push(c);
+        }
+    }
+    out.trim_end_matches('-').chars().take(48).collect()
+}
+
+/// Sign one asset store text on this machine's signer: (wallet, signature).
+fn sign_text(a: &Args, host: &str, text: &str, why: &str) -> Result<(String, String), DepotError> {
+    use elo_broker::signer::Signer as _;
+    let mut signer = crate::signer::choose(a, host).map_err(DepotError::new)?;
+    let out = signer.sign(text, why).map_err(|r| DepotError::new(r.reason))?;
+    let wallet = s(&out, "address").to_string();
+    let sig = s(&out, "signature").to_string();
+    if wallet.is_empty() || sig.is_empty() {
+        return Err(DepotError::new("the signer returned no signature"));
+    }
+    Ok((wallet, sig))
+}
+
+/// The wallet this machine signs with, without unlocking anything.
+fn my_wallet(a: &Args, host: &str) -> Result<String, DepotError> {
+    use elo_broker::signer::Signer as _;
+    a.flag("--wallet")
+        .map(str::to_string)
+        .or_else(|| crate::signer::choose(a, host).ok().and_then(|s| s.address()))
+        .ok_or_else(|| {
+            DepotError::new("no wallet on this machine — `elo account new` makes one, or pair your browser wallet with `elo pair`")
+        })
+}
+
+fn upload(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
+    let folder = PathBuf::from(a.positional.get(1).ok_or_else(|| {
+        DepotError::new("which folder holds the files? — `elo assets upload <folder>`")
+    })?);
+    let mf = folder.join(assets::MANIFEST_NAME);
+    let prior: Option<Value> = match std::fs::read_to_string(&mf) {
+        Ok(b) => Some(serde_json::from_str(&b)
+            .map_err(|e| DepotError::new(format!("{} is not JSON: {e}", mf.display())))?),
+        Err(_) => None,
+    };
+    let price = match a.flag("--price") {
+        None => 0,
+        Some(p) => p.trim().parse::<u32>().ok().filter(|c| *c <= 99).ok_or_else(|| {
+            DepotError::new("--price is a whole number of cents, 0 to 99")
+        })?,
+    };
+    let id = a.flag("--id").map(|s| s.trim().to_ascii_lowercase()).unwrap_or_else(|| {
+        if prior.as_ref().and_then(|p| p.get("id")).is_some() { String::new() } else { id_from_folder(&folder) }
+    });
+    let meta = Meta {
+        id,
+        name: a.flag("--name").unwrap_or_default().to_string(),
+        about: a.flag("--about").unwrap_or_default().to_string(),
+        kind: a.flag("--kind").unwrap_or_default().to_string(),
+        version: a.flag("--version").unwrap_or_default().to_string(),
+        license: a.flag("--license").unwrap_or_default().to_string(),
+        engines: a.all("--engine").to_vec(),
+        price_cents: price,
+    };
+    let mut m = assets::build_upload_manifest(&folder, &meta, prior.as_ref())?;
+    if let Some(t) = a.flag("--tags") {
+        let tags: Vec<String> = t.split(',').map(|x| x.trim().to_ascii_lowercase())
+            .filter(|x| !x.is_empty()).collect();
+        m["tags"] = json!(tags);
+    }
+    let id = s(&m, "id").to_string();
+    let wallet = my_wallet(a, host)?;
+    let prep = told(net.post_json_told(&format!("{host}/api/assets/upload/prepare"),
+                                       &json!({"manifest": m, "wallet": wallet})))?;
+    // the manifest the store read is the one kept beside the files
+    let body = serde_json::to_string_pretty(&m).map_err(|e| DepotError::new(e.to_string()))? + "\n";
+    std::fs::write(&mf, body).map_err(|e| DepotError::new(format!("{}: {e}", mf.display())))?;
+    let say = |line: String| if !json_out { println!("{line}") };
+    for w in prep.get("warnings").and_then(Value::as_array).into_iter().flatten() {
+        say(format!("  · {}", safe_line(w.as_str().unwrap_or(""))));
+    }
+    if a.has("--dry-run") {
+        if json_out { print_json(&prep) } else {
+            println!("{} reads clean; wrote {}. Nothing was signed or sent (--dry-run).",
+                     safe_line(&id), mf.display());
+        }
+        return Ok(0);
+    }
+    if prep.get("upload").and_then(|u| u.get("open")).and_then(Value::as_bool) == Some(false) {
+        return Err(DepotError::new(format!("the store is not taking uploads yet: {}",
+            s(prep.get("upload").unwrap_or(&Value::Null), "why_not"))));
+    }
+    let (signer, signature) = sign_text(a, host, s(&prep, "sign_this"),
+                                        &format!("list {id} on the Elo Pros asset store"))?;
+    if !signer.eq_ignore_ascii_case(&wallet) {
+        return Err(DepotError::new(format!("the signer is {signer}, not {wallet}")));
+    }
+    let mut got = told(net.post_json_told(&format!("{host}/api/assets/upload"), &json!({
+        "manifest": m, "wallet": wallet, "signature": signature, "at": s(&prep, "at")})))?;
+    let send: Vec<Value> = got.get("send").and_then(Value::as_array).cloned().unwrap_or_default();
+    for f in &send {
+        let name = s(f, "name");
+        let put = s(f, "put");
+        let ours = m["files"].as_array().into_iter().flatten().any(|x| s(x, "name") == name)
+            || m.get("preview").and_then(Value::as_str) == Some(name);
+        if !ours || !put.starts_with("/api/assets/upload/") || name.contains('/') {
+            return Err(DepotError::new(format!("the store asked for {name:?}, which is not one of these files")));
+        }
+        let bytes = std::fs::read(folder.join(name))
+            .map_err(|e| DepotError::new(format!("{name}: {e}")))?;
+        say(format!("  sending {name} ({})", human(bytes.len() as i64)));
+        got = told(net.put_bytes_told(&format!("{host}{put}"), "application/octet-stream", bytes))?;
+    }
+    if got.get("landed").and_then(Value::as_bool) != Some(true) {
+        return Err(DepotError::new(format!("sent, but it did not land: {}", s(&got, "error"))));
+    }
+    if json_out {
+        print_json(&got);
+        return Ok(0);
+    }
+    let verb = if got.get("created").and_then(Value::as_bool) == Some(true) { "listed" } else { "updated" };
+    println!("{verb} {} v{} — {host}/assets.html#{}", safe_line(&id), safe_line(s(&m, "version")), safe_line(&id));
+    for w in got.get("warnings").and_then(Value::as_array).into_iter().flatten() {
+        println!("  · {}", safe_line(w.as_str().unwrap_or("")));
+    }
+    println!("anyone adds it with: elo assets add {}", safe_line(&id));
+    println!("to update: change the files, then `elo assets upload {} --version <next>`", folder.display());
+    Ok(0)
+}
+
+fn unlist(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
+    let id = id_at(a, 1, "unlist")?;
+    let wallet = my_wallet(a, host)?;
+    let url = format!("{host}/api/assets/{}/unlist", urlencode(&id));
+    let prep = told(net.post_json_told(&url, &json!({"wallet": wallet})))?;
+    let (_, signature) = sign_text(a, host, s(&prep, "sign_this"),
+                                   &format!("take {id} off the Elo Pros asset store"))?;
+    let got = told(net.post_json_told(&url, &json!({
+        "wallet": wallet, "signature": signature, "at": s(&prep, "at")})))?;
+    if json_out {
+        print_json(&got);
+    } else {
+        println!("{} is off the shelf — {}", safe_line(&id), safe_line(s(&got, "note")));
+    }
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::args;
+
+    #[test]
+    fn a_folder_names_its_asset() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Wood Crate_v2!");
+        std::fs::create_dir(&dir).unwrap();
+        assert_eq!(id_from_folder(&dir), "wood-crate-v2");
+        let a = argv(&["assets", "upload", "x", "--version", "1.2.0", "--tags", "crate,wood"]);
+        assert_eq!((a.flag("--version"), a.flag("--tags")), (Some("1.2.0"), Some("crate,wood")));
+    }
 
     fn argv(parts: &[&str]) -> args::Args {
         args::parse(&parts.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()

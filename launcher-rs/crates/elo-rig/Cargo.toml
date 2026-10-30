@@ -1,0 +1,22 @@
+[package]
+name = "elo-rig"
+description = "the rig desk — humanoid bone maps, clip retargeting, VRMA and README models, native and wasm32"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# A library for the client and a wasm32 module for the web page
+# (`watchtower/rig.html`), built from the same source by `build_wasm.sh`.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+# serde_json alone, already in every binary: a dependency EDGE and no package.
+# The GLB reader, the quaternions and the decimator are written here because
+# each is a page of arithmetic, and a glTF crate is a tree of its own.
+[dependencies]
+serde_json = { workspace = true }
+
+# The web build's freshness test hashes files; an EDGE, sha2 is in every binary.
+[dev-dependencies]
+sha2 = { workspace = true }

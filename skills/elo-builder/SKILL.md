@@ -172,6 +172,14 @@ it in a browser. On the `elo` MCP server it is the `dev` tool: `spec`, `desk`,
 (for `sign_this` and `index`) and again with them; `files` hands back the curl
 line that sends each file, since an MCP call carries no file bytes.
 
+To ask your coin's holders a game question (wipes, maps, events, seasons,
+what ships next), prepare act `ballot` with `{key, title, question, topic,
+options, opens_at, closes_at, coin}` and post it signed to
+`/api/store/dev/ballot`: `dev(what='ballot', …)` over MCP, or the dev console's
+votes tab. The vote counts the listing's `vote_coin`, else its `coin`; what a
+holder staked in the coin's bank counts too, and your wallets never vote.
+Holders vote with the `votes` tool or `/api/votes`.
+
 ## More
 
 - The whole ordered loop with every signing text: `GET https://elopros.com/api/start`

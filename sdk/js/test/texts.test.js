@@ -37,7 +37,7 @@ test("every face text rebuilds byte for byte", () => {
   for (const c of fx("face.json").cases) {
     const f = c.fields;
     const detail = faceDetail(c.at, { name: f.name, pictureSha256: f.picture_sha256, kind: f.kind,
-      harness: f.harness, model: f.model });
+      harness: f.harness, model: f.model, avatar: f.avatar });
     assert.equal(detail, c.detail);
     assert.equal(playMessage(FACE_ACTION, c.wallet, detail, c.day), c.text);
   }

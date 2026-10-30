@@ -368,7 +368,8 @@ if sums_path.is_file():
         if line.strip():
             digest, name = line.split(None, 1)
             published[name.strip()] = digest
-    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py", "js/elo-1.js", "js/elo-2.js", "js/elo-3.js"):
+    for rel in ("rust/elo_overlay.rs", "python/elo_overlay.py", "js/elo-1.js", "js/elo-2.js", "js/elo-3.js",
+                "js/elo-signin-1.js", "js/elo-clip-1.js"):
         check(f"SHA256SUMS names {rel}", rel in published)
     # Every row, not only the ones named above: a listed file whose bytes
     # moved is a published number that is now false.
@@ -379,7 +380,7 @@ if sums_path.is_file():
               digest == actual,
               f"published {digest!r} vs actual {actual!r} — "
               f"regenerate: cd sdk && sha256sum rust/elo_overlay.rs "
-              f"python/elo_overlay.py js/elo-1.js js/elo-2.js js/elo-3.js > SHA256SUMS")
+              f"python/elo_overlay.py js/elo-1.js js/elo-2.js js/elo-3.js js/elo-signin-1.js js/elo-clip-1.js > SHA256SUMS")
 
 # The JavaScript package ships the web SDK a browser game loads from
 # elopros.com/sdk/elo-1.js. A released elo-N.js never changes, so the
@@ -392,6 +393,19 @@ served2, shipped2 = REPO / "watchtower" / "sdk" / "elo-2.js", HERE / "js" / "elo
 check("sdk/js/elo-2.js is byte-identical to the served watchtower/sdk/elo-2.js",
       served2.is_file() and shipped2.is_file() and served2.read_bytes() == shipped2.read_bytes(),
       "copy it again: cp watchtower/sdk/elo-2.js sdk/js/elo-2.js")
+served_si, shipped_si = REPO / "watchtower" / "sdk" / "elo-signin-1.js", HERE / "js" / "elo-signin-1.js"
+check("sdk/js/elo-signin-1.js (Sign in with Elo Pros) is byte-identical to the served watchtower/sdk/elo-signin-1.js",
+      served_si.is_file() and shipped_si.is_file() and served_si.read_bytes() == shipped_si.read_bytes(),
+      "copy it again: cp watchtower/sdk/elo-signin-1.js sdk/js/elo-signin-1.js")
+served_cl, shipped_cl = REPO / "watchtower" / "sdk" / "elo-clip-1.js", HERE / "js" / "elo-clip-1.js"
+check("sdk/js/elo-clip-1.js (clips) is byte-identical to the served watchtower/sdk/elo-clip-1.js",
+      served_cl.is_file() and shipped_cl.is_file() and served_cl.read_bytes() == shipped_cl.read_bytes(),
+      "copy it again: cp watchtower/sdk/elo-clip-1.js sdk/js/elo-clip-1.js")
+# A clip is made on the player's machine and goes nowhere: the file names no
+# network call at all, so a game can promise its players exactly that.
+_clip_src = shipped_cl.read_text(encoding="utf-8") if shipped_cl.is_file() else ""
+check("sdk/js/elo-clip-1.js sends nothing: no fetch, XHR, beacon or socket",
+      _clip_src and not any(k in _clip_src for k in ("fetch(", "XMLHttpRequest", "sendBeacon", "WebSocket", "EventSource")))
 served3, shipped3 = REPO / "watchtower" / "sdk" / "elo-3.js", HERE / "js" / "elo-3.js"
 check("sdk/js/elo-3.js is byte-identical to the served watchtower/sdk/elo-3.js",
       served3.is_file() and shipped3.is_file() and served3.read_bytes() == shipped3.read_bytes(),

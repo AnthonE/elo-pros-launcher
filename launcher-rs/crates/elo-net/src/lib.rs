@@ -199,6 +199,15 @@ impl<T> Fetched<T> {
     }
 }
 
+/// The host part of a url, for a message.
+fn host_of(url: &str) -> &str {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    rest.split(['/', '?', '#']).next().unwrap_or(rest)
+}
+
+/// A reply with its headers: (status, headers lower-cased, body).
+pub type Reply = (u16, Vec<(String, String)>, Vec<u8>);
+
 pub struct Net {
     /// Carries whatever `ALL_PROXY`/`HTTPS_PROXY`/`HTTP_PROXY` said.
     proxied: ureq::Agent,
@@ -342,16 +351,37 @@ impl Net {
         self.send_told(url, content_type, body)
     }
 
+    /// One file's bytes as a PUT — an asset store upload. The deadline grows
+    /// with the file, at the depot's floor rate ([`depot_file_deadline`]),
+    /// because ureq's timeout runs to the last byte.
+    pub fn put_bytes_told(&self, url: &str, content_type: &str, body: Vec<u8>) -> Fetched<Value> {
+        let deadline = depot_file_deadline(body.len() as i64);
+        let sent = self
+            .agent_for(url)
+            .put(url)
+            .config()
+            .http_status_as_error(false)
+            .timeout_global(Some(deadline))
+            .build()
+            .header("content-type", content_type)
+            .send(&body[..]);
+        Self::told_reply(sent)
+    }
+
     fn send_told(&self, url: &str, content_type: &str, body: Vec<u8>) -> Fetched<Value> {
-        let response = match self
+        let sent = self
             .agent_for(url)
             .post(url)
             .config()
             .http_status_as_error(false)
             .build()
             .header("content-type", content_type)
-            .send(&body[..])
-        {
+            .send(&body[..]);
+        Self::told_reply(sent)
+    }
+
+    fn told_reply(sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Fetched<Value> {
+        let response = match sent {
             Ok(r) => r,
             Err(e) => return Fetched::unreachable(format!("{e}")),
         };
@@ -388,6 +418,108 @@ impl Net {
             value,
             why,
         }
+    }
+
+    /// A request to a third-party API that answers in bytes and wants its own
+    /// headers — ElevenLabs for `elo stage`'s voice, where the key rides in
+    /// `xi-api-key` and the reply is audio. The status is kept, and a refusal's
+    /// body comes back in `why` (bounded), because "invalid api key" and
+    /// "quota exceeded" are the sentences the person needs. Never redirected:
+    /// a key header must not follow a 3xx to another host.
+    pub fn request_bytes(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<(&str, Vec<u8>)>,
+        max: u64,
+    ) -> Fetched<Vec<u8>> {
+        let agent = self.agent_for(url);
+        let sent = match (method, body) {
+            ("POST", Some((ctype, bytes))) => {
+                let mut r = agent.post(url).config().http_status_as_error(false).max_redirects(0).build();
+                for (k, v) in headers {
+                    r = r.header(*k, *v);
+                }
+                r.header("content-type", ctype).send(&bytes[..])
+            }
+            ("GET", None) => {
+                let mut r = agent.get(url).config().http_status_as_error(false).max_redirects(0).build();
+                for (k, v) in headers {
+                    r = r.header(*k, *v);
+                }
+                r.call()
+            }
+            _ => return Fetched::bad(format!("{method} with that body is not a request this makes")),
+        };
+        let response = match sent {
+            Ok(r) => r,
+            Err(e) => return Fetched::unreachable(format!("{e}")),
+        };
+        let code = response.status().as_u16();
+        let mut bytes = Vec::new();
+        if let Err(e) = response.into_body().into_reader().take(max + 1).read_to_end(&mut bytes) {
+            return Fetched { value: None, ok: false, reachable: true, status: Some(code),
+                             why: format!("could not read the reply: {e}") };
+        }
+        if bytes.len() as u64 > max {
+            return Fetched { value: None, ok: false, reachable: true, status: Some(code),
+                             why: format!("the reply was over {max} bytes") };
+        }
+        if (200..300).contains(&code) {
+            return Fetched { value: Some(bytes), ok: true, reachable: true, status: Some(code), why: String::new() };
+        }
+        let text = String::from_utf8_lossy(&bytes[..bytes.len().min(600)]).into_owned();
+        Fetched { value: None, ok: false, reachable: true, status: Some(code),
+                  why: format!("{url_host} answered {code}: {text}", url_host = host_of(url)) }
+    }
+
+    /// A request whose reply headers matter as much as its body — YouTube's
+    /// resumable upload answers with a `Location` and a `308` per chunk.
+    /// (status, headers lower-cased, body). Never redirected. `Err` only when
+    /// nothing answered.
+    pub fn request_full(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: Option<&[u8]>,
+        max: u64,
+    ) -> Result<Reply, String> {
+        let agent = self.agent_for(url);
+        let sent = match method {
+            "POST" | "PUT" => {
+                let mut r = if method == "POST" { agent.post(url) } else { agent.put(url) }
+                    .config().http_status_as_error(false).max_redirects(0).build();
+                for (k, v) in headers {
+                    r = r.header(*k, *v);
+                }
+                r.send(body.unwrap_or(&[]))
+            }
+            "GET" => {
+                let mut r = agent.get(url).config().http_status_as_error(false).max_redirects(0).build();
+                for (k, v) in headers {
+                    r = r.header(*k, *v);
+                }
+                r.call()
+            }
+            _ => return Err(format!("{method} is not a request this makes")),
+        };
+        let response = sent.map_err(|e| format!("couldn't reach {}: {e}", host_of(url)))?;
+        let code = response.status().as_u16();
+        let hs = response
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_ascii_lowercase(), v.to_str().unwrap_or("").to_string()))
+            .collect();
+        let mut bytes = Vec::new();
+        response
+            .into_body()
+            .into_reader()
+            .take(max)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("could not read the reply: {e}"))?;
+        Ok((code, hs, bytes))
     }
 
     /// The shard list a title serves — `manifest.servers.url`.

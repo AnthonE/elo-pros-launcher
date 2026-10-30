@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-26
+updated: 2026-10-28
 about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
 ---
 
@@ -102,7 +102,18 @@ work later:
 
 ---
 
-## 1 · Signing a player in — `prove`
+## 1 · Signing a player in
+
+**Most games want Sign in with Elo Pros** (`ACCOUNTS.md` §6): the player signs
+in to Elo Pros with Steam, Discord, Google, GitHub or a wallet, says yes to
+your site, and your page gets a pass from `sdk/elo-signin-1.js`. Your server
+asks `POST /api/account/play/check {token, game, domain, nonce}` (or the SDKs'
+`checkPass` / `check_pass`) and gets the player's account, name and linked
+wallet. Your game never asks for a wallet, so a closed-source game needs no
+public repo (`TWO-CHAIN-STORE.md` §7 rule 3). The rest of this section is the
+wallet's own sign-in, for a game that wants the wallet itself.
+
+### With the wallet — `prove`
 
 **It is Sign-In With Ethereum (EIP-4361), so use a `siwe` library.** The full
 wire, the field rules and every refusal are in `sdk/PROTOCOL.md` §`prove`. The
@@ -201,7 +212,29 @@ Base: `https://elopros.com`
 | **does this player own the game** | `/api/ticket/{game}/of/{wallet}` — and `POST /api/ticket/{game}/check` sweeps a whole roster (100 wallets a call; the SDKs' `checkRoster` pages it) | the licence is holding the title's ticket (an ERC-721): check at join, re-sweep on an interval. ⚠ kick on a definite `false`, **never on `null`** — an outage must not boot a paying player. `TICKET.md` §2b |
 | **friends** | `/api/friends/{wallet}` | who the player plays with and what each is playing now (with an `elo://join` link), the player's own AI agents (`buddies`) and pending asks. Public. A change is signed: `POST /api/friends/prepare`, then `POST /api/friends/act` (`docs/client/FRIENDS.md`) |
 | a leaderboard | `/api/leaderboard/{slug}` | the boards your shard reports, ranked by its game score: this wipe's and the closed ones (`final: true`). `?kind=agent` or `?kind=human` ranks one side. The house ranks what the shard published and never re-scores it |
-| a face | `/api/face/{wallet}` · `/api/face/{wallet}/pic.png` | the wallet's own signed name and picture |
+| a face | `/api/face/{wallet}` · `/api/face/{wallet}/pic.png` | the wallet's own signed name and picture, and its `avatar` (below) |
+
+### Drawing a player's avatar
+
+`avatar` on `/api/face/{wallet}` is the blocky figure a player picked on their
+profile, one 32-bit word, or null if they never set one. Six parts at 5 bits
+each, an index into a 32-colour palette: head bits 0-4, torso 5-9, left arm
+10-14, right arm 15-19, left leg 20-24, right leg 25-29. Bit 30 set is a
+robot's face (two lit eyes, a grille), clear a smile; bit 31 is set on every
+avatar. The palette, by index:
+
+```
+#f5cd30 #ffd9b3 #e0ac85 #b07a55 #7a4e31 #4a2e1d #ffffff #c7c9cc
+#8a8d91 #4d5054 #1c1d21 #d7332b #8e1f1b #f07a2e #ffc82e #f2e6b8
+#7fd13b #3c9a47 #1f5c33 #2ec4b6 #7cc6f2 #2f6fd6 #1f2f6b #6a4bc4
+#b48af0 #e05ab8 #ff9fc8 #8b5a2b #c2b280 #5e6b3a #9aa7b0 #3a2a4d
+```
+
+A player with none wears the default if your game draws one: `0xa31002a0`,
+a yellow head and arms, a blue torso, green legs and a smile
+(`meter/faces.py` `AVATAR_DEFAULT`). Fireplace draws it on its riders and its
+fighters. A player sets theirs on their profile; an agent sends `avatar` to
+the MCP `face` tool, signed like the name.
 
 ### Your game brings its own coins
 
@@ -409,6 +442,14 @@ hand the game what it needs: the address and your server's session.
 | Bevy / any Rust on wasm | `wasm-bindgen` imports, or `web_sys::window()` and `js_sys::Reflect::get` on `Elo` |
 | raylib, SDL or C++ through Emscripten | `EM_JS` / `EM_ASYNC_JS` functions that `await Elo.signIn(...)` |
 | Defold | `html5.run("…")`, or a native extension's JS bridge |
+
+**Clips for your players.** Load `elo-clip-1.js` in the same shell and
+`EloClip.keep(canvas)` keeps the last seconds of the canvas the export draws
+into; a clip key calls `save()` for a 9:16 MP4 with your title and link on
+the end card, made in the player's browser (`sdk/js/README.md`). A WebGL
+export's context needs `preserveDrawingBuffer: true`, or `manual: true` and
+`keep.frame()` after each frame. If your game can replay a match, hand the
+replay's frames to `EloClip.film()` instead and pick the camera yourself.
 
 The sign-in check stays on your game server (§1), whatever the engine. A
 desktop build of the same game reaches the launcher instead (`sdk/PROTOCOL.md`:

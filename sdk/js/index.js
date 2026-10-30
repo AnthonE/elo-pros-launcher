@@ -108,10 +108,11 @@ export function friendsSignText(me, op, other, at) {
 /** The signed detail of a face change (faces._detail): sorted compact JSON of
     `at` and only the fields being changed. "" clears a field; undefined or
     null leaves it as it is and keeps it out of the text. */
-export function faceDetail(at, { name, pictureSha256, kind, harness, model } = {}) {
+export function faceDetail(at, { name, pictureSha256, kind, harness, model, avatar } = {}) {
   const fields = [["harness", harness], ["kind", kind], ["model", model], ["name", name],
     ["picture_sha256", pictureSha256]];
   let out = `{"at":${Math.trunc(Number(at))}`;
+  if (avatar !== undefined && avatar !== null) out += `,"avatar":${Math.trunc(Number(avatar))}`;
   for (const [k, v] of fields) if (v !== undefined && v !== null) out += `,"${k}":${jsonString(v)}`;
   return out + "}";
 }
@@ -356,6 +357,208 @@ export class ServerKey {
     return { "X-Elo-Server": this.who, "X-Elo-Time": atS, "X-Elo-Nonce": n,
       "X-Elo-Signature": await this.signText(text) };
   }
+
+  /** A handoff moving `player` from this server (`from`, host:port) to another
+      of this game's servers (`to`). Give the client the token, the address and
+      `carry` if any (docs/client/HANDOFF.md). */
+  async handoff(player, from, to, { carry = null, ttl = HANDOFF_TTL_DEFAULT_S, now, id } = {}) {
+    if (typeof player !== "string" || !H_PLAYER_RE.test(player)) {
+      throw new RangeError("player is a 0x wallet (lowercase), a Solana address or an acct_ id");
+    }
+    for (const a of [from, to]) {
+      if (typeof a !== "string" || !H_ADDR_RE.test(a)) throw new RangeError("a server address is host:port, lowercase");
+    }
+    if (!Number.isInteger(ttl) || ttl < 1 || ttl > HANDOFF_TTL_MAX_S) {
+      throw new RangeError(`ttl is 1 to ${HANDOFF_TTL_MAX_S} seconds`);
+    }
+    if (asBytes(carry).length > HANDOFF_CARRY_MAX) throw new RangeError(`a handoff carries at most ${HANDOFF_CARRY_MAX} bytes`);
+    const hid = id === undefined ? await newHandoffId() : id;
+    if (!H_ID_RE.test(hid)) throw new RangeError("id is 16 to 64 of A-Z a-z 0-9 - _");
+    const exp = (now === undefined ? Math.floor(Date.now() / 1000) : Math.trunc(now)) + ttl;
+    const text = new TextEncoder().encode(await handoffText(this.game, this.keyId, player, from, to, hid, exp, carry));
+    const sig = new Uint8Array(await (await subtle()).sign({ name: "Ed25519" }, this._key, text));
+    return `${b64u(text)}.${b64u(sig)}`;
+  }
+}
+
+/* ── moving a player between your servers (docs/client/HANDOFF.md) ─────── */
+
+export const HANDOFF_TTL_DEFAULT_S = 60;
+export const HANDOFF_TTL_MAX_S = 120;
+export const HANDOFF_SKEW_S = 30;
+export const HANDOFF_CARRY_MAX = 4096;
+const HANDOFF_TOKEN_MAX = 1024;
+const HANDOFF_KEYS_REFRESH_S = 300;
+const HANDOFF_KEYS_RETRY_S = 60;
+const HANDOFF_SEEN_MAX = 200000;
+const H_PLAYER = "0x[0-9a-f]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}|acct_[0-9a-f]{20}";
+const H_ADDR = "(?:[a-z0-9.-]{1,100}|\\[[0-9a-f:]{2,39}\\]):[0-9]{1,5}";
+const H_ID = "[A-Za-z0-9_-]{16,64}";
+const H_TEXT = new RegExp("^elo handoff\\ngame: ([a-z0-9][a-z0-9_-]{0,62})\\nkey: ([a-z0-9][a-z0-9-]{0,30})\\n"
+  + `player: (${H_PLAYER})\\nfrom: (${H_ADDR})\\nto: (${H_ADDR})\\nid: (${H_ID})\\n`
+  + "exp: ([0-9]{1,12})\\ncarry: ([0-9a-f]{64}|none)$");
+const H_PLAYER_RE = new RegExp(`^(?:${H_PLAYER})$`);
+const H_ADDR_RE = new RegExp(`^${H_ADDR}$`);
+const H_ID_RE = new RegExp(`^${H_ID}$`);
+
+/** Why a handoff was not admitted: `code` is malformed, wrong_game,
+    wrong_destination, expired, too_long, unknown_key, bad_signature, carry,
+    used or no_keys; `why` is for a log. */
+export class HandoffRefused extends Error {
+  constructor(code, why) {
+    super(`${code}: ${why}`);
+    this.name = "HandoffRefused";
+    this.code = code;
+    this.why = why;
+  }
+}
+
+const b64u = (bytes) => base64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64u = (s) => {
+  if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new HandoffRefused("malformed", "a half is not base64url");
+  return Uint8Array.from(b64url(s), (ch) => ch.charCodeAt(0));
+};
+const asBytes = (b) => (b == null ? new Uint8Array(0) : typeof b === "string" ? new TextEncoder().encode(b) : b);
+
+/** The exact text a server signs for one handoff. */
+export async function handoffText(game, keyId, player, from, to, id, exp, carry = null) {
+  const c = carry && asBytes(carry).length ? await sha256Hex(asBytes(carry)) : "none";
+  return `elo handoff\ngame: ${game}\nkey: ${keyId}\nplayer: ${player}\nfrom: ${from}\nto: ${to}\n`
+    + `id: ${id}\nexp: ${Math.trunc(exp)}\ncarry: ${c}`;
+}
+
+/** What a handoff token says, shape only (nothing verified). Throws HandoffRefused. */
+export function readHandoff(token) {
+  if (typeof token !== "string" || token.length > HANDOFF_TOKEN_MAX || token.split(".").length !== 2) {
+    throw new HandoffRefused("malformed", "a handoff is base64url(text).base64url(signature)");
+  }
+  const [a, b] = token.split(".");
+  const raw = unb64u(a), sig = unb64u(b);
+  const m = H_TEXT.exec(new TextDecoder().decode(raw));
+  if (!m || sig.length !== 64) throw new HandoffRefused("malformed", "the text is not the nine handoff lines");
+  return { game: m[1], key: m[2], player: m[3], from: m[4], to: m[5], id: m[6], exp: Number(m[7]),
+    carry: m[8] === "none" ? null : m[8], _raw: raw, _sig: sig };
+}
+
+/** Every check but `used`, in the posted order. `keys` maps key id to the
+    base64 (or raw 32-byte) public key. Resolves to what the handoff says. */
+export async function verifyHandoff(token, { game, names, keys, now, carry } = {}) {
+  const t = now === undefined ? Math.floor(Date.now() / 1000) : Math.trunc(now);
+  const h = readHandoff(token);
+  if (h.game !== game) throw new HandoffRefused("wrong_game", `this handoff is for ${h.game}`);
+  if (!new Set([...names].map((n) => String(n).toLowerCase())).has(h.to)) {
+    throw new HandoffRefused("wrong_destination", `this handoff is for ${h.to}`);
+  }
+  if (h.exp <= t - HANDOFF_SKEW_S) throw new HandoffRefused("expired", "this handoff has run out");
+  if (h.exp > t + HANDOFF_TTL_MAX_S + HANDOFF_SKEW_S) {
+    throw new HandoffRefused("too_long", `a handoff lives at most ${HANDOFF_TTL_MAX_S} seconds`);
+  }
+  const k = keys instanceof Map ? keys.get(h.key) : keys[h.key];
+  if (k == null) throw new HandoffRefused("unknown_key", `${game} has no server key ${h.key}`);
+  const pub = typeof k === "string" ? unb64(k) : k;
+  const s = await subtle();
+  let good = false;
+  try {
+    const key = await s.importKey("raw", pub, { name: "Ed25519" }, false, ["verify"]);
+    good = await s.verify({ name: "Ed25519" }, key, h._sig, h._raw);
+  } catch { good = false; }
+  if (!good) throw new HandoffRefused("bad_signature", "the signature is not that key's");
+  const c = asBytes(carry);
+  if (c.length > HANDOFF_CARRY_MAX) throw new HandoffRefused("carry", `a handoff carries at most ${HANDOFF_CARRY_MAX} bytes`);
+  if ((c.length ? await sha256Hex(c) : null) !== h.carry) {
+    throw new HandoffRefused("carry", "the carried bytes are not the ones this handoff names");
+  }
+  const { _raw, _sig, ...out } = h;
+  return out;
+}
+
+async function newHandoffId(n = 22) {
+  const c = globalThis.crypto && globalThis.crypto.getRandomValues ? globalThis.crypto
+    : (await import("node:crypto")).webcrypto;
+  const ABC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  return [...c.getRandomValues(new Uint8Array(n))].map((b) => ABC[b & 63]).join("");
+}
+
+/** The ids one process admitted, until each runs out. Several processes
+    behind one address share one store instead: anything with first(id, until, now). */
+export class MemorySeen {
+  constructor(cap = HANDOFF_SEEN_MAX) { this._until = new Map(); this._cap = cap; }
+
+  first(id, until, now) {
+    if (this._until.size >= this._cap) {
+      for (const [k, u] of this._until) if (u <= now) this._until.delete(k);
+      while (this._until.size >= this._cap) {
+        let soonest = null;
+        for (const [k, u] of this._until) if (soonest === null || u < this._until.get(soonest)) soonest = k;
+        this._until.delete(soonest);
+      }
+    }
+    if ((this._until.get(id) || 0) > now) return false;
+    this._until.set(id, until);
+    return true;
+  }
+}
+
+/** The receiving side: admits each good handoff once. `keys` pins the game's
+    key set ({keyId: base64 public key}); with `client` instead, the door
+    reads it from Elo Pros, again every 300 s so a revoked key stops working,
+    and at once (at most every 60 s) for a key it has not seen. */
+export class HandoffDoor {
+  constructor(game, names, { keys, client, seen, clock } = {}) {
+    if (keys === undefined && client === undefined) {
+      throw new RangeError("a door needs the game's keys, or a Client to read them with");
+    }
+    this.game = game;
+    this.names = [...names].map((n) => String(n).toLowerCase());
+    this._pinned = keys !== undefined;
+    this._keys = new Map(Object.entries(keys || {}).map(([k, v]) => [k, unb64(v)]));
+    this._client = client;
+    this._seen = seen || new MemorySeen();
+    this._clock = clock || (() => Date.now() / 1000);
+    this._readAt = 0;
+    this._triedAt = -Infinity;
+    this._queue = Promise.resolve();
+  }
+
+  async _refresh(now) {
+    this._triedAt = now;
+    const got = await this._client.serverKeys(this.game);
+    if (!got.ok) return false;
+    const fresh = new Map();
+    for (const r of (got.value && got.value.keys) || []) {
+      try {
+        const pub = unb64(String(r.pub));
+        if (pub.length === 32 && typeof r.id === "string") fresh.set(r.id, pub);
+      } catch { /* a malformed row is skipped */ }
+    }
+    this._keys = fresh;
+    this._readAt = now;
+    return true;
+  }
+
+  /** Admit a handoff once. Resolves to what it says; throws HandoffRefused. */
+  admit(token, carry) {
+    const run = async () => {
+      const now = this._clock();
+      if (!this._pinned) {
+        const h = readHandoff(token);
+        const stale = now - this._readAt >= HANDOFF_KEYS_REFRESH_S;
+        const unknownKey = !this._keys.has(h.key) && now - this._triedAt >= HANDOFF_KEYS_RETRY_S;
+        if ((stale || unknownKey) && !(await this._refresh(now)) && !this._keys.size) {
+          throw new HandoffRefused("no_keys", "could not read the game's server keys; let the player join the usual way");
+        }
+      }
+      const got = await verifyHandoff(token, { game: this.game, names: this.names, keys: this._keys,
+        now: Math.trunc(now), carry });
+      if (!this._seen.first(got.id, got.exp + HANDOFF_SKEW_S, Math.trunc(now))) {
+        throw new HandoffRefused("used", "this handoff was already admitted");
+      }
+      return got;
+    };
+    const p = this._queue.then(run, run);
+    this._queue = p.catch(() => {});
+    return p;
+  }
 }
 
 /* ── the client ────────────────────────────────────────────────────────── */
@@ -553,6 +756,26 @@ export class Client {
     return this.post("/api/signin/check", body);
   }
 
+  /** Sign in with Elo Pros, the server's half: is this pass ours, for
+      `game`, for your `domain` (your page's host: no scheme, port or path)
+      and the `nonce` you issued, and not run out? The player signed in to
+      Elo Pros with Steam, Discord, Google, GitHub or a wallet, and your page
+      got the pass from elo-signin-1.js. Answers { player, account, wallet,
+      name, named, game, domain, exp }; refused with `body.code` (pass, game,
+      domain, nonce, gone). Nothing is stored there: retire the nonce once
+      this answers. */
+  async checkPass(pass, { game, domain, nonce } = {}) {
+    if (typeof pass !== "string" || !pass || pass.length > 1024) return refusal(0, "pass is the token your page was handed");
+    if (typeof game !== "string" || !SLUG.test(game)) return refusal(0, "game is your store slug");
+    if (typeof domain !== "string" || !DOMAIN.test(domain) || domain.includes(":")) {
+      return refusal(0, "domain is your page's host, with no scheme, port or path");
+    }
+    if (typeof nonce !== "string" || !NONCE.test(nonce) || nonce.length > 64) {
+      return refusal(0, "nonce is the one you issued: 8 to 64 letters and digits");
+    }
+    return this.post("/api/account/play/check", { token: pass, game, domain: domain.toLowerCase(), nonce });
+  }
+
   /* ── items ── */
 
   /** What a wallet holds; `title` keeps only that title's items. */
@@ -571,8 +794,9 @@ export class Client {
   }
 
   /** Change a wallet's face, signed. `change` is { name, picturePng
-      (Uint8Array), clearPicture, kind, harness, model }: a field left out is
-      unchanged, "" clears it. Throws ActError; resolves to a Look. */
+      (Uint8Array), clearPicture, kind, harness, model, avatar }: a field left
+      out is unchanged, "" clears it (0 an avatar: a 32-bit word with its top
+      bit set, GAMEDEV.md). Throws ActError; resolves to a Look. */
   async setFace(w, change, sign) {
     const x = wallet(w);
     if (!x) throw badInput("wallet must be 0x + 40 hex");
@@ -590,10 +814,13 @@ export class Client {
     if (c.picturePng && c.clearPicture) throw badInput("send a picture or clear it, not both");
     if (c.picturePng && c.picturePng.length > 256 * 1024) throw badInput("the picture is over the 262144-byte cap");
     const sha = c.picturePng ? await sha256Hex(c.picturePng) : (c.clearPicture ? "" : undefined);
+    if (c.avatar != null && !(c.avatar === 0 || (Number.isInteger(c.avatar) && c.avatar >= 2 ** 31 && c.avatar < 2 ** 32))) {
+      throw badInput("avatar is a 32-bit word with its top bit set (or 0 to clear it)");
+    }
     const fields = { name, picture_sha256: sha, kind: c.kind ?? undefined, harness: c.harness ?? undefined,
-      model: c.model ?? undefined };
+      model: c.model ?? undefined, avatar: c.avatar ?? undefined };
     if (Object.values(fields).every((v) => v === undefined)) {
-      throw badInput("nothing to change — send a name, a picture, a kind, a harness or a model");
+      throw badInput("nothing to change — send a name, a picture, a kind, a harness, a model or an avatar");
     }
     const ask = { wallet: x };
     for (const [k, v] of Object.entries(fields)) if (v !== undefined) ask[k] = v;
@@ -602,14 +829,14 @@ export class Client {
     const { at, sign_this: offered, detail: theirs } = p.value || {};
     if (!Number.isSafeInteger(at)) throw mismatch(offered, null);
     const detail = faceDetail(at, { name, pictureSha256: sha, kind: fields.kind, harness: fields.harness,
-      model: fields.model });
+      model: fields.model, avatar: fields.avatar });
     const now = Math.floor(Date.now() / 1000);
     const text = [now, now - 86400, now + 86400].map((t) => playMessage(FACE_ACTION, x, detail, dayOf(t)))
       .find((t) => t === offered && theirs === detail);
     if (!text) throw mismatch(offered, playMessage(FACE_ACTION, x, detail, dayOf(now)));
     const signature = await sign(text);
     const send = { wallet: x, clear_picture: !!c.clearPicture, at, signature };
-    for (const k of ["name", "kind", "harness", "model"]) if (fields[k] !== undefined) send[k] = fields[k];
+    for (const k of ["name", "kind", "harness", "model", "avatar"]) if (fields[k] !== undefined) send[k] = fields[k];
     if (c.picturePng) send.picture_b64 = base64(c.picturePng);
     return this.post("/api/face", send);
   }
@@ -839,6 +1066,12 @@ export class Client {
 
   /** Does the origin accept this key's signature? */
   serverCheck(key) { return this._signed(key, "POST", "/serverkeys/check"); }
+
+  /** A game's public server keys, {game, keys: [{id, pub}]}: what a HandoffDoor checks against. */
+  async serverKeys(game) {
+    const x = slug(game);
+    return x ? this.get(`/api/store/serverkeys/${x}`) : refusal(0, "not a title slug");
+  }
 
   _cloudPath(key, w, slot) {
     const h = holder(w);

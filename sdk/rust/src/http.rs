@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value};
 use crate::look::{classify, Look, Refusal};
 use crate::models::{
     Face, FacePrepared, FriendsActed, FriendsPrepared, FriendsView, GuildTags, GuildsOf, Items,
-    Leaderboard, Roster, SignIn, Ticket, TicketOf, Who,
+    Leaderboard, Pass, Roster, SignIn, Ticket, TicketOf, Who,
 };
 use crate::overlay::play_message;
 use crate::server::ServerKey;
@@ -146,6 +146,9 @@ pub struct FaceChange {
     pub harness: Option<String>,
     /// Which model answers.
     pub model: Option<String>,
+    /// The figure a game draws: six 5-bit palette indices, bit 30 a robot's
+    /// face, bit 31 set (`GAMEDEV.md`); `Some(0)` clears it.
+    pub avatar: Option<u32>,
 }
 
 const NAME_MAX: usize = 16;
@@ -553,6 +556,41 @@ impl Client {
     /// `stale`, `signature`, …); could-not-look is a smart wallet's chain that
     /// could not be asked — never refuse a player on that. Nothing is stored
     /// there: retire the nonce once this answers.
+    /// Sign in with Elo Pros, the server's half: is this pass ours, for
+    /// `game`, for your `domain` (your page's host: no scheme, port or path)
+    /// and the `nonce` you issued, and not run out? The player signed in to
+    /// Elo Pros with Steam, Discord, Google, GitHub or a wallet, and your page
+    /// got the pass from `elo-signin-1.js`. Refused carries `code` (`pass`,
+    /// `game`, `domain`, `nonce`, `gone`). Nothing is stored there: retire
+    /// the nonce once this answers.
+    pub fn check_pass(&self, pass: &str, game: &str, domain: &str, nonce: &str) -> Look<Pass> {
+        if pass.is_empty() || pass.len() > 1024 {
+            return Look::Refused(Refusal::here("pass is the token your page was handed"));
+        }
+        if game.is_empty() || game.len() > 63 {
+            return Look::Refused(Refusal::here("game is your store slug"));
+        }
+        if domain.is_empty() || domain.contains(':') || domain.contains('/') || !domain_ok(domain) {
+            return Look::Refused(Refusal::here(
+                "domain is your page's host, with no scheme, port or path",
+            ));
+        }
+        if !(8..=64).contains(&nonce.len()) || !nonce_ok(nonce) {
+            return Look::Refused(Refusal::here(
+                "nonce is the one you issued: 8 to 64 letters and digits",
+            ));
+        }
+        let body = json!({"token": pass, "game": game, "domain": domain, "nonce": nonce});
+        self.post::<Pass>("/api/account/play/check", &body)
+            .and_then(|p| {
+                if p.ok && !p.player.is_empty() && !p.account.is_empty() {
+                    Look::Answer(p)
+                } else {
+                    Look::CouldNotLook("the answer is not a checked pass".into())
+                }
+            })
+    }
+
     pub fn check_sign_in(
         &self,
         message: &str,
@@ -673,10 +711,19 @@ impl Client {
             && change.kind.is_none()
             && change.harness.is_none()
             && change.model.is_none()
+            && change.avatar.is_none()
         {
             return Err(bad(
-                "nothing to change — send a name, a picture, a kind, a harness or a model".into(),
+                "nothing to change — send a name, a picture, a kind, a harness, a model or an avatar"
+                    .into(),
             ));
+        }
+        if let Some(a) = change.avatar {
+            if a != 0 && a & 0x8000_0000 == 0 {
+                return Err(bad(
+                    "avatar is a 32-bit word with its top bit set (or 0 to clear it)".into(),
+                ));
+            }
         }
 
         let mut ask = Map::new();
@@ -693,18 +740,22 @@ impl Client {
                 ask.insert((*k).into(), json!(v));
             }
         }
+        if let Some(a) = change.avatar {
+            ask.insert("avatar".into(), json!(a));
+        }
         let p = match self.post::<FacePrepared>("/api/face/prepare", &Value::Object(ask)) {
             Look::Answer(p) => p,
             Look::Refused(r) => return Ok(Look::Refused(r)),
             Look::CouldNotLook(w) => return Ok(Look::CouldNotLook(w)),
         };
-        let detail = texts::face_detail(
+        let detail = texts::face_detail_avatar(
             p.at,
             name,
             sha.as_deref(),
             change.kind.as_deref(),
             change.harness.as_deref(),
             change.model.as_deref(),
+            change.avatar,
         );
         let t = now();
         let expected = [t, t - 86_400, t + 86_400]
@@ -736,6 +787,9 @@ impl Client {
             if let Some(v) = v {
                 send.insert(k.into(), json!(v));
             }
+        }
+        if let Some(a) = change.avatar {
+            send.insert("avatar".into(), json!(a));
         }
         send.insert("at".into(), json!(p.at));
         send.insert("signature".into(), json!(signature));
@@ -1130,6 +1184,19 @@ impl Client {
             return Ok(format!("/cloud/{}/{w}/{s}", key.game()));
         }
         Ok(format!("/cloud/{}/{w}", key.game()))
+    }
+
+    /// A game's public server keys, `{game, keys: [{id, pub}]}`: what a
+    /// [`crate::HandoffDoor`] checks a handoff against.
+    pub fn server_keys(&self, game: &str) -> Look<Value> {
+        let b = game.as_bytes();
+        let ok = (1..=63).contains(&b.len())
+            && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+            && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_-".contains(c));
+        if !ok {
+            return Look::Refused(Refusal::here("game is the title's slug"));
+        }
+        self.get(&format!("/api/store/serverkeys/{game}"))
     }
 
     /// Does the origin accept this key's signature?

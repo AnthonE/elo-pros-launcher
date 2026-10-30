@@ -53,6 +53,7 @@ pub mod phrase;
 pub mod seaport;
 pub mod solana;
 pub mod tx;
+pub mod usdg;
 
 pub use harden::harden_process;
 pub use keystore::{decrypt, encrypt, KdfParams, Keystore};

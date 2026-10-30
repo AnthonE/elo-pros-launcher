@@ -506,6 +506,7 @@ fn main() {
     let root = games_root();
     // Streamer mode before any window is drawn: the windows read the switch.
     elo_depot::streamer::load(&elo_depot::dirs::state_root());
+    elo_depot::gamemode::load(&elo_depot::dirs::state_root());
 
     // The account first, because the door needs it: a game may ask this
     // launcher to prove who is playing, and that is served on the door's
@@ -570,6 +571,30 @@ fn main() {
                 Ok(()) => {
                     line.set_label(windows::streamer_note(want, true));
                     line.set_label_color(if want { elo_ui::theme::GOLD } else { elo_ui::theme::MUTED });
+                }
+                Err(e) => {
+                    b.set_checked(!want);
+                    line.set_label(&format!("could not save it: {e}"));
+                    line.set_label_color(elo_ui::theme::RED);
+                }
+            }
+            line.redraw_label();
+            if let Some(mut p) = line.parent() {
+                p.redraw();
+            }
+        });
+    }
+    // The game mode switch. Saved at once; the next game started gets it.
+    {
+        let mut line = menu.gamemode_line.clone();
+        menu.gamemode.set_callback(move |b| {
+            let want = b.is_checked();
+            match elo_depot::gamemode::save(&elo_depot::dirs::state_root(), want) {
+                Ok(()) => {
+                    let (note, ink) =
+                        windows::gamemode_note(want, &elo_depot::gamemode::effect());
+                    line.set_label(note);
+                    line.set_label_color(ink);
                 }
                 Err(e) => {
                     b.set_checked(!want);

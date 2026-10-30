@@ -56,6 +56,42 @@ class Stub:
         self.server.server_close()
 
 
+class CheckPass(unittest.TestCase):
+    """Sign in with Elo Pros: the server sends the pass, the game, its host and its nonce."""
+
+    def test_sends_pass_game_domain_and_nonce(self):
+        stub = Stub(lambda path, body: (200, {"ok": True, "player": "acct_" + "a" * 20, "account": "acct_" + "a" * 20, "wallet": None, "name": "Bob", "named": True, "game": "my-game", "domain": "play.example", "exp": 1900000000})
+                    if path == "/api/account/play/check" else (404, {"error": "no"}))
+        try:
+            got = Client(stub.origin).check_pass("pass.sig", game="my-game", domain="Play.Example", nonce="a" * 32)
+        finally:
+            stub.close()
+        self.assertTrue(got.ok, got)
+        self.assertEqual(got.value.player, "acct_" + "a" * 20)
+        self.assertEqual(got.value.name, "Bob")
+        self.assertEqual(stub.seen[0][1:], ("/api/account/play/check",
+                                            {"token": "pass.sig", "game": "my-game", "domain": "play.example",
+                                             "nonce": "a" * 32}))
+
+    def test_refused_carries_the_code(self):
+        stub = Stub(lambda path, body: (401, {"code": "domain", "error": "this pass is for another site"}))
+        try:
+            got = Client(stub.origin).check_pass("pass.sig", game="my-game", domain="play.example", nonce="a" * 32)
+        finally:
+            stub.close()
+        self.assertFalse(got.ok)
+        self.assertEqual(got.status, 401)
+        self.assertEqual(got.body["code"], "domain")
+
+    def test_refuses_before_asking(self):
+        c = Client("http://127.0.0.1:9")
+        for kw in ({"game": "my-game", "domain": "play.example:443", "nonce": "a" * 32},
+                   {"game": "my-game", "domain": "play.example", "nonce": "a" * 65},
+                   {"game": "Not A Slug", "domain": "play.example", "nonce": "a" * 32}):
+            self.assertEqual(c.check_pass("pass.sig", **kw).status, 0, kw)
+        self.assertEqual(c.check_pass("", game="my-game", domain="play.example", nonce="a" * 32).status, 0)
+
+
 class CheckSignIn(unittest.TestCase):
     def test_sends_message_signature_domain_and_nonce(self):
         stub = Stub(lambda path, body: (200, {"ok": True, "address": EVM["expect"]["address"], "chain": "evm",

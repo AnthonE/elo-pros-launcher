@@ -262,11 +262,15 @@ dependencies = [
  "elo-depot",
  "elo-hive",
  "elo-net",
+ "elo-rig",
  "elo-vault",
+ "getrandom 0.3.4",
  "libc",
+ "rustls",
  "serde_json",
  "sha2",
  "tempfile",
+ "tungstenite",
 ]
 
 [[package]]
@@ -283,6 +287,14 @@ dependencies = [
  "ureq",
  "webpki-root-certs",
  "webpki-roots",
+]
+
+[[package]]
+name = "elo-rig"
+version = "0.6.8"
+dependencies = [
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

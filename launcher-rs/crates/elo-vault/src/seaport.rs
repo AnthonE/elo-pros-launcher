@@ -1,4 +1,5 @@
-//! Seaport 1.6 listings: the one kind of typed data this client signs.
+//! Seaport 1.6 listings: one of the two kinds of typed data this client signs
+//! (the other is a USDG credit pack, `usdg.rs`).
 //!
 //! # Why this exists when `tx.rs` says no typed data
 //!

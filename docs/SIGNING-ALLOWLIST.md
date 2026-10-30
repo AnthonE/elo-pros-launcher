@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform, security]
-updated: 2026-10-23
-about: "every contract our apps will ask a wallet to sign for, what each one is and what we ask of it; the one kind of typed data they sign (a Seaport listing); the four signing settings and their defaults; and the log each app keeps of everything it was asked to sign"
+updated: 2026-10-30
+about: "every contract our apps will ask a wallet to sign for, what each one is and what we ask of it; the two kinds of typed data they sign (a Seaport listing, and in the desktop app a USDG credit pack); the four signing settings and their defaults; and the log each app keeps of everything it was asked to sign"
 ---
 # SIGNING-ALLOWLIST.md: what our apps will ask your wallet to sign
 
@@ -64,10 +64,9 @@ other coin the account owns (`LAUNCHER.md` §10t).
 
 Adding a row is a change to both apps and this page, in one commit.
 
-## The one kind of typed data: a Seaport listing
+## Two kinds of typed data: a Seaport listing, and a credit pack
 
-Selling an item signs a Seaport 1.6 order (EIP-712), and that is the only
-typed data either app signs. The browser's `EloSign.signOrder` and the desktop
+Selling an item signs a Seaport 1.6 order (EIP-712). The browser's `EloSign.signOrder` and the desktop
 app's vault (`elo-vault/src/seaport.rs`) both refuse anything but Seaport's
 own domain on chain 4663 offering exactly one item, from the signer, paid to
 the signer first, in ETH, at a fixed price. The desktop app hashes the struct
@@ -77,6 +76,16 @@ collection and price typed, with fees only to the recipients the origin named
 and under 10% together. No permit, and no other struct, is signable. The meter
 checks the order a third time before posting it to OpenSea
 (`meter/our_collections.py` `check_listing`).
+
+`elo credits buy` signs the other: an EIP-3009 `TransferWithAuthorization` of
+USDG for a credit pack, sent to the store's HTTP 402 door, which submits it
+and pays the gas (`meter/paydoor.py`). The vault (`elo-vault/src/usdg.rs`)
+hashes it under USDG's own domain (*Global Dollar*, 1, chain 4663) from a
+compiled-in type string, and refuses one that is not from the signer, to the
+compiled-in credits address, for at most $50 (the largest pack), valid now and
+for at most fifteen minutes. A paired browser is not asked for it. The meter
+checks the signature, the payee and the amount again and simulates the
+transfer before sending it.
 
 ## The settings, and their defaults
 
