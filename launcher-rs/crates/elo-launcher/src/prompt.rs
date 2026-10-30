@@ -67,6 +67,47 @@ pub fn secret(label: &str) -> Result<Zeroizing<String>, String> {
     Ok(line)
 }
 
+/// The account's passphrase: from `ELO_PASSPHRASE_FILE` when it is set, else
+/// asked like any [`secret`].
+///
+/// For an agent that runs one command at a time and has no one at the
+/// terminal. Only identity prompts read it (signing in, signing a statement,
+/// making the account in `elo agent init`); the prompts that spend, `send`,
+/// `move`, `trade`, `skins`, `credits buy` and `assets buy`, still ask. The
+/// file is the holder's choice to keep the passphrase beside the key, so it
+/// must be readable by its owner alone, or nothing is read.
+pub fn passphrase(label: &str) -> Result<Zeroizing<String>, String> {
+    match std::env::var_os("ELO_PASSPHRASE_FILE").filter(|p| !p.is_empty()) {
+        Some(p) => passphrase_from(std::path::Path::new(&p)),
+        None => secret(label),
+    }
+}
+
+pub fn passphrase_from(path: &std::path::Path) -> Result<Zeroizing<String>, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path)
+            .map_err(|e| format!("ELO_PASSPHRASE_FILE {}: {e}", path.display()))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(format!(
+                "ELO_PASSPHRASE_FILE {} can be read by others (mode {:o}) — `chmod 600` it",
+                path.display(),
+                mode & 0o777
+            ));
+        }
+    }
+    let raw = Zeroizing::new(
+        std::fs::read_to_string(path).map_err(|e| format!("ELO_PASSPHRASE_FILE {}: {e}", path.display()))?,
+    );
+    // One line ending off, nothing else: the same rule as a typed passphrase.
+    let line = raw.strip_suffix('\n').unwrap_or(&raw);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    Ok(Zeroizing::new(line.to_string()))
+}
+
 fn read_line() -> Result<Zeroizing<String>, String> {
     // Room up front, so a growing buffer does not leave a reallocated copy
     // of the secret behind that nothing wipes.
@@ -266,5 +307,35 @@ pub fn echo_is_visible() -> bool {
     {
         // No console-mode call here yet, so on Windows a tty echoes.
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::passphrase_from;
+
+    fn file(body: &str, mode: u32) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("elo-pass-{}-{mode:o}-{}", std::process::id(), body.len()));
+        std::fs::write(&p, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        p
+    }
+
+    #[test]
+    fn one_line_ending_comes_off_and_nothing_else() {
+        assert_eq!(&*passphrase_from(&file(" two words \n", 0o600)).unwrap(), " two words ");
+        assert_eq!(&*passphrase_from(&file("crlf\r\n", 0o600)).unwrap(), "crlf");
+        assert_eq!(&*passphrase_from(&file("bare", 0o600)).unwrap(), "bare");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_others_can_read_is_refused() {
+        let why = passphrase_from(&file("group-readable", 0o640)).unwrap_err();
+        assert!(why.contains("chmod 600"), "{why}");
     }
 }

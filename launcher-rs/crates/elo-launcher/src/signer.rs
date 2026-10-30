@@ -18,7 +18,10 @@
 //!
 //! # Precedence, and why a live pairing wins
 //!
-//! 1. `--local` — the operator said which one. Nothing outranks that.
+//! 1. `--local`, or `ELO_SIGNER=local` in the environment — the operator said
+//!    which one. Nothing outranks that. The variable is for an agent that
+//!    shares a machine with its owner's paired browser: set once where the
+//!    agent runs, it signs as the agent on every command.
 //! 2. a browser pairing that has not expired.
 //! 3. the local keystore.
 //!
@@ -71,7 +74,7 @@ pub(crate) fn tell(line: &str) {
 pub fn choose(a: &Args, host: &str) -> Result<CliSigner, String> {
     let ks = elo_vault::keystore_path();
     let local = elo_vault::LocalSigner::at(&ks);
-    let forced_local = a.has("--local");
+    let forced_local = a.has("--local") || env_local()?;
     let paired = pairing::load(&elo_vault::pairing_path());
 
     if forced_local || paired.is_none() {
@@ -112,6 +115,21 @@ pub fn choose(a: &Args, host: &str) -> Result<CliSigner, String> {
     Ok(CliSigner {
         inner: Inner::Paired(Box::new(PairedBrowserSigner::new(p).telling(tell))),
     })
+}
+
+/// `ELO_SIGNER`: unset or empty is the default order, `local` forces the
+/// keystore. Anything else is a refusal, like an unknown flag: a caller who
+/// believes they chose a signer must not be quietly given another.
+fn env_local() -> Result<bool, String> {
+    signer_setting(std::env::var("ELO_SIGNER").ok().as_deref())
+}
+
+fn signer_setting(v: Option<&str>) -> Result<bool, String> {
+    match v.map(str::trim).unwrap_or("") {
+        "" => Ok(false),
+        "local" => Ok(true),
+        other => Err(format!("ELO_SIGNER is {other:?}; the one value it takes is \"local\"")),
+    }
 }
 
 impl CliSigner {
@@ -162,7 +180,7 @@ impl Signer for CliSigner {
                 // gets it rather than each one re-typing the prompt.
                 if !l.is_unlocked() {
                     crate::warn_if_echoing();
-                    let pass = prompt::secret("passphrase: ").map_err(Refusal::new)?;
+                    let pass = prompt::passphrase("passphrase: ").map_err(Refusal::new)?;
                     // A wrong passphrase is a WRONG PASSPHRASE and never
                     // "corrupt" — the vault draws that line and this must not
                     // blur it back by rewording the error.
@@ -171,5 +189,18 @@ impl Signer for CliSigner {
                 l.sign(text, why)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::signer_setting;
+
+    #[test]
+    fn elo_signer_takes_local_or_nothing() {
+        assert_eq!(signer_setting(None), Ok(false));
+        assert_eq!(signer_setting(Some("")), Ok(false));
+        assert_eq!(signer_setting(Some("local")), Ok(true));
+        assert!(signer_setting(Some("paired")).is_err());
     }
 }

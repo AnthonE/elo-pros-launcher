@@ -33,8 +33,6 @@ usage: elo credits                   this wallet's credits balance and its last 
   relay. They can't be sent to anyone or cashed out.
 ";
 
-const WALLET_GRANT: &str = "urn:elopros:params:oauth:grant-type:wallet";
-
 fn err(e: impl Into<String>) -> DepotError {
     DepotError::new(e.into())
 }
@@ -205,19 +203,8 @@ fn buy(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, DepotErro
 
 fn balance(net: &Net, a: &Args, host: &str, json_out: bool) -> Result<i32, DepotError> {
     let mut s = signer::choose(a, host).map_err(err)?;
-    let me = s.address().ok_or_else(|| err("the signer names no address"))?.to_lowercase();
-    // sign in with this wallet: the text is the store's sign-in, for this wallet
-    let prep = told(net.post_json_told(&format!("{host}/api/account/siwe/prepare"), &json!({"wallet": me})))?;
-    let msg = prep.get("message").and_then(Value::as_str).unwrap_or("");
-    let nonce = prep.get("nonce").and_then(Value::as_str).unwrap_or("");
-    if !msg.to_lowercase().contains(&me) || nonce.is_empty() || !msg.contains(nonce) {
-        return Err(err("the store's sign-in text does not name this wallet and its nonce — nothing was signed"));
-    }
-    let signed = s.sign(msg, "credits: sign in to read your balance").map_err(|r| err(r.reason))?;
-    let sig = signed.get("signature").and_then(Value::as_str).unwrap_or("");
-    let tok = told(net.post_json_told(&format!("{host}/api/oauth/token"),
-                                      &json!({"grant_type": WALLET_GRANT, "nonce": nonce, "signature": sig})))?;
-    let bearer = format!("Bearer {}", tok.get("access_token").and_then(Value::as_str).unwrap_or(""));
+    let sess = crate::agent::sign_in(net, &mut s, host, "credits: sign in to read your balance")?;
+    let bearer = sess.bearer;
     let (code, _hs, body) = net
         .request_full("GET", &format!("{host}/api/credits/me"), &[("authorization", bearer.as_str())], None, 1 << 20)
         .map_err(err)?;

@@ -6,6 +6,7 @@
 //! build machine, scripted by a player, or driven by an agent — and this
 //! platform has agents as first-class players (`GATES.md` §0).
 
+mod agent;
 mod args;
 mod assets;
 mod credits;
@@ -107,6 +108,13 @@ elo — the desktop client
   elo seat card                   the collection: contract, supply, doors
   elo sessions                    what has been played, and what is running
   elo account                     the account on this machine (exit 3 if none)
+  elo signin                      sign this wallet in to the store, no browser
+  elo signin <code>               sign a browser tab in, with the code it shows
+  elo profile                     your name and face; with --name, --face <png>,
+                                   --kind agent|human, --harness, --model: change it
+  elo agent init --name <name>    an agent from nothing: this machine's own key
+                [--face <png>]     (made, words to --words-file, if there is
+                [--words-file <p>] none), signed in, named, a face, chat linked
   elo account new                 make one — twelve recovery words, shown once;
                                    one address on Robinhood Chain, one on Solana
   elo account import              restore from recovery words, or adopt a key
@@ -174,7 +182,7 @@ the origin, so a title can be tested from a checkout. <depot> is a path or url.
   --no-watch          after `signin`, exit instead of staying to approve
                       the page's signature requests
   --local             sign with the account on this machine, even when a
-                      browser pairing is live
+                      browser pairing is live (ELO_SIGNER=local: always)
   --no-reuse          download every file, even ones already on disk
   --allow-insecure    permit http manifests and depots (a local test server)
   --dry-run           say what would happen, do nothing
@@ -797,7 +805,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                     return Ok(0);
                 }
                 warn_if_echoing();
-                let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
+                let pass = prompt::passphrase("passphrase: ").map_err(DepotError::new)?;
                 signer.unlock(&pass).map_err(DepotError::new)?;
                 let out = signer
                     .sign(&message, "prove identity")
@@ -915,6 +923,12 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // rung 0's honest trade (`local.rs`: the process that draws the
         // prompt holds the key either way). Ctrl-C ends the watch; the
         // sign-in itself stays good.
+        "signin" if a.positional.is_empty() => agent::signin(a, &host, json_out),
+        "profile" => agent::profile(a, &host, json_out),
+        "agent" => match a.positional.first().map(String::as_str) {
+            Some("init") => agent::init(a, &host, &voice_dir()),
+            _ => Err(DepotError::new("elo agent init --name <name> [--face <png>] [--words-file <path>]")),
+        },
         "signin" => {
             let raw = need(a.positional.first(), "the code the website shows")?;
             let code: String = raw
@@ -980,7 +994,7 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             say(&message);
             say("──");
             warn_if_echoing();
-            let pass = prompt::secret("passphrase: ").map_err(DepotError::new)?;
+            let pass = prompt::passphrase("passphrase: ").map_err(DepotError::new)?;
             signer.unlock(&pass).map_err(DepotError::new)?;
             let out = signer
                 .sign(&message, "sign the website in")

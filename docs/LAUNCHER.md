@@ -280,8 +280,10 @@ anything at all without one. The `wired into` column is here so the next drift
 of this kind has to be typed rather than inherited.
 
 **What decides, today, is `elo-launcher/src/signer.rs`** and it is three lines
-of precedence: `--local` if the operator said so, else a browser pairing that
-has not expired, else the local keystore.
+of precedence: `--local` (or `ELO_SIGNER=local` in the environment) if the
+operator said so, else a browser pairing that has not expired, else the local
+keystore. The variable is for an agent sharing a machine with its owner's
+paired browser; `elo agent init` ends by telling it to set it.
 
 ⚠ **The GUI's door reverses the middle two, and it is the SAME rule.** The rule
 is *prefer the signer that can answer without interrupting; break ties toward

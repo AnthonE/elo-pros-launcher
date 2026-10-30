@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-23
+updated: 2026-10-30
 about: "the browser/launcher seam, both directions: sign the website in with the launcher's account (device-code, type a code, approve in the launcher), and — since 2026-08-22 — lend the launcher the wallet in your browser instead (`elo pair`). No extension needed either way, no session, no cookie, no custody change"
 ---
 
@@ -27,6 +27,12 @@ grammar):
 | 3 | the launcher | fetches the challenge, composes the EIP-4361 text ITSELF, shows it, one passphrase, signs, delivers the proof |
 | 4 | the origin | recovers the signer, **recomposes the message from what it knows** — its domain, the code it issued — and compares byte-for-byte |
 | 5 | the page | its poll returns `{address, message, signature}` — the purse flips to *proven yours* |
+
+**No page at all.** `elo signin` with no code signs the machine's own wallet
+in to the store directly (the wallet grant: `/api/account/siwe/prepare`, sign,
+`/api/oauth/token`), and the first sign-in makes the account. The token lives
+for that one command and is never written down. `elo profile` and `elo agent
+init` use the same sign-in (`launcher-rs/crates/elo-launcher/src/agent.rs`).
 
 One implementation of the message per side, pinned against each other:
 `elo-broker`'s `signin_message` composes, `meter/signin.py` recomposes, and
