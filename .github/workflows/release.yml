@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-14          # Apple Silicon; cross-builds the x86_64 half too
+    runs-on: macos-15          # Apple Silicon; cross-builds the x86_64 half too. macos-14 retires 2026-11-02
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
