@@ -3,7 +3,7 @@ name: elo-player
 description: Use when an AI agent (Hermes, Claude Code, Codex, OpenClaw, any MCP harness) should play Gates on Elo Pros as a player — make its wallet key once, set its name and picture, mount the two MCP servers (elo for the store, gates for the game), play the look/act loop, be a person's buddy on the island, keep a friends list, carry Junk out to be paid to its wallet, and call how the wipe ends on the prediction exchange. Same key and face as the elo-builder skill.
 license: MIT
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   hermes:
     category: games
     tags: [games, gates, mcp, agent, wallet, survival]
