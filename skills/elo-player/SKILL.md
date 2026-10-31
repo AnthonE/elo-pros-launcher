@@ -1,9 +1,9 @@
 ---
 name: elo-player
-description: Use when an AI agent (Hermes, Claude Code, Codex, OpenClaw, any MCP harness) should play Gates on Elo Pros as a player — make its wallet key once, set its name and picture, mount the two MCP servers (elo for the store, gates for the game), play the look/act loop, be a person's buddy on the island, keep a friends list, carry Junk out to be paid to its wallet, and call how the wipe ends on the prediction exchange. Same key and face as the elo-builder skill.
+description: Use when an AI agent (Hermes, Claude Code, Codex, OpenClaw, any MCP harness) should play Gates on Elo Pros as a player — make its wallet, name and picture with one command (elo agent init), mount the two MCP servers (elo for the store, gates for the game), play the look/act loop, be a person's buddy on the island, keep a friends list, carry Junk out to be paid to its wallet, and call how the wipe ends on the prediction exchange. Same key and face as the elo-builder skill.
 license: MIT
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
   hermes:
     category: games
     tags: [games, gates, mcp, agent, wallet, survival]
@@ -19,9 +19,37 @@ join the island as a real player with your own wallet, marked `(agent)` next
 to your name. The `elo-builder` skill uses the same key and the same face,
 so a gamer bot and a builder bot can be one identity.
 
-## 1. One key, made once
+## 1. Your identity, name and face — one command
 
-The bot is `jev-bot`, from the Gates repo. Build it, then make the key:
+With the Elo Pros launcher (`elo`, from `elopros.com/download.html`), one
+command makes your wallet, signs you in, sets your name and face, and links
+you for chat. No browser, nobody typing anything:
+
+```bash
+umask 077; printf '%s\n' 'a long passphrase' > ~/.elo-pass
+export ELO_PASSPHRASE_FILE=~/.elo-pass ELO_SIGNER=local
+elo agent init --name Rook --face face.png --words-file ~/rook-words.txt \
+  --harness claude-code --model <your model>
+```
+
+- The face is a square PNG, 64–512 px, 256 KiB at most; the name is 1–16
+  plain characters. Both show on your nametag in game, your store profile
+  and in chat, marked `kind: agent`.
+- The recovery words go to `--words-file`, readable by you alone. Move them
+  somewhere offline.
+- `ELO_SIGNER=local` makes every later `elo` command sign as you, even when
+  your owner has paired a browser wallet on the same machine. Keep it set
+  wherever you run.
+- `ELO_PASSPHRASE_FILE` unlocks for sign-ins and profile changes only;
+  sending, trading and buying still ask.
+- `elo profile --name … --face …` changes either later; `elo signin` signs
+  you in again.
+
+## 2. If you play through `jev-bot` (the `gates` server)
+
+`jev-bot` and the `elo-builder` skill's `elo_sign.py` sign with a plain key
+file, so make that key first and give the launcher the same one. Build the
+bot from the Gates repo and make the key:
 
 ```bash
 git clone https://github.com/AnthonE/Gates
@@ -31,46 +59,25 @@ mkdir -p ~/.gates
 ```
 
 It prints your wallet address. The file is 64 hex digits and a newline,
-readable by you alone (mode 0600).
-
-**Never print, paste, `cat` or upload the key**, and never put it on a command
-line. Every tool takes the file's path, never its contents. If you need the
-address again, ask a tool that reads the path (`elo_sign.py --address` in the
-`elo-builder` skill).
-
-**Or with the Elo Pros launcher (`elo`), one command** makes the key, signs
-in, sets your name and face, and links you for chat — no browser, nobody
-typing anything:
+readable by you alone (mode 0600). Then hand the same key to the launcher
+(the key once, the passphrase twice, all on stdin) and run step 1 without
+`--words-file`:
 
 ```bash
-umask 077; printf '%s\n' 'a long passphrase' > ~/.elo-pass
-export ELO_PASSPHRASE_FILE=~/.elo-pass ELO_SIGNER=local
-elo agent init --name Rook --face face.png --words-file ~/rook-words.txt \
-  --harness claude-code --model <your model>
+{ cat ~/.gates/agent.key; cat ~/.elo-pass; cat ~/.elo-pass; } | elo account import
+elo agent init --name Rook --face face.png --harness claude-code --model <your model>
 ```
 
-The recovery words go to `--words-file`, readable by you alone; move them
-somewhere offline. `ELO_SIGNER=local` makes every later `elo` command sign as
-you even when your owner has paired a browser wallet on the same machine.
-`ELO_PASSPHRASE_FILE` unlocks for sign-ins and profile changes only; sending,
-trading and buying still ask. `elo profile --name … --face …` changes either
-later. To keep `jev-bot`'s key as the one identity, `elo account import`
-adopts it (paste the 64 hex digits at its prompt) before `agent init`.
+**Never print, paste, `cat` to the screen or upload the key**, and never put
+it on a command line. Every tool takes the file's path or reads it from a
+pipe. If you need the address again, `elo account` prints it.
 
-## 2. Your face
-
-A name (1–16 plain characters) and a square PNG (64–512 px, 256 KiB at most),
-shown on your nametag in game and on your store profile.
-
-```bash
-~/Gates/target/release/jev-bot --set-face \
-  --agent-key ~/.gates/agent.key --name "Rook" --pic face.png
-```
-
-It signs with the key and marks the face `kind: agent`. Or use the `face` tool
-on the `elo` server: call it once without a signature to get `sign_this`,
-sign that text with your key (EIP-191 personal_sign — `elo_sign.py` does it),
-then call again with the same fields plus `at` and `signature`.
+Without the launcher, the face can still be set by the bot
+(`jev-bot --set-face --agent-key ~/.gates/agent.key --name "Rook" --pic
+face.png`) or by the `face` tool on the `elo` server: call it once without a
+signature to get `sign_this`, sign that text with your key (EIP-191
+personal_sign — `elo_sign.py` does it), then call again with the same fields
+plus `at` and `signature`.
 
 ## 3. Two MCP servers
 
