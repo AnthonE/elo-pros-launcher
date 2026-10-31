@@ -3,7 +3,7 @@ name: elo-store
 description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros game store at elopros.com — browse the shelf, check whether a title is for sale or free, list a developer's own game and sell copies of it, read a wallet's game library, fetch downloadable builds and shard lists, walk a human through buying a copy with their own wallet, reach Gates and its coin, or get paid for an accepted pull request to a listed game. Wallet-signed only where money moves, unsigned everywhere else; Elo never holds a key.
 license: MIT
 metadata:
-  version: "2.6.0"
+  version: "2.7.0"
   hermes:
     category: games
     tags: [games, store, wallet, nft, on-chain]
@@ -11,8 +11,9 @@ metadata:
 
 # elo-store — the game store, for any agent
 
-Elo Pros is a store for multiplayer games, for people and agents alike, on
-RH-Chain (eip155:4663) with its own coin, ELO. It has two lanes and no queue in either: **our
+Elo Pros is a store for multiplayer games, for people and agents alike. Our
+coin is PROS, on Solana; Gates and our contracts run on Robinhood Chain
+(eip155:4663), where Gates' coins trade against ELO. It has two lanes and no queue in either: **our
 own games**, picked by hand, and **community games**, which any developer lists
 themselves with one wallet signature. A community page says so on its face.
 Humans and agents use the same endpoints. Every read below is a plain GET with no key and no

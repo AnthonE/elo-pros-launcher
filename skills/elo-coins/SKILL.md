@@ -1,9 +1,9 @@
 ---
 name: elo-coins
-description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros economy at elopros.com — resolve the reserve coin, read a game coin like JUNK, find which pools are live and which are retired, quote a swap and get its unsigned transactions, read a launch that has no pool yet, or check what is actually deployed on chain. Reads are free and unsigned; a wallet signature appears only where a transaction does, and Elo never holds a key.
+description: Use when an AI agent (Hermes, Clawdbot/OpenClaw, ElizaOS, Claude Code, any harness that can call HTTP) needs the Elo Pros economy at elopros.com — read PROS (our coin, on Solana) or resolve a chain's reserve, read a game coin like JUNK, find which pools are live and which are retired, quote a swap and get its unsigned transactions, read a launch that has no pool yet, or check what is actually deployed on chain. Reads are free and unsigned; a wallet signature appears only where a transaction does, and Elo never holds a key.
 license: MIT
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
   hermes:
     category: defi
     tags: [coins, pools, on-chain, swap, uniswap]
@@ -14,13 +14,19 @@ metadata:
 
 # elo-coins — the reserve and the game coins, for any agent
 
-**One reserve, many game coins.** The platform has exactly one reserve coin.
-Every listed game brings its own, and every game coin pairs against the
-reserve — plus, where the house declares one, a reserve-free cross between two
-of its own game coins. The reserve is the road in and out of every economy
-here. There is no second reserve, no bridge, and no imported economy.
+**One reserve per chain, many game coins.** Our coin is **PROS, on Solana**
+(mint `2Uwte4c9ZnRACas6Miq6bR8zx8n8Psgu11Vn5htHpump`, a pump.fun coin paired
+with SOL): our Solana games' coins pair against it. **Gates runs on Robinhood
+Chain** (`eip155:4663`), where the reserve is ELO and Gates' coins (JUNK, then
+ORBS behind it) pair against that. The two never bridge and no rate between
+them is fixed; a swap between them is a market route (`/api/xquote`). Within
+a chain, every game coin pairs against that chain's reserve — plus, where the
+house declares one, a reserve-free cross between two of its own game coins.
 
-Base: `https://elopros.com/api`. Chain: RH-Chain, `eip155:4663`.
+"PROS" as a coin always means the Solana mint. The Elo Pros NFT collection on
+Robinhood Chain also uses the symbol PROS, and it is not a coin.
+
+Base: `https://elopros.com/api`.
 
 ## Read this first: two generations are on chain
 
@@ -38,9 +44,10 @@ retired is a statement about the *plan*, never about the chain. So:
 ## Resolve the reserve; never type its ticker
 
 ```bash
-curl -s $BASE/reserve       # the reserve: its address and ticker, resolved
+curl -s $BASE/reserve       # both chains' reserves: .chains[] (labelled); the top level is Robinhood Chain's
+curl -s $BASE/coin-launch/pros-sol   # PROS: its curve, market and our wallets
 curl -s $BASE/tokens        # the game coins
-curl -s $BASE/tape          # the reserve's price, FDV, holders
+curl -s $BASE/tape          # Robinhood Chain's reserve: price, FDV, holders
 ```
 
 The reserve has been replaced once already, and a skill that hardcoded the old
@@ -66,7 +73,7 @@ discusses a single coin, so the routing appears on none of the pages you are
 reading when you write "that locks out a new player" — and it is usually
 wrong.
 
-Our coins launch on outside launchpads — ELO on pons, JUNK on Abyss — and the
+Our coins launch on outside launchpads — PROS on pump.fun, ELO on pons, JUNK on Abyss — and the
 venue opens the pool. A coin still on its launch curve has **no pool**:
 `GET /curve/<slug>` prices it off the curve instead, and `/pools` and `/tape`
 take over once it graduates. Both are real states; neither is a broken read.
