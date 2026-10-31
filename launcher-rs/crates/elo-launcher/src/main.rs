@@ -521,7 +521,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 // the reader is told which flag.
                 "sign" => {
                     let message = need(a.positional.get(1), "a message to sign")?;
-                    let mut signer = signer::choose(a, &host).map_err(DepotError::new)?;
+                    // Any text at all, so ELO_PASSPHRASE_FILE never answers here.
+                    let mut signer = signer::choose(a, &host).map_err(DepotError::new)?.always_ask();
                     let out = signer
                         .sign(message, "elo account sign")
                         .map_err(|r| DepotError::new(r.reason))?;

@@ -56,6 +56,9 @@ use crate::prompt;
 /// — and is why `--statement` paths still cost no passphrase.
 pub struct CliSigner {
     inner: Inner,
+    /// Ask at the terminal even when `ELO_PASSPHRASE_FILE` is set
+    /// ([`CliSigner::always_ask`]).
+    ask: bool,
 }
 
 enum Inner {
@@ -79,7 +82,7 @@ pub fn choose(a: &Args, host: &str) -> Result<CliSigner, String> {
 
     if forced_local || paired.is_none() {
         if local.exists() {
-            return Ok(CliSigner { inner: Inner::Local(Box::new(local)) });
+            return Ok(CliSigner { inner: Inner::Local(Box::new(local)), ask: false });
         }
         if forced_local {
             return Err(format!(
@@ -114,6 +117,7 @@ pub fn choose(a: &Args, host: &str) -> Result<CliSigner, String> {
     p.host = p.host.trim_end_matches('/').to_string();
     Ok(CliSigner {
         inner: Inner::Paired(Box::new(PairedBrowserSigner::new(p).telling(tell))),
+        ask: false,
     })
 }
 
@@ -133,6 +137,16 @@ fn signer_setting(v: Option<&str>) -> Result<bool, String> {
 }
 
 impl CliSigner {
+    /// The passphrase file never answers for this signer. For `elo account
+    /// sign`, which signs whatever text it is handed: the file is there so an
+    /// agent can sign texts the store or this client composes, and a file
+    /// that also approved any text at all would sign another site's sign-in
+    /// as readily as ours.
+    pub fn always_ask(mut self) -> Self {
+        self.ask = true;
+        self
+    }
+
     /// One line for `elo account` and friends.
     pub fn line(&self) -> String {
         format!("{} · {}", self.kind(), self.status())
@@ -180,7 +194,12 @@ impl Signer for CliSigner {
                 // gets it rather than each one re-typing the prompt.
                 if !l.is_unlocked() {
                     crate::warn_if_echoing();
-                    let pass = prompt::passphrase("passphrase: ").map_err(Refusal::new)?;
+                    let pass = if self.ask {
+                        prompt::secret("passphrase: ")
+                    } else {
+                        prompt::passphrase("passphrase: ")
+                    }
+                    .map_err(Refusal::new)?;
                     // A wrong passphrase is a WRONG PASSPHRASE and never
                     // "corrupt" — the vault draws that line and this must not
                     // blur it back by rewording the error.

@@ -73,7 +73,8 @@ pub fn secret(label: &str) -> Result<Zeroizing<String>, String> {
 /// For an agent that runs one command at a time and has no one at the
 /// terminal. Only identity prompts read it (signing in, signing a statement,
 /// making the account in `elo agent init`); the prompts that spend, `send`,
-/// `move`, `trade`, `skins`, `credits buy` and `assets buy`, still ask. The
+/// `move`, `trade`, `skins`, `credits buy` and `assets buy`, still ask, and
+/// so does `elo account sign`, which signs any text it is handed. The
 /// file is the holder's choice to keep the passphrase beside the key, so it
 /// must be readable by its owner alone, or nothing is read.
 pub fn passphrase(label: &str) -> Result<Zeroizing<String>, String> {

@@ -3,7 +3,7 @@ name: elo-player
 description: Use when an AI agent (Hermes, Claude Code, Codex, OpenClaw, any MCP harness) should play Gates on Elo Pros as a player — make its wallet, name and picture with one command (elo agent init), mount the two MCP servers (elo for the store, gates for the game), play the look/act loop, be a person's buddy on the island, keep a friends list, carry Junk out to be paid to its wallet, and call how the wipe ends on the prediction exchange. Same key and face as the elo-builder skill.
 license: MIT
 metadata:
-  version: "1.6.0"
+  version: "1.6.1"
   hermes:
     category: games
     tags: [games, gates, mcp, agent, wallet, survival]
@@ -41,7 +41,7 @@ elo agent init --name Rook --face face.png --words-file ~/rook-words.txt \
   your owner has paired a browser wallet on the same machine. Keep it set
   wherever you run.
 - `ELO_PASSPHRASE_FILE` unlocks for sign-ins and profile changes only;
-  sending, trading and buying still ask.
+  sending, trading, buying and `elo account sign` (any text) still ask.
 - `elo profile --name … --face …` changes either later; `elo signin` signs
   you in again.
 
