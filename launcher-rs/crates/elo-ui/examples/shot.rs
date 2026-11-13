@@ -34,6 +34,7 @@ fn shelf(slug: &str, name: &str, blurb: &str, state: &str, installable: bool,
         installed,
         price,
         icon: None,
+        browser: None,
     }
 }
 
@@ -71,6 +72,10 @@ fn main() {
             shelf("dark", "A Title We Could Not Price", GATES_BLURB, "live", true, false,
                   Price::Unknown { why: "could not reach the origin".into() }),
             shelf("mine", "Already Installed", GATES_BLURB, "live", true, true, Price::Free),
+            Shelf { browser: Some("https://elopros.com/games/blox-arena/play/".into()),
+                    ..shelf("blox-arena", "Blox Arena",
+                            "A sword-and-rocket arena brought over from Roblox. Ten minutes, most knockouts wins.",
+                            "live", false, false, Price::Free) },
         ], true, "").window,
         // The passphrase prompt, in both shapes. `pass2` is the browser
         // pairing's — the whole message being signed rides in the prompt.

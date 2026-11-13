@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-30
-about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window. §10t is the same account on Solana: one set of words, two addresses, sends on either chain and moves between them. §10u is Skins: selling our items on OpenSea from `elo skins` and the window, the one typed-data signature. §10v is the October review of every crate: signing, the door, installs, the windows and the command line. §10w is speed: parallel installs, faster hashing and unlock, and no network on the window's thread. §10x is game mode: GameMode on Linux, above-normal priority on Windows, and the booster tricks it refuses. §10y is the stage: an agent's body on your screen for OBS, a VRM, a rigged glb with moves, or pictures with captions and a voice (ElevenLabs built in), driven by the agent over a local MCP tool; the owner's own voice through a microphone and its body's moves in Gates reaching it; viewers' chat from Twitch, YouTube and Kick reaching it past the owner's filters; going live everywhere from one OBS stream; and posting recordings to YouTube. §10z is the rig desk: clips moved between any two humanoid rigs, a clip as a VRMA, a model as a README block, in `crates/elo-rig` and in the browser at animate.html."
+updated: 2026-11-02
+about: "the desktop client — the 2003 Steam client ripped and pointed at Elo: what it is, the three things it may never become, the manifest/depot seam a game plugs into, how it is packaged for Linux and Windows, and how Gates arrives on it when its desktop build ships. §6c is friends: who is playing where, a Join that follows them, and the signed changes, from the terminal or the window. §10o is the UX pass: the shelves that had no buttons, the stock dialogs, the lock screen and the icons. §10p is the second: shelves that scroll, a smaller library icon, and the rows that were being drawn off the window. §10q is Chat in the window, read straight off the relay so it survives the origin, and linking its key to the wallet (and unlinking it). §10r is the wallet: recovery words, balances read off the chain, and sends checked and shown before the passphrase. §10s is trading: `elo trade` and the Pairs window. §10t is the same account on Solana: one set of words, two addresses, sends on either chain and moves between them. §10u is Skins: selling our items on OpenSea from `elo skins` and the window, the one typed-data signature. §10v is the October review of every crate: signing, the door, installs, the windows and the command line. §10w is speed: parallel installs, faster hashing and unlock, and no network on the window's thread. §10x is game mode: GameMode on Linux, above-normal priority on Windows, and the booster tricks it refuses. §10y is the stage: an agent's body on your screen for OBS, a VRM, a rigged glb with moves, or pictures with captions and a voice (ElevenLabs built in), driven by the agent over a local MCP tool; the owner's own voice through a microphone and its body's moves in Gates reaching it; viewers' chat from Twitch, YouTube and Kick reaching it past the owner's filters; going live everywhere from one OBS stream; and posting recordings to YouTube. §10z is the rig desk: clips moved between any two humanoid rigs, a clip as a VRMA, a model as a README block, in `crates/elo-rig` and in the browser at animate.html. §10zb is crash dumps: the folder a game writes one to, and the offer to send it, with a bug report, after a crash."
 ---
 
 # LAUNCHER.md — the desktop client
@@ -408,7 +408,8 @@ for a human never freezes it.
 
 Every verb that takes a signature takes this road: `elo entitle`, `elo account
 sign`, the whole dev desk (`elo dev edit` / `image` / `post` / `delegate` /
-`revoke`), and the broker's door, so a **game** can ask a paired browser to
+`revoke`), `elo publish` (a browser game's folder to its play page: the
+listing when it is new, then the build's zip), and the broker's door, so a **game** can ask a paired browser to
 sign. A dev-desk ask names itself on the browser's screen — *"dev desk: post
 gates"* — because the person approving is in another window and "what is this
 for" is the only question they have.
@@ -443,9 +444,10 @@ a document is on disk or a pointer names it. A game with a pass gets a
 generated manifest (`_community_manifest`, `community: true`) whose native
 rows fill like any other and whose `withdrawn` lists the digests a client must
 refuse. ⚠ The client does not read `withdrawn` yet (`DESKTOP-BUILDS.md` §5).
-Without a pass the game has no manifest and Play opens its `play_url`, and it
-reaches identity and ownership through the web SDK, `elo-3.js` (`SDK.md`
-§5b).
+Without a pass, a live game with a `play_url` gets a browser-only manifest
+(`_web_community`: one browser row, nothing native), so it is on the
+launcher's shelf and **Play in browser** opens its `play_url`; it reaches
+identity and ownership through the web SDK, `elo-3.js` (`SDK.md` §5b).
 
 ⚠ **It is Gates' path since 2026-09-12, and the paragraph above is why
 nothing here had to move.** Gates compiles its Rust client for wasm32 —
@@ -2591,6 +2593,32 @@ the site instead. Credits pay for hosting, Claude builds, buddies and the
 relay; an asset is bought on chain from its maker, never with credits:
 `elo assets buy <id>` pays a priced asset's licence in USDG through the guard
 (an exact approval, then the store's `buy`), straight to its author.
+
+### 10zb · Crash dumps: offered to the player, sent only on their yes
+
+Every game the launcher starts is told where to write a crash dump:
+`ELO_CRASH_DIR`, the install's own `crashes/` folder, made before the game
+starts and set in `launch::resolve`, so `elo play`, Join and the window's
+Play all pass it (`elo-depot/src/crash.rs`). A depot cannot point it
+elsewhere, and `verify` does not count what lands there as a stray file. A
+game writes either of two files there: a minidump (a file starting `MDMP`,
+which Windows' `MiniDumpWriteDump`, breakpad and crashpad all write, at most
+4 MiB) or a backtrace as UTF-8 text (`.txt` or `.log`, at most 256 KiB, what
+a Rust panic hook can write). A core file is never offered.
+
+When a game `elo play` watched exits abnormally (a nonzero code or a signal)
+and left a dump during that run, the launcher says what the file holds (for a
+minidump, the memory of the game process at the crash) and asks, defaulting
+to no, whether to send it with a bug report to the game's developer. Off a
+terminal it does not ask; it prints `elo report-crash <slug>`, which shows the
+same words and asks the same question (`--yes` answers it on the command
+line, `--body` adds a note, `--dry-run` sends nothing). The report carries the
+build, the platform, how the game ended and the dump, nothing else
+(`POST /api/bugs`, `docs/client/GAMEDEV.md` §3c). A sent dump is renamed
+`<name>.sent` and stays on the machine.
+
+The window's Play does not ask yet: a game started there still gets the
+folder, and `elo report-crash` sends what it left.
 
 ## Reading order
 

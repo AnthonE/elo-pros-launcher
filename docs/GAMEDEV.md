@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-28
-about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things"
+updated: 2026-11-02
+about: "everything a game needs from Elo, in one page — sign a player in with standard Sign-In With Ethereum, draw their name and face, read what they own and what they have done, and the honest-zero traps that make an empty answer mean two different things; §3c is bug reports and crash dumps"
 ---
 
 # GAMEDEV.md — everything a game needs from Elo
@@ -67,6 +67,11 @@ let proof = elo.prove("shard-3.yourgame.example", &nonce_you_issued)?;
 let p = elo.profile("").unwrap();
 println!("{}", p.label());       // "moss" if sworn, "~moss" if self-declared
 ```
+
+**In Unity**, the `com.elopros.sdk` package (`sdk/unity/README.md`) wraps all of
+this behind one class: `Elo.Init("your-game")`, then `await Elo.SignIn(domain,
+nonce)` and `await Elo.Profile()`. It reaches the launcher from the editor and
+a desktop build, and the player's wallet from a WebGL build.
 
 On your backend, in **any language**, one call checks it — the domain, your
 nonce, freshness and the signature, smart wallets and Solana included:
@@ -336,6 +341,55 @@ A line of rich presence ("Wave 5 · 3/4") rides the roster your server already
 publishes: add `"status"` to a row of `online.json`, and it shows beside the
 game on the player's profile and friends list.
 
+The same `online.json` is what a **free trial** is measured by. Set
+`trial_minutes` on your row and a wallet with no copy reads `entitled: true,
+trial: true` with `trial_minutes_left` in the ownership check and the roster
+sweep, until the time your servers listed it reaches the length; then it reads
+`entitled: false` and your sweep kicks it like any wallet without a copy. A
+server that publishes no `online.json` never uses a trial up. **Add-ons**
+(paid maps, characters, a mode) are each their own ticket; both answers carry
+`addons`, which of them the wallet holds (`TICKET.md` §9-§10).
+
+## 3c · Bug reports and crash dumps
+
+Any listed game takes in-game bug reports at `POST /api/bugs` (no key; a
+daily cap per address). The body is `{game, report, shot_png_b64?, dump?}`.
+`report` is one JSON object: `format` 1, `kind` (`look`, `world`, `verb`,
+`net`, `numbers`, `crash` or `other`), a 16-hex `fingerprint` that groups
+the same bug, one-line `issue_title`, `read_first` (a doc's file name) and
+`reported`, and `build` with `version`, `commit`, `platform` (`linux`,
+`windows`, `macos`, `web`) and `runtime` (`desktop`, `browser`, `agent`).
+Anything else you add is stored as sent, up to 64 KiB. The answer is
+`{id, fingerprint, seen, shot, dump}`; `GET /api/bugs?game=<slug>` is the
+public board of counts, with no prose.
+
+**A crash dump** rides a report of kind `crash`, as
+`"dump": {"format": "minidump" | "backtrace", "b64": "<the file>", "consent": true}`:
+a minidump (a file starting `MDMP`, from Windows, breakpad or crashpad, at most
+4 MiB) or a backtrace in UTF-8 (at most 256 KiB). A core file is refused.
+Send one only when the player chose to just then, after you showed them what
+it holds; `consent: true` says they did, and a dump without it is refused.
+The answer adds `dump_contains` (what the file holds) and `dump_expires`: a
+dump is deleted 30 days after it arrives, and the report stays. Over your
+game's dump space the report lands without it (`dump: false`). The SDKs'
+`report_bug` / `reportBug` build this body and refuse a dump without the
+player's choice.
+
+A game the launcher starts gets `ELO_CRASH_DIR`: write your dump there and
+the launcher offers it to the player when the game crashes (`LAUNCHER.md`
+§10zb), so you need no upload code of your own.
+
+**Reading them.** Take a one-hour token (`POST /api/bugs/<game>/token`, §3b,
+or a signature from a wallet that may edit the title), then send it as
+`Authorization: Bearer <token>`:
+
+| what | route |
+|---|---|
+| report ids, newest first, each with `shot` and `dump` (its format, or null) | `GET /api/bugs/<game>/reports?fingerprint=&before=&limit=` |
+| one report in full; `intake.dump` names the format, size, sha256 and expiry | `GET /api/bugs/<game>/<id>` |
+| its screenshot | `GET /api/bugs/<game>/<id>.png` |
+| its crash dump, as an attachment | `GET /api/bugs/<game>/<id>.dump` |
+
 ---
 
 ## 4 · What Elo will not do for you
@@ -438,6 +492,7 @@ hand the game what it needs: the address and your server's session.
 
 | engine | calling the page from the game |
 |---|---|
+| Unity | the `com.elopros.sdk` package's WebGL half loads `elo-3.js` and bridges it for you (`sdk/unity/README.md`) |
 | Godot 4 | `JavaScriptBridge.eval("Elo.address")`, or `JavaScriptBridge.get_interface("Elo")` and a callback for the promise |
 | Bevy / any Rust on wasm | `wasm-bindgen` imports, or `web_sys::window()` and `js_sys::Reflect::get` on `Elo` |
 | raylib, SDL or C++ through Emscripten | `EM_JS` / `EM_ASYNC_JS` functions that `await Elo.signIn(...)` |

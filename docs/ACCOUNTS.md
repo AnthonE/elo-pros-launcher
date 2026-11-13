@@ -1,8 +1,8 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-29
-about: "sign in with Steam, Discord, Google, GitHub or a wallet; a game on the site joins with a pass instead of a wallet prompt; Sign in with Elo Pros gives any game on its own site the same pass (§6, built 2026-10-27); a locker keeps what an account unlocks and mints it to the wallet it links later; GitHub on the board — built on the platform 2026-10-25, off until the operator switches it on; Gates' half is merged (wire v151), not shipped; the GitHub App and `elo login` are owed; a wallet belongs to one account, an account signs in with several, and changing them takes a recent sign-in (2026-10-28); agents and apps sign in with OAuth — an MCP client by the code and PKCE, a CLI by the device grant, an agent with a wallet by its sign-in, an agent on its own with an account of its own (§7, 2026-10-29)"
+updated: 2026-11-10
+about: "sign in with Steam, Discord, Google, GitHub or a wallet; a game on the site joins with a pass instead of a wallet prompt; Sign in with Elo Pros gives any game on its own site the same pass (§6, built 2026-10-27); a locker keeps what an account unlocks and mints it to the wallet it links later; GitHub on the board — built on the platform 2026-10-25, off until the operator switches it on; Gates' half is merged (wire v151), not shipped; the GitHub App and `elo login` are owed; a wallet belongs to one account, an account signs in with several, and changing them takes a recent sign-in (2026-10-28); agents and apps sign in with OAuth — an MCP client by the code and PKCE, a CLI by the device grant, an agent with a wallet by its sign-in, an agent on its own with an account of its own (§7, 2026-10-29); a login with no wallet plays as its own id in cloud saves, stats, achievements, lobbies and the Workshop, and they follow it when it plays as a wallet (§7, 2026-11-04)"
 ---
 
 # ACCOUNTS.md — play with a login, link a wallet when you want one
@@ -75,6 +75,25 @@ what is missing.
 | Discord | OAuth2, scope `identify` | `https://elopros.com/api/account/discord/callback` | `ELO_DISCORD_CLIENT_ID/SECRET` | user id, display name |
 | Google | OIDC, scope `openid` only (PKCE, a nonce) — no email | `https://elopros.com/api/account/google/callback` | `ELO_GOOGLE_CLIENT_ID/SECRET` | `sub` |
 | GitHub | OAuth app, no scopes | `https://elopros.com/api/account/github/callback` | `ELO_GITHUB_CLIENT_ID/SECRET` | user id, login |
+| Roblox | OAuth 2.0, scope `openid` only (PKCE) — no name, no profile | `https://elopros.com/api/account/roblox/callback` | `ELO_ROBLOX_CLIENT_ID/SECRET` | Roblox user id |
+
+**Roblox** (built 2026-11-10, off until its keys are set). The app is
+registered on Roblox's Creator Hub by an ID-verified account. Roblox holds an
+unreviewed app to 10 users; lifting that is their review, and their Creator
+Third-Party App Policy is the read before it is asked for
+(`BRING-DEVS-OVER.md` §5). The user id is what a game's imports wait
+under: saves its server wrote to `roblox_<user id>` (`cloudsave.py`) and
+items it granted there, a pass or a product the player owned
+(`game_economy.py`). `GET /api/account/roblox/import` lists the games
+holding some for the signed-in player, and
+`POST /api/account/roblox/import/claim` `{game}` moves that game's to the
+player (`claim_import` in each). A save made here is never replaced and a
+pass already owned stays owned once. Nothing moves on its own, so a game
+learns which account a Roblox user is only when that player brings their
+things to it. What waits is in the player's data export and goes when the
+account is deleted (`mydata.py`). An account's paper points and items now
+follow it to the wallet it starts playing as, with its saves
+(`accounts.FOLLOWS`).
 
 Every provider's token is dropped in the callback. With logins on, the
 corner's "sign in" goes to `/login.html` (which carries the wallet door too);
@@ -121,14 +140,14 @@ them the day a provider is on. The API's "no account, no API key"
       for: play:<game>
       shard: <the domain that shard signs in as, up to 100 characters>
       nonce: <the nonce that shard's sign-in handed this join>
-      wallet: <0x… lowercase, or none>
+      wallet: <0x… lowercase, a Solana address as written, or none>
       exp: <unix seconds>
 
   It is no good on these routes, so a server holding one cannot link its own
   wallet to the account. It names one shard and one join's nonce, as SIWE does,
   so a server a player was sent to (a `?server=` link) cannot replay it at
-  ours. With a wallet linked the game plays them as that wallet; with none, as
-  the account. A game checks it offline against `GET /account/pubkey`
+  ours. With a wallet it links and signs in with, the game plays them as that
+  wallet (`accounts.play_id`); otherwise as the account's own `acct_…` id. A game checks it offline against `GET /account/pubkey`
   (standard base64 of 32 bytes); the vector is
   `sdk/testdata/account_token.json`.
 - **A wallet signs in** with EIP-4361 for this site (`/account/siwe/prepare
@@ -361,9 +380,9 @@ site token works on (`accounts._signed_in` reads both, as `Bearer` or
   `WWW-Authenticate`. `watchtower/auth.md` is the recipe agents read.
 - **Signed in, alongside the wallet** (`playauth.verify_signed`, 2026-10-29).
   Any token, a site token or a grant's, stands in for a wallet's signature on
-  an off-chain action for a wallet its account has proven (its linked wallet
-  or a wallet login, `mydata.wallets_of`); a left-out wallet is the linked
-  one; a sent signature is still checked, and the `at`, replay and daily
+  an off-chain action for a wallet its account has proven (a wallet it signs
+  in with, `mydata.wallets_of`; one it only receives to still signs); a
+  left-out wallet is the linked one; a sent signature is still checked, and the `at`, replay and daily
   guards are unchanged. Faces, friends, guilds (log rows `signed_in`), the
   check-in, cloud saves, drops, lobbies, showcase, the stream kit, the
   workshop, bench, buddy, the chat key, the board, reviews, news comments and
@@ -384,6 +403,35 @@ site token works on (`accounts._signed_in` reads both, as `Bearer` or
   (`Deck.actor`); news comments take the sign-in for a pass; a login with no
   wallet sees a profile door that says to link one.
   `watchtower/drive_signed_in.py` does it in a browser with no wallet.
+- **A login with no wallet plays as its own id** (2026-11-04). The player a
+  game's pass names (`accounts.play_id`) is the one every surface keys on:
+  cloud saves, stats, boards and achievements take an `acct_…` id from the
+  game's server under its server key, and lobbies, the Workshop and the
+  cloud door take it from the account's own sign-in, which is its only
+  proof (`playauth.vouched`; another account's token, or any signature, is
+  refused with `playauth.ACCOUNT_ONLY`). Those surfaces read the account
+  this way when no wallet is sent (`playauth.player_or_account`), and
+  `/account/me` says it as `player`. A board row for an account carries its
+  account name. A lobby's voice and text admit an account member whose chat
+  key is linked to the account (`voicechat._player_of_key`). **The rated queue takes
+  wallets only**: a rating is a pure function of its log and is never
+  moved. **When the account starts playing as a wallet** (a wallet sign-in,
+  or a link to a wallet it signs in with), its saves, stats, mod
+  subscriptions and hours move there (`accounts.FOLLOWS`, each store's
+  `move_player`; hours so a game counts one person once): a save slot both have keeps the newer, stats merge by
+  their `agg`, a board keeps the better score; saves over the wallet's caps
+  stay under the account. A relink or an unlink moves nothing back.
+  **A Solana wallet it signs in with, linked to nothing, is who it plays as**:
+  nothing can be sent there, but the signature proves who. `/account/me` says
+  so as `player`, and a lobby's roster and a save's path follow. The pass names
+  it when the request says `solana: true`: both shipped game servers read only a
+  `0x` wallet and refuse a pass they can't parse, so a game sends it once its
+  server parses base58, and until then its pass says `none` and they play as
+  the account (`sdk/testdata/account_token.json` `solana_wallet` is the vector).
+  Its download carries what it kept under its id, and deleting the account
+  deletes it (`mydata`). A friends list folds onto the wallet it signs in
+  with, never one it only receives to. The
+  SDKs pass an `acct_…` id for saves, subscriptions and lobbies.
 - **MCP.** `/mcp/` stays open. `/mcp/account/` is the same tools behind a 401
   that starts the client's OAuth (`oauth.McpDoors`); the tools pass the
   connection's token to the routes they call.

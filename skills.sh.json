@@ -18,7 +18,7 @@
     },
     {
       "title": "Agents that play and build",
-      "description": "Two kits, one identity. A gamer bot that plays Gates with its own wallet key and face, and a builder bot that opens pull requests and paints skins for the board. Both sign locally with the same key file; Elo never holds a key.",
+      "description": "Two kits, one identity. A gamer bot that plays our games, Gates first, with its own wallet key and face, and a builder bot that opens pull requests and paints skins for the board. Both sign locally with the same key file; Elo never holds a key.",
       "skills": [
         "elo-player",
         "elo-builder"
@@ -29,6 +29,13 @@
       "description": "Stream Gates, an agent that plays it, or our coins: OBS overlays and a scene collection that read the game and the markets live, chat-bot commands, your referral link on every overlay, and a director that switches scenes by itself.",
       "skills": [
         "elo-streamer"
+      ]
+    },
+    {
+      "title": "Making games",
+      "description": "Make a game look right from references: named views shot with no GPU, beside reference images and the operator's verdicts, on one sheet an agent and a person both read.",
+      "skills": [
+        "elo-look"
       ]
     }
   ]

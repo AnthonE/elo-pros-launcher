@@ -45,6 +45,27 @@ class Models(unittest.TestCase):
         self.assertTrue(down.could_not_look)
         self.assertIn("could not look", down.error)
 
+    def test_addons_and_the_trial(self):
+        t = fx("ticket.json")
+        card = answer(t["with_addons"], Ticket.from_json)
+        self.assertEqual((card.trial_minutes, card.addon), (30, None))
+        self.assertEqual([(a.slug, a.kind, a.changes) for a in card.addons], [("gates-maps", "map", [])])
+        self.assertTrue(card.addons[0].says.startswith("Changes no stats"))
+        own = answer(t["addon"], Ticket.from_json).addon
+        self.assertEqual((own.parent, own.slug), ("gates", "gates-maps"))
+        self.assertIsNone(answer(t["ticketed"], Ticket.from_json).trial_minutes)
+        o = fx("ticket_of.json")
+        self.assertEqual(answer(o["owned_with_addons"], TicketOf.from_json).addons,
+                         {"gates-maps": True, "gates-soundtrack": True})
+        trial = answer(o["trial"], TicketOf.from_json)
+        self.assertEqual((trial.entitled, trial.trial, trial.trial_minutes, trial.trial_minutes_left),
+                         (True, True, 30, 20))
+        self.assertEqual(trial.copies, 0)
+        spent = answer(o["trial_used_up"], TicketOf.from_json)
+        self.assertEqual((spent.entitled, spent.trial, spent.trial_minutes_left), (False, True, 0))
+        owned = answer(o["owned"], TicketOf.from_json)
+        self.assertEqual((owned.trial, owned.addons), (False, {}))
+
     def test_items(self):
         i = fx("items_of.json")
         held = answer(i["held"], Items.from_json)

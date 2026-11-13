@@ -364,6 +364,27 @@ impl Client {
         }
     }
 
+    /// Who a game keeps things for: a wallet (`holder`), or a signed-in
+    /// account's own `acct_…` id — the `player` a pass check answers for a
+    /// login that plays without a wallet (`check_pass`).
+    fn player(w: &str) -> Result<String, Refusal> {
+        let t = w.trim();
+        let account = t.len() == 25
+            && t.starts_with("acct_")
+            && t[5..]
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        if account {
+            return Ok(t.to_string());
+        }
+        Client::holder(t).map_err(|_| {
+            Refusal::here(
+                "the player is a wallet (0x + 40 hex, or a Solana address) or a signed-in \
+                 account's acct_ id",
+            )
+        })
+    }
+
     fn slug(s: &str) -> Result<String, Refusal> {
         let s = s.trim().to_ascii_lowercase();
         if slug_ok(&s) {
@@ -499,7 +520,7 @@ impl Client {
         let mut out = Roster {
             game: s.clone(),
             ticketed: true,
-            entitled: Default::default(),
+            ..Default::default()
         };
         let (mut read, mut failed) = (0usize, None);
         for page in roster.chunks(ROSTER_PAGE) {
@@ -525,20 +546,36 @@ impl Client {
             if let Some(g) = v.get("game").and_then(Value::as_str) {
                 out.game = g.to_string();
             }
-            if v.get("ticketed") == Some(&Value::Bool(false))
-                || v.get("every_wallet_entitled") == Some(&Value::Bool(true))
-            {
+            let free = v.get("ticketed") == Some(&Value::Bool(false))
+                || v.get("every_wallet_entitled") == Some(&Value::Bool(true));
+            let rows = v.get("wallets").and_then(Value::as_object);
+            if free && rows.is_none_or(|r| r.is_empty()) {
                 out.ticketed = false;
                 out.entitled = roster.iter().map(|w| (w.clone(), Some(true))).collect();
                 return Look::Answer(out);
             }
+            if free {
+                out.ticketed = false;
+            }
             for w in page {
-                let e = v
-                    .get("wallets")
-                    .and_then(|rows| rows.get(w))
-                    .and_then(|row| row.get("entitled"))
-                    .and_then(Value::as_bool);
-                out.entitled.insert(w.clone(), e);
+                let row = rows.and_then(|r| r.get(w));
+                let e = row.and_then(|r| r.get("entitled")).and_then(Value::as_bool);
+                out.entitled
+                    .insert(w.clone(), if free { Some(true) } else { e });
+                if row.and_then(|r| r.get("trial")) == Some(&Value::Bool(true)) {
+                    if let Some(left) = row
+                        .and_then(|r| r.get("trial_minutes_left"))
+                        .and_then(Value::as_u64)
+                    {
+                        out.trial_minutes_left.insert(w.clone(), left);
+                    }
+                }
+                if let Some(held) = row.and_then(|r| r.get("addons")).and_then(Value::as_object) {
+                    out.addons.insert(
+                        w.clone(),
+                        held.iter().map(|(k, b)| (k.clone(), b.as_bool())).collect(),
+                    );
+                }
             }
         }
         if read == 0 {
@@ -1086,6 +1123,45 @@ impl Client {
         self.get(&with_query(&format!("/api/ticket/{s}/prepare"), &q))
     }
 
+    /// The unsigned calls that buy several copies and add-ons in one checkout
+    /// (`/api/tickets/bundle/prepare`), each at its own posted price:
+    /// `send.batched` is one EIP-5792 `wallet_sendCalls`, `txs` the same
+    /// calls to send one after another. `wallet` leaves out what it already
+    /// holds (`include_held` keeps it). Nothing is sent for you.
+    pub fn bundle_buy(
+        &self,
+        items: &[&str],
+        wallet: Option<&str>,
+        rail: Option<&str>,
+        include_held: bool,
+    ) -> Look<Value> {
+        if items.is_empty() {
+            return Look::Refused(Refusal::here("items is a list of title and add-on slugs"));
+        }
+        let mut slugs: Vec<String> = Vec::new();
+        for it in items {
+            match Client::slug(it) {
+                Ok(s) if !slugs.contains(&s) => slugs.push(s),
+                Ok(_) => {}
+                Err(r) => return Look::Refused(r),
+            }
+        }
+        let mut q = vec![format!("items={}", slugs.join(","))];
+        if let Some(r) = rail.map(str::trim).filter(|r| !r.is_empty()) {
+            q.push(format!("rail={}", enc(r)));
+        }
+        if let Some(w) = wallet {
+            match Client::wallet(w) {
+                Ok(w) => q.push(format!("wallet={w}")),
+                Err(r) => return Look::Refused(r),
+            }
+        }
+        if include_held {
+            q.push("include_held=1".into());
+        }
+        self.get(&with_query("/api/tickets/bundle/prepare", &q))
+    }
+
     /// A day's download grant for a copy this wallet owns: the text is
     /// rebuilt here ([`texts::entitle_text`]) and signed once; the answer
     /// carries `grant`, sent as `X-Elo-Grant`. A wallet with no copy is
@@ -1119,6 +1195,63 @@ impl Client {
             &format!("/api/ticket/{s}/entitle"),
             &json!({"wallet": w, "signature": signature}),
         ))
+    }
+
+    // ── bug reports ─────────────────────────────────────────────────────────
+
+    /// File an in-game bug report: `{id, fingerprint, seen, shot, dump}`.
+    ///
+    /// `report` is the report document (docs/client/GAMEDEV.md, bug reports).
+    /// `dump` is a crash dump on a report of kind `crash`: a minidump or a
+    /// backtrace ([`crate::dump_format`]). Send one only when the player chose
+    /// to, just now, after reading [`crate::dump_contains`] for its format, and
+    /// say so with `player_chose_dump`; without it the dump is refused here.
+    pub fn report_bug(
+        &self,
+        game: &str,
+        report: &Value,
+        shot_png: Option<&[u8]>,
+        dump: Option<&[u8]>,
+        player_chose_dump: bool,
+    ) -> Look<Value> {
+        let g = match Client::slug(game) {
+            Ok(g) => g,
+            Err(r) => return Look::Refused(r),
+        };
+        if !report.is_object() {
+            return Look::Refused(Refusal::here("report is the report document, an object"));
+        }
+        let mut body = json!({"game": g, "report": report});
+        if let Some(png) = shot_png {
+            if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+                return Look::Refused(Refusal::here("the screenshot is a PNG"));
+            }
+            body["shot_png_b64"] = json!(b64(png));
+        }
+        if let Some(d) = dump {
+            if !player_chose_dump {
+                return Look::Refused(Refusal::here(
+                    "a crash dump goes only when the player chose to send it: ask them, then pass \
+                     player_chose_dump = true",
+                ));
+            }
+            if report.get("kind").and_then(Value::as_str) != Some("crash") {
+                return Look::Refused(Refusal::here("a crash dump rides a report of kind crash"));
+            }
+            let Some(fmt) = crate::crash::dump_format(d) else {
+                return Look::Refused(Refusal::here(
+                    "a crash dump is a minidump (MDMP) or a UTF-8 backtrace",
+                ));
+            };
+            let cap = crate::crash::dump_cap(fmt);
+            if d.len() > cap {
+                return Look::Refused(Refusal::here(format!(
+                    "a {fmt} is sent only up to {cap} bytes"
+                )));
+            }
+            body["dump"] = json!({"format": fmt, "b64": b64(d), "consent": true});
+        }
+        self.post("/api/bugs", &body)
     }
 
     // ── leaderboards ────────────────────────────────────────────────────────
@@ -1171,13 +1304,14 @@ impl Client {
     }
 
     fn cloud_path(key: &ServerKey, wallet: &str, slot: Option<&str>) -> Result<String, Refusal> {
-        let w = Client::holder(wallet)?;
+        let w = Client::player(wallet)?;
         if let Some(s) = slot {
             let b = s.as_bytes();
             let ok = !b.is_empty()
                 && b.len() <= 48
                 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
-                && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(c));
+                && b.iter()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(c));
             if !ok {
                 return Err(Refusal::here("a slot is 1 to 48 of a-z 0-9 _ . -"));
             }
@@ -1192,7 +1326,8 @@ impl Client {
         let b = game.as_bytes();
         let ok = (1..=63).contains(&b.len())
             && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
-            && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_-".contains(c));
+            && b.iter()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_-".contains(c));
         if !ok {
             return Look::Refused(Refusal::here("game is the title's slug"));
         }
@@ -1236,23 +1371,42 @@ impl Client {
         };
         match self.signed(key, "GET", &path, b"", &[]) {
             Ok(mut resp) if resp.status().as_u16() == 200 => {
-                let header = |n: &str| resp.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
-                let etag = header("etag").map(|e| e.trim_matches('"').to_string()).filter(|e| !e.is_empty());
+                let header = |n: &str| {
+                    resp.headers()
+                        .get(n)
+                        .and_then(|v| v.to_str().ok())
+                        .map(str::to_string)
+                };
+                let etag = header("etag")
+                    .map(|e| e.trim_matches('"').to_string())
+                    .filter(|e| !e.is_empty());
                 let version = header("x-elo-version").and_then(|v| v.parse().ok());
                 match resp.body_mut().read_to_vec() {
-                    Ok(data) => Look::Answer(CloudSave { data, etag, version }),
+                    Ok(data) => Look::Answer(CloudSave {
+                        data,
+                        etag,
+                        version,
+                    }),
                     Err(e) => Look::CouldNotLook(format!("the save could not be read: {e}")),
                 }
             }
             other => match self.read::<Value>(other) {
                 Look::Refused(r) => Look::Refused(r),
                 Look::CouldNotLook(w) => Look::CouldNotLook(w),
-                Look::Answer(_) => Look::CouldNotLook("the save came back in a shape this SDK does not read".into()),
+                Look::Answer(_) => Look::CouldNotLook(
+                    "the save came back in a shape this SDK does not read".into(),
+                ),
             },
         }
     }
 
-    pub fn cloud_delete(&self, key: &ServerKey, wallet: &str, slot: &str, if_match: Option<&str>) -> Look<Value> {
+    pub fn cloud_delete(
+        &self,
+        key: &ServerKey,
+        wallet: &str,
+        slot: &str,
+        if_match: Option<&str>,
+    ) -> Look<Value> {
         let path = match Client::cloud_path(key, wallet, Some(slot)) {
             Ok(p) => p,
             Err(r) => return Look::Refused(r),
@@ -1277,10 +1431,97 @@ impl Client {
         }
         let body = json!({ "reports": reports }).to_string();
         let path = format!("/gamestats/{}/report", key.game());
-        self.read(self.signed(key, "POST", &path, body.as_bytes(), &[("Content-Type", "application/json")]))
+        self.read(self.signed(
+            key,
+            "POST",
+            &path,
+            body.as_bytes(),
+            &[("Content-Type", "application/json")],
+        ))
     }
 
     // ── reads a game server makes at join ───────────────────────────────────
+
+    // ── a game's economy (/economy/{slug}) ──────────────────────────────────
+
+    fn economy_rows(&self, key: &ServerKey, route: &str, field: &str, rows: &Value) -> Look<Value> {
+        if !rows
+            .as_array()
+            .is_some_and(|a| (1..=100).contains(&a.len()))
+        {
+            return Look::Refused(Refusal::here(format!("{field} is a list of 1 to 100 rows")));
+        }
+        let body = json!({ field: rows }).to_string();
+        let path = format!("/economy/{}/{route}", key.game());
+        self.read(self.signed(
+            key,
+            "POST",
+            &path,
+            body.as_bytes(),
+            &[("Content-Type", "application/json")],
+        ))
+    }
+
+    /// Give players currency or an item: `[{"id", "player", "amount"}]` or
+    /// `[{"id", "player", "item", "qty"}]`. A row's `id` is yours; a retry
+    /// answers `replayed`.
+    pub fn economy_grant(&self, key: &ServerKey, grants: &Value) -> Look<Value> {
+        self.economy_rows(key, "grant", "grants", grants)
+    }
+
+    /// Take currency or an item: the same rows as [`Client::economy_grant`].
+    pub fn economy_spend(&self, key: &ServerKey, spends: &Value) -> Look<Value> {
+        self.economy_rows(key, "spend", "spends", spends)
+    }
+
+    /// Sell a pass or a product at the price in the game's settings:
+    /// `[{"id", "player", "item", "qty"}]`. In real mode each row answers the
+    /// transfer the game's payer wallet sends; confirm it with
+    /// [`Client::economy_buy_confirm`].
+    pub fn economy_buy(&self, key: &ServerKey, buys: &Value) -> Look<Value> {
+        self.economy_rows(key, "buy", "buys", buys)
+    }
+
+    /// A real buy's transaction landed: the item is granted.
+    pub fn economy_buy_confirm(&self, key: &ServerKey, row_id: &str, tx: &str) -> Look<Value> {
+        let hex = tx.strip_prefix("0x").unwrap_or("");
+        if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Look::Refused(Refusal::here("tx is the transaction hash: 0x and 64 hex"));
+        }
+        let body = json!({ "id": row_id, "tx": tx }).to_string();
+        let path = format!("/economy/{}/buy/confirm", key.game());
+        self.read(self.signed(
+            key,
+            "POST",
+            &path,
+            body.as_bytes(),
+            &[("Content-Type", "application/json")],
+        ))
+    }
+
+    /// A game's economy: its mode, currency and items.
+    pub fn economy(&self, slug: &str) -> Look<Value> {
+        match Client::slug(slug) {
+            Ok(s) => self.get(&format!("/api/economy/{s}")),
+            Err(r) => Look::Refused(r),
+        }
+    }
+
+    /// A player's balance of a game's currency. Needs no key.
+    pub fn economy_balance(&self, slug: &str, player: &str) -> Look<Value> {
+        match (Client::slug(slug), Client::player(player)) {
+            (Ok(s), Ok(p)) => self.get(&format!("/api/economy/{s}/balance/{p}")),
+            (Err(r), _) | (_, Err(r)) => Look::Refused(r),
+        }
+    }
+
+    /// The items a player holds in a game: the pass check. Needs no key.
+    pub fn economy_items(&self, slug: &str, player: &str) -> Look<Value> {
+        match (Client::slug(slug), Client::player(player)) {
+            (Ok(s), Ok(p)) => self.get(&format!("/api/economy/{s}/items/{p}")),
+            (Err(r), _) | (_, Err(r)) => Look::Refused(r),
+        }
+    }
 
     /// Is this wallet in the playtest (an access code)?
     pub fn playtest_access(&self, slug: &str, wallet: &str) -> Look<bool> {
@@ -1297,7 +1538,7 @@ impl Client {
 
     /// The player's subscribed Workshop mods for a game, with file urls and sha256s.
     pub fn workshop_subscribed(&self, slug: &str, wallet: &str) -> Look<Value> {
-        match (Client::slug(slug), Client::holder(wallet)) {
+        match (Client::slug(slug), Client::player(wallet)) {
             (Ok(s), Ok(w)) => self.get(&format!("/api/workshop/{s}/subscribed/{w}")),
             (Err(r), _) | (_, Err(r)) => Look::Refused(r),
         }
@@ -1306,7 +1547,9 @@ impl Client {
     /// One lobby with its members; a server admits the party from this.
     pub fn lobby(&self, id: &str) -> Look<Value> {
         let ok = (16..=32).contains(&id.len())
-            && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-');
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-');
         if !ok {
             return Look::Refused(Refusal::here("not a lobby id"));
         }
@@ -1314,7 +1557,7 @@ impl Client {
     }
 
     pub fn lobby_of(&self, wallet: &str) -> Look<Value> {
-        match Client::holder(wallet) {
+        match Client::player(wallet) {
             Ok(w) => self.get(&format!("/api/lobbies/of/{w}")),
             Err(r) => Look::Refused(r),
         }
@@ -1323,7 +1566,9 @@ impl Client {
     /// The first listed server, in the developer's order, that is up and has room for `party`.
     pub fn quick_join(&self, slug: &str, party: u32) -> Look<Value> {
         match Client::slug(slug) {
-            Ok(s) if (1..=64).contains(&party) => self.get(&format!("/api/lobbies/pick/{s}?party={party}")),
+            Ok(s) if (1..=64).contains(&party) => {
+                self.get(&format!("/api/lobbies/pick/{s}?party={party}"))
+            }
             Ok(_) => Look::Refused(Refusal::here("a party is 1 to 64")),
             Err(r) => Look::Refused(r),
         }
@@ -1352,6 +1597,24 @@ mod tests {
         assert_eq!(
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn a_player_is_a_wallet_or_an_account_id() {
+        let a = format!("acct_{}", "0a".repeat(10));
+        assert_eq!(Client::player(&a).ok(), Some(a.clone()));
+        assert_eq!(
+            Client::player("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                .ok()
+                .as_deref(),
+            Some("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert!(Client::player("acct_XYZ").is_err());
+        assert!(Client::player(&format!("acct_{}", "0".repeat(21))).is_err());
+        assert!(
+            Client::holder(&a).is_err(),
+            "a copy is still held by a wallet only"
         );
     }
 

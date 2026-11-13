@@ -1496,6 +1496,7 @@ pub fn wire_store(
     for row in &store_w.rows {
         let slug = row.slug.clone();
         let act = row.act;
+        let browser = row.browser.clone();
         let (front_c, tell_c) = (Rc::clone(&front), Rc::clone(&tell));
         let then_c = Rc::clone(&then);
         let after = Rc::clone(&after_install);
@@ -1541,6 +1542,15 @@ pub fn wire_store(
                         app::redraw();
                     },
                 );
+            }
+            Act::Browser => {
+                let url = browser.clone().unwrap_or_else(|| front_c.page_url(&slug));
+                if let Err(e) = front_c.open(&url) {
+                    tell_c(
+                        Told::Refused,
+                        &format!("{e}\n\nOpen it yourself:\n{url}"),
+                    );
+                }
             }
             Act::Buy | Act::Page => {
                 let url = front_c.page_url(&slug);

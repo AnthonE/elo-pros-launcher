@@ -105,10 +105,47 @@ class Calls(unittest.TestCase):
         got = self.elo.cloud_get(self.key, "0x" + "11" * 20, "save")
         self.assertEqual(got.value, {"data": b"\x00bytes", "etag": "abc", "version": 3})
 
+    def test_an_account_id_is_a_player(self):
+        a = "acct_" + "0a" * 10
+        got = self.elo.cloud_put(self.key, a, "save", b"x")
+        self.assertTrue(got.ok, got)
+        self.assertEqual(self.seen[-1][1], f"/api/cloud/my-game/{a}/save")
+        self.elo.workshop_subscribed("my-game", a)
+        self.assertEqual(self.seen[-1][1], f"/api/workshop/my-game/subscribed/{a}")
+        bad = self.elo.cloud_put(self.key, "acct_XYZ", "save", b"x")
+        self.assertTrue(bad.refused and bad.status == 0)
+
     def test_a_bad_slot_is_refused_before_asking(self):
         got = self.elo.cloud_put(self.key, "0x" + "11" * 20, "../x", b"")
         self.assertTrue(got.refused and got.status == 0)
         self.assertEqual(self.seen, [])
+
+    def test_economy_calls_sign_their_rows(self):
+        w = "0x" + "11" * 20
+        rows = [{"id": "b-1", "player": w, "item": "vip"}]
+        self.assertTrue(self.elo.economy_buy(self.key, rows).ok)
+        method, path, headers, body = self.seen[-1]
+        self.assertEqual((method, path), ("POST", "/api/economy/my-game/buy"))
+        self.assertEqual(json.loads(body), {"buys": rows})
+        text = server_text("POST", "/economy/my-game/buy", "my-game/eu-1", headers["X-Elo-Time"],
+                           body, headers["X-Elo-Nonce"])
+        self.assertEqual(headers["X-Elo-Signature"], self.key.sign_text(text))
+        self.assertTrue(self.elo.economy_grant(self.key, [{"id": "g", "player": w, "amount": 3}]).ok)
+        self.assertEqual(self.seen[-1][1], "/api/economy/my-game/grant")
+        self.assertTrue(self.elo.economy_spend(self.key, [{"id": "s", "player": w, "item": "potion"}]).ok)
+        self.assertEqual(json.loads(self.seen[-1][3]), {"spends": [{"id": "s", "player": w, "item": "potion"}]})
+        tx = "0x" + "ab" * 32
+        self.assertTrue(self.elo.economy_buy_confirm(self.key, "b-1", tx).ok)
+        self.assertEqual(json.loads(self.seen[-1][3]), {"id": "b-1", "tx": tx})
+        self.assertTrue(self.elo.economy_items("my-game", "acct_" + "1" * 20).ok)
+        self.assertEqual(self.seen[-1][1], "/api/economy/my-game/items/acct_" + "1" * 20)
+        self.assertTrue(self.elo.economy_balance("my-game", w.upper().replace("0X", "0x")).ok)
+        self.assertEqual(self.seen[-1][1], f"/api/economy/my-game/balance/{w}")
+        n = len(self.seen)
+        self.assertTrue(self.elo.economy_buy(self.key, []).refused)
+        self.assertTrue(self.elo.economy_buy_confirm(self.key, "b-1", "nope").refused)
+        self.assertTrue(self.elo.economy_items("my-game", "bob").refused)
+        self.assertEqual(len(self.seen), n)
 
     def test_unsigned_reads(self):
         self.assertTrue(self.elo.quick_join("my-game", 4).ok)

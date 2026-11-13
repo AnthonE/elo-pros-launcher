@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A compile check, not a test: Runtime/ as a netstandard2.1 library (the
+       API surface Unity 2021.3 gives a package) in C# 9, with the defines a
+       WebGL player and a desktop player set. UnityStubs.cs stands in for the
+       few UnityEngine types the Unity-only files touch; it checks the code
+       compiles against those shapes, not that Unity behaves. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Player Condition="'$(Player)' == ''">webgl</Player>
+    <DefineConstants Condition="'$(Player)' == 'webgl'">UNITY_5_3_OR_NEWER;UNITY_WEBGL</DefineConstants>
+    <DefineConstants Condition="'$(Player)' == 'desktop'">UNITY_5_3_OR_NEWER;UNITY_STANDALONE</DefineConstants>
+    <IntermediateOutputPath>obj/$(Player)/</IntermediateOutputPath>
+    <OutputPath>bin/$(Player)/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/**/*.cs" />
+    <Compile Include="../../Samples~/**/*.cs" />
+    <Compile Include="UnityStubs.cs" />
+  </ItemGroup>
+</Project>

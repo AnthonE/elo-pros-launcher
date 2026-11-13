@@ -12,3 +12,7 @@ __pycache__/
 *.egg-info/
 /sdk/js/node_modules/
 /sdk/js/*.tgz
+/sdk/unity/Tests~/bin/
+/sdk/unity/Tests~/obj/
+/sdk/unity/Tests~/Compat/bin/
+/sdk/unity/Tests~/Compat/obj/

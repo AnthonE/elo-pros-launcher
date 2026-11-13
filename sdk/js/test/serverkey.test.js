@@ -66,7 +66,38 @@ test("cloudPut signs the bare path and the body; cloudGet returns bytes", async 
     const bad = await elo.cloudPut(key, w, "../x", "");
     assert.equal(bad.kind, "refused");
     assert.equal(bad.status, 0);
+    const acct = "acct_" + "0a".repeat(10);
+    assert.equal((await elo.cloudPut(key, acct, "save", "x")).ok, true);
+    assert.equal(seen.at(-1).url, `/api/cloud/my-game/${acct}/save`);
+    await elo.workshopSubscribed("my-game", acct);
+    assert.equal(seen.at(-1).url, `/api/workshop/my-game/subscribed/${acct}`);
+    assert.equal((await elo.cloudPut(key, "acct_XYZ", "save", "x")).kind, "refused");
     assert.equal((await elo.quickJoin("my-game", 0)).kind, "refused");
+    const rows = [{ id: "b-1", player: w, item: "vip" }];
+    assert.equal((await elo.economyBuy(key, rows)).ok, true);
+    const b = seen.at(-1);
+    assert.equal(b.method, "POST");
+    assert.equal(b.url, "/api/economy/my-game/buy");
+    assert.deepEqual(JSON.parse(b.body.toString()), { buys: rows });
+    const btext = await serverText("POST", "/economy/my-game/buy", "my-game/eu-1", b.headers["x-elo-time"],
+      new Uint8Array(b.body), b.headers["x-elo-nonce"]);
+    assert.equal(b.headers["x-elo-signature"], await key.signText(btext));
+    await elo.economyGrant(key, [{ id: "g", player: w, amount: 3 }]);
+    assert.equal(seen.at(-1).url, "/api/economy/my-game/grant");
+    await elo.economySpend(key, [{ id: "s", player: w, item: "potion" }]);
+    assert.equal(seen.at(-1).url, "/api/economy/my-game/spend");
+    const tx = "0x" + "ab".repeat(32);
+    await elo.economyBuyConfirm(key, "b-1", tx);
+    assert.deepEqual(JSON.parse(seen.at(-1).body.toString()), { id: "b-1", tx });
+    await elo.economyItems("my-game", "acct_" + "1".repeat(20));
+    assert.equal(seen.at(-1).url, "/api/economy/my-game/items/acct_" + "1".repeat(20));
+    await elo.economyBalance("my-game", w);
+    assert.equal(seen.at(-1).url, `/api/economy/my-game/balance/${w}`);
+    const n = seen.length;
+    assert.equal((await elo.economyBuy(key, [])).kind, "refused");
+    assert.equal((await elo.economyBuyConfirm(key, "b-1", "nope")).kind, "refused");
+    assert.equal((await elo.economyItems("my-game", "bob")).kind, "refused");
+    assert.equal(seen.length, n);
   } finally {
     await new Promise((ok) => server.close(ok));
   }

@@ -430,12 +430,24 @@ pub fn resolve(
     // Streamer mode rides every launch from here, so no door can start a game
     // that shows what the launcher is hiding (`streamer.rs`).
     env.extend(crate::streamer::launch_env());
+    // Where a crash handler writes its dump, for every door the same way
+    // (`crash.rs`). The launcher's own, so set after the depot's.
+    env.insert(
+        crate::crash::ENV.into(),
+        crate::crash::dir(path).to_string_lossy().to_string(),
+    );
     // Game mode rides every launch from here for the same reason.
     Ok(Launch { argv, cwd, env, boost: crate::gamemode::boost() })
 }
 
 fn command(launch: &Launch) -> Command {
     let argv = launch.command_line();
+    // The crash folder exists before the game starts: breakpad and crashpad
+    // write into a folder, they do not make one. Best effort; a game without
+    // a crash handler never notices.
+    if let Some(d) = launch.env.get(crate::crash::ENV) {
+        let _ = std::fs::create_dir_all(d);
+    }
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..]).current_dir(&launch.cwd);
     for (k, v) in &launch.env {

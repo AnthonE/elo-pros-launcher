@@ -50,6 +50,7 @@ fn shelf_row(i: usize) -> Shelf {
         installed: false,
         price: Price::Free,
         icon: None,
+        browser: None,
     }
 }
 

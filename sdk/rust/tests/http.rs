@@ -374,3 +374,95 @@ fn each_read_asks_its_path() {
     assert!(c.buddies("x").is_refused());
     assert!(c.board(Some("../x")).is_refused());
 }
+
+#[test]
+fn a_crash_dump_goes_only_with_the_players_choice() {
+    let sent: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&sent);
+    let (origin, seen) = stub(Box::new(move |_, body| {
+        log.lock().unwrap().push(body.clone());
+        (
+            201,
+            json!({"ok": true, "id": "20261102-120000-abcdef12", "seen": 1, "dump": true})
+                .to_string(),
+        )
+    }));
+    let c = client(&origin);
+    let crash = json!({"format": 1, "kind": "crash", "fingerprint": "0011223344556677"});
+    let mdmp = b"MDMP\x93\xa7rest";
+    assert!(c
+        .report_bug("gates", &crash, None, Some(mdmp), false)
+        .is_refused());
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "nothing is sent without the player's choice"
+    );
+    let look = json!({"format": 1, "kind": "look"});
+    assert!(c
+        .report_bug("gates", &look, None, Some(mdmp), true)
+        .is_refused());
+    assert!(
+        c.report_bug("gates", &crash, None, Some(b"\x7fELF\x02"), true)
+            .is_refused(),
+        "a core file is never sent"
+    );
+    assert!(c
+        .report_bug("gates", &crash, None, Some(mdmp), true)
+        .is_answer());
+    assert_eq!(seen.lock().unwrap().clone(), vec!["/api/bugs".to_string()]);
+    assert_eq!(
+        sent.lock().unwrap()[0]["dump"],
+        json!({"format": "minidump", "b64": "TURNUJOncmVzdA==", "consent": true})
+    );
+}
+
+#[test]
+fn the_economy_calls_ask_their_paths_and_send_their_rows() {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let kept = Arc::clone(&bodies);
+    let (origin, seen) = stub(Box::new(move |_, body| {
+        kept.lock().unwrap().push(body.clone());
+        (200, json!({"ok": true}).to_string())
+    }));
+    let c = client(&origin);
+    let key = elo_sdk::ServerKey::from_seed("mine-game", "eu-1", &[7u8; 32]).unwrap();
+    let rows = json!([{"id": "r1", "player": ME, "item": "vip", "qty": 1}]);
+    let tx = format!("0x{}", "ab".repeat(32));
+    for got in [
+        c.economy("Mine-Game"),
+        c.economy_items("mine-game", ME),
+        c.economy_balance("mine-game", ME),
+        c.economy_grant(&key, &rows),
+        c.economy_spend(&key, &rows),
+        c.economy_buy(&key, &rows),
+        c.economy_buy_confirm(&key, "r1", &tx),
+    ] {
+        assert!(got.is_answer());
+    }
+    assert_eq!(
+        seen.lock().unwrap().clone(),
+        vec![
+            "/api/economy/mine-game".to_string(),
+            format!("/api/economy/mine-game/items/{ME}"),
+            format!("/api/economy/mine-game/balance/{ME}"),
+            "/api/economy/mine-game/grant".into(),
+            "/api/economy/mine-game/spend".into(),
+            "/api/economy/mine-game/buy".into(),
+            "/api/economy/mine-game/buy/confirm".into(),
+        ]
+    );
+    let bodies = bodies.lock().unwrap();
+    assert_eq!(bodies[3], json!({"grants": rows}));
+    assert_eq!(bodies[4], json!({"spends": rows}));
+    assert_eq!(bodies[5], json!({"buys": rows}));
+    assert_eq!(bodies[6], json!({"id": "r1", "tx": tx}));
+
+    // refused here, before anything is sent
+    let before = seen.lock().unwrap().len();
+    assert!(c.economy_items("mine-game", "nobody").is_refused());
+    assert!(c.economy("../x").is_refused());
+    assert!(c.economy_buy(&key, &json!([])).is_refused());
+    assert!(c.economy_buy(&key, &json!({"id": "r1"})).is_refused());
+    assert!(c.economy_buy_confirm(&key, "r1", "0x12").is_refused());
+    assert_eq!(seen.lock().unwrap().len(), before);
+}

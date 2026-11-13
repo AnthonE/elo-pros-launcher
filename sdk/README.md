@@ -8,6 +8,7 @@ identity and signatures with no key in the game, and the platform's API.
 | **`elo-sdk`** (Rust crate) | [`rust/`](rust/) | native games and servers; the launcher overlay plus the HTTP client |
 | **`elo-sdk`** (Python) | [`python/`](python/) | servers, tools and agents; standard library only |
 | **`@elopros/sdk`** (JavaScript) | [`js/`](js/) | Node, Deno, Bun and browsers; ships the web SDK `elo-3.js` and its types |
+| **`com.elopros.sdk`** (Unity) | [`unity/`](unity/) | Unity games: the launcher on desktop, `elo-3.js` on WebGL, and the platform API, behind one `Elo` class |
 
 Each folder's README has its install line and a quick start. The three have
 one API, tested against one set of fixtures ([`testdata/`](testdata/)), which
@@ -41,6 +42,10 @@ elo-sdk = { git = "https://github.com/AnthonE/elo-pros-launcher" }
 
 For the JavaScript package, clone this repo and `npm install ./sdk/js` (npm
 cannot install one folder of a repo).
+
+For Unity, add the package from git in the Package Manager:
+`https://github.com/AnthonE/elo-pros-launcher.git?path=sdk/unity`
+([`unity/README.md`](unity/README.md)).
 
 ## Two halves
 
@@ -101,8 +106,9 @@ and the payout file a game server writes when a wipe closes.
 | the paid work on a title | `board(Some(game))` | `board(game)` | `board(game)` |
 | claim or deliver, signed | `board_claim`, `board_submit(me, id, url, note, &mut sign)` | `board_claim`, `board_submit(me, id, url, sign, note=…)` | `boardClaim`, `boardSubmit(me, id, url, sign, { note })` |
 | the calls that buy a copy | `ticket_buy(slug, Some(wallet), rail)` | `ticket_buy(slug, wallet, rail)` | `ticketBuy(slug, { wallet, rail })` |
+| several copies and add-ons, one checkout | `bundle_buy(&[slugs], Some(wallet), rail, include_held)` | `bundle_buy(slugs, wallet, rail, include_held)` | `bundleBuy(slugs, { wallet, rail, includeHeld })` |
 | check a player's sign-in (server) | `check_sign_in(msg, sig, &SignInCheck::new(domain, nonce))` | `check_sign_in(msg, sig, domain=…, nonce=…)` | `checkSignIn(msg, sig, { domain, nonce })` |
-| sweep the roster (server) | `check_roster(slug, &wallets)` | `check_roster(slug, wallets)` | `checkRoster(slug, wallets)` |
+| sweep the roster (server): copies, trial minutes left, add-ons held | `check_roster(slug, &wallets)` | `check_roster(slug, wallets)` | `checkRoster(slug, wallets)` |
 | a sign-in nonce | `new_nonce(16)` | `new_nonce()` | `await newNonce()` |
 | a download grant, signed | `entitle(slug, wallet, &mut sign)` | `entitle(slug, wallet, sign)` | `entitle(slug, wallet, sign)` |
 | a call's outcome | `Look::{Answer, Refused, CouldNotLook}` | `look.kind` | `look.kind` |
@@ -113,6 +119,8 @@ and the payout file a game server writes when a wipe closes.
 | test the key's signing (server) | `server_check(&key)` | `server_check(key)` | `serverCheck(key)` |
 | cloud saves (server) | `cloud_put`, `cloud_get`, `cloud_delete`, `cloud_list` | the same names | `cloudPut`, `cloudGet`, `cloudDelete`, `cloudList` |
 | stats, unlocks and scores (server) | `stats_report(&key, &reports)` | `stats_report(key, reports)` | `statsReport(key, reports)` |
+| the game's economy: currency, passes and products (server) | — | `economy_grant`, `economy_spend`, `economy_buy`, `economy_buy_confirm` | `economyGrant`, `economySpend`, `economyBuy`, `economyBuyConfirm` |
+| a balance, and the items a player holds | — | `economy_balance(slug, player)`, `economy_items(slug, player)` | `economyBalance`, `economyItems` |
 | at join: playtest, mods, lobby, quick join | `playtest_access`, `workshop_subscribed`, `lobby`, `lobby_of`, `quick_join` | the same names | `playtestAccess`, `workshopSubscribed`, `lobby`, `lobbyOf`, `quickJoin` |
 | move a player to another of your servers (server) | `key.handoff(player, from, to, carry, ttl)` | `key.handoff(player, frm, to, carry=…)` | `await key.handoff(player, from, to, { carry })` |
 | admit a moved player (server) | `HandoffDoor::with_source(game, &[addr], Box::new(client)).admit_now(&token, carry)` | `HandoffDoor(game, [addr], client=client).admit(token, carry)` | `await new HandoffDoor(game, [addr], { client }).admit(token, carry)` |
@@ -144,9 +152,16 @@ elo = Client()
 assert elo.server_check(key).ok
 elo.cloud_put(key, player, "save", save_bytes)            # Steam Cloud
 elo.stats_report(key, [{"wallet": player, "stats": {"kills": 3}, "scores": {"speedrun": 9123}}])
+elo.economy_buy(key, [{"id": "shop-552", "player": player, "item": "vip"}])  # a pass, at your price
 if elo.playtest_access("my-game", player).value is not True:
     refuse(player)                                          # a closed playtest
 ```
+
+`player` is who the player's sign-in or pass check answered: a wallet, or,
+for someone signed in with Discord, Google, Steam or GitHub and no wallet,
+their account's own `acct_…` id. Saves, stats, mods and lobbies take either,
+and what an account kept moves to its wallet when it starts playing as one.
+The rated queue and a playtest take wallets only.
 
 ## Guilds in your game
 

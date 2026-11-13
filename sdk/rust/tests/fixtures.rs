@@ -88,6 +88,50 @@ fn friends_view_parses_with_buddies() {
 }
 
 #[test]
+fn addons_and_the_trial() {
+    let t = fx(include_str!("../../testdata/ticket.json"));
+    let card: Ticket = as_answer(&t["with_addons"]);
+    assert_eq!(card.trial.as_ref().map(|x| x.minutes), Some(30));
+    assert!(card.addon.is_none());
+    assert_eq!(card.addons.len(), 1);
+    assert_eq!(
+        (card.addons[0].slug.as_str(), card.addons[0].kind.as_deref()),
+        ("gates-maps", Some("map"))
+    );
+    assert!(card.addons[0].changes.is_empty());
+    assert!(card.addons[0]
+        .says
+        .as_deref()
+        .unwrap()
+        .starts_with("Changes no stats"));
+    let own: Ticket = as_answer(&t["addon"]);
+    assert_eq!(own.addon.and_then(|a| a.parent).as_deref(), Some("gates"));
+    let plain: Ticket = as_answer(&t["ticketed"]);
+    assert!(plain.trial.is_none() && plain.addons.is_empty());
+
+    let o = fx(include_str!("../../testdata/ticket_of.json"));
+    let held: TicketOf = as_answer(&o["owned_with_addons"]);
+    assert_eq!(held.addons.get("gates-maps"), Some(&Some(true)));
+    let trial: TicketOf = as_answer(&o["trial"]);
+    assert_eq!(
+        (
+            trial.entitled,
+            trial.trial,
+            trial.trial_minutes,
+            trial.trial_minutes_left,
+            trial.copies
+        ),
+        (Some(true), true, Some(30), Some(20), Some(0))
+    );
+    assert_eq!(trial.addons.get("gates-maps"), Some(&Some(false)));
+    let spent: TicketOf = as_answer(&o["trial_used_up"]);
+    assert_eq!(
+        (spent.entitled, spent.trial, spent.trial_minutes_left),
+        (Some(false), true, Some(0))
+    );
+}
+
+#[test]
 fn ticket_card_and_ownership() {
     let t = fx(include_str!("../../testdata/ticket.json"));
     let card: Ticket = as_answer(&t["ticketed"]);
@@ -108,6 +152,7 @@ fn ticket_card_and_ownership() {
     );
     let free_of: TicketOf = as_answer(&o["free"]);
     assert_eq!(free_of.entitled, Some(true));
+    assert!(!owned.trial && owned.addons.is_empty());
     let down = &o["could_not_look"];
     let look: Look<TicketOf> = classify(
         down["status"].as_u64().unwrap() as u16,

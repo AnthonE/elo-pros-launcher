@@ -4,8 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { ActError, BUDDY_ACTION, Client, claimText, dayOf, entitleText, friendsSignText, playMessage, submitDetail,
-  submitText } from "../index.js";
+import { ActError, BUDDY_ACTION, Client, DUMP_CONTAINS, claimText, dayOf, dumpFormat, entitleText, friendsSignText,
+  playMessage, submitDetail, submitText } from "../index.js";
 import { fx } from "./_testdata.js";
 
 const ME = "0x1111111111111111111111111111111111111111";
@@ -223,4 +223,44 @@ test("each read asks its path", async () => {
   assert.equal((await c.home("0x12")).status, 0);
   assert.equal((await c.home(ME, { since: -1 })).status, 0);
   assert.equal((await c.board("../x")).status, 0);
+});
+
+const CRASH = { format: 1, kind: "crash", fingerprint: "0011223344556677", issue_title: "[crash] x",
+  read_first: "README.md", reported: "2026-11-02T12:00:00Z",
+  build: { version: "1.0", commit: "abcdef1", platform: "linux", runtime: "desktop" } };
+
+test("a crash dump goes only with the player's choice", async () => {
+  const sent = [];
+  const s = await stub((path, body) => {
+    sent.push([path, body]);
+    return [201, { ok: true, id: "20261102-120000-abcdef12", seen: 1, shot: false, dump: true }];
+  });
+  try {
+    const c = new Client(s.origin);
+    const mdmp = new Uint8Array([0x4d, 0x44, 0x4d, 0x50, 0x93, 0xa7, 0x72, 0x65, 0x73, 0x74]);
+    const no = await c.reportBug("gates", CRASH, { dump: mdmp });
+    assert.equal(no.status, 0);
+    assert.match(no.error, /chose/);
+    assert.equal(sent.length, 0, "nothing is sent without the player's choice");
+    const look = await c.reportBug("gates", { ...CRASH, kind: "look" }, { dump: mdmp, playerChoseDump: true });
+    assert.equal(look.ok, false);
+    const core = await c.reportBug("gates", CRASH, { dump: new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 2]),
+      playerChoseDump: true });
+    assert.equal(core.ok, false, "a core file is never sent");
+    const got = await c.reportBug("gates", CRASH, { dump: mdmp, playerChoseDump: true });
+    assert.equal(got.ok, true, got.error);
+    assert.equal(sent.at(-1)[0], "/api/bugs");
+    assert.deepEqual(sent.at(-1)[1].dump, { format: "minidump", b64: "TURNUJOncmVzdA==", consent: true });
+  } finally {
+    await s.close();
+  }
+});
+
+test("the dump formats", () => {
+  assert.equal(dumpFormat(new Uint8Array([0x4d, 0x44, 0x4d, 0x50, 0])), "minidump");
+  assert.equal(dumpFormat("thread 'main' panicked at a.rs:1"), "backtrace");
+  assert.equal(dumpFormat(new Uint8Array([0xff, 0xfe])), null);
+  assert.equal(dumpFormat(new Uint8Array([0x74, 0, 0x74])), null);
+  assert.equal(dumpFormat(new Uint8Array([])), null);
+  assert.match(DUMP_CONTAINS.minidump, /memory of the game process/);
 });

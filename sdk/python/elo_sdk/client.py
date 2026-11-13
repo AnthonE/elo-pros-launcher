@@ -186,6 +186,20 @@ def _holder(w) -> Optional[str]:
     return w if _SOLANA.match(w) else None
 
 
+_ACCOUNT = re.compile(r"^acct_[0-9a-f]{20}$")
+
+
+def _player(w) -> Optional[str]:
+    """Who a game keeps things for: a wallet (`_holder`), or a signed-in
+    account's own `acct_…` id — the `player` a pass check answers for a
+    login that plays without a wallet (`check_pass`)."""
+    h = _holder(w)
+    if h is not None:
+        return h
+    w = w.strip() if isinstance(w, str) else ""
+    return w if _ACCOUNT.match(w) else None
+
+
 def new_nonce(n: int = 16) -> str:
     """A fresh sign-in nonce: `n` letters and digits (default 16, 8 to 128)
     from `secrets` — the alphabet EIP-4361 requires, so a uuid with dashes
@@ -199,6 +213,34 @@ def new_nonce(n: int = 16) -> str:
 def _slug(s) -> Optional[str]:
     s = s.strip().lower() if isinstance(s, str) else ""
     return s if _SLUG.match(s) else None
+
+
+# A crash dump on a bug report (meter/bugs.py): the two formats, their caps,
+# and what each holds, to show the player before they choose to send one.
+MINIDUMP_MAX = 4 << 20
+BACKTRACE_MAX = 256 << 10
+DUMP_CONTAINS = {
+    "minidump": ("memory of the game process at the crash: each thread's stack and registers, the "
+                 "loaded modules, and any heap the game chose to include, which can hold whatever "
+                 "the game had in memory (text typed into it, too)"),
+    "backtrace": ("the text the game wrote as it crashed: its call stack, as function names and "
+                  "source lines"),
+}
+
+
+def dump_format(data: bytes) -> Optional[str]:
+    """"minidump" (a file starting MDMP: Windows, breakpad, crashpad),
+    "backtrace" (UTF-8 text), or None for anything a report cannot carry."""
+    data = bytes(data or b"")
+    if data.startswith(b"MDMP"):
+        return "minidump"
+    if not data or data.startswith(b"\x7fELF") or b"\x00" in data:
+        return None
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return "backtrace"
 
 
 def _name_error(name: str) -> Optional[str]:
@@ -342,7 +384,9 @@ class Client:
             if h not in roster:
                 roster.append(h)
         entitled: dict = {}
-        game, read, failed = s, 0, None
+        trial: dict = {}
+        addons: dict = {}
+        game, read, failed, ticketed = s, 0, None, True
         for i in range(0, len(roster), ROSTER_PAGE):
             page = roster[i:i + ROSTER_PAGE]
             got = self.post(f"/api/ticket/{s}/check", {"wallets": page})
@@ -356,14 +400,21 @@ class Client:
             v = got.value
             if isinstance(v.get("game"), str):
                 game = v["game"]
-            if v.get("ticketed") is False or v.get("every_wallet_entitled") is True:
-                return Look.answer(Roster(game, False, {w: True for w in roster}))
+            free = v.get("ticketed") is False or v.get("every_wallet_entitled") is True
             rows = v.get("wallets") if isinstance(v.get("wallets"), dict) else {}
+            if free and not rows:
+                return Look.answer(Roster(game, False, {w: True for w in roster}))
+            ticketed = ticketed and not free
             for w in page:
-                row = rows.get(w)
-                e = row.get("entitled") if isinstance(row, dict) else None
-                entitled[w] = e if isinstance(e, bool) else None
-        return Look.answer(Roster(game, True, entitled)) if read else failed
+                row = rows.get(w) if isinstance(rows.get(w), dict) else {}
+                e = row.get("entitled")
+                entitled[w] = True if free else (e if isinstance(e, bool) else None)
+                left = row.get("trial_minutes_left")
+                if row.get("trial") is True and isinstance(left, int) and not isinstance(left, bool):
+                    trial[w] = left
+                if isinstance(row.get("addons"), dict):
+                    addons[w] = {k: (x if isinstance(x, bool) else None) for k, x in row["addons"].items()}
+        return Look.answer(Roster(game, ticketed, entitled, trial, addons)) if read else failed
 
     # ── sign-in ─────────────────────────────────────────────────────────────
     def check_sign_in(self, message: str, signature: str, *, domain: str, nonce: str,
@@ -667,6 +718,34 @@ class Client:
             q["wallet"] = w
         return self.get(f"/api/ticket/{s}/prepare" + ("?" + urllib.parse.urlencode(q) if q else ""))
 
+    def bundle_buy(self, items, wallet: Optional[str] = None, rail: Optional[str] = None,
+                   include_held: bool = False) -> Look:
+        """The unsigned calls that buy several copies and add-ons in one
+        checkout (`/api/tickets/bundle/prepare`), each at its own posted
+        price: `send.batched` is one EIP-5792 `wallet_sendCalls`, `txs` the
+        same calls to send one after another. `wallet` leaves out what it
+        already holds (`include_held` keeps it). Nothing is sent for you."""
+        if isinstance(items, str) or not items:
+            return Look.refusal(0, "items is a list of title and add-on slugs")
+        slugs = []
+        for it in items:
+            x = _slug(it)
+            if x is None:
+                return Look.refusal(0, "not a title slug")
+            if x not in slugs:
+                slugs.append(x)
+        q = {"items": ",".join(slugs)}
+        if rail:
+            q["rail"] = rail.strip()
+        if wallet is not None:
+            w = _wallet(wallet)
+            if w is None:
+                return Look.refusal(0, "wallet must be 0x + 40 hex")
+            q["wallet"] = w
+        if include_held:
+            q["include_held"] = "1"
+        return self.get("/api/tickets/bundle/prepare?" + urllib.parse.urlencode(q, safe=","))
+
     def entitle(self, slug: str, wallet: str, sign: Callable[[str], str]) -> Look:
         """A day's download grant for a copy this wallet owns: the text is
         rebuilt here (texts.entitle_text) and signed once; the answer carries
@@ -697,6 +776,42 @@ class Client:
             return Look.refusal(0, "kind is agent or human, or leave it out for everyone")
         return self.get(f"/api/leaderboard/{s}" + (f"?kind={kind}" if kind else ""), Leaderboard.from_json)
 
+
+    # ── bug reports ─────────────────────────────────────────────────────────
+    def report_bug(self, game: str, report: dict, *, shot_png: Optional[bytes] = None,
+                   dump: Optional[bytes] = None, player_chose_dump: bool = False) -> Look:
+        """File an in-game bug report: `{id, fingerprint, seen, shot, dump}`.
+
+        `report` is the report document (docs/client/GAMEDEV.md, bug reports).
+        `dump` is a crash dump on a report of kind "crash": a minidump or a
+        backtrace (`dump_format`). Send one only when the player chose to,
+        just now, after reading `DUMP_CONTAINS[dump_format(dump)]`, and say so
+        with `player_chose_dump=True`; without it the dump is refused here."""
+        s = _slug(game)
+        if s is None:
+            return Look.refusal(0, "not a title slug")
+        if not isinstance(report, dict):
+            return Look.refusal(0, "report is the report document, an object")
+        body: dict = {"game": s, "report": report}
+        if shot_png is not None:
+            if not bytes(shot_png).startswith(b"\x89PNG\r\n\x1a\n"):
+                return Look.refusal(0, "the screenshot is a PNG")
+            body["shot_png_b64"] = base64.b64encode(bytes(shot_png)).decode("ascii")
+        if dump is not None:
+            if not player_chose_dump:
+                return Look.refusal(0, "a crash dump goes only when the player chose to send it: "
+                                       "ask them, then pass player_chose_dump=True")
+            if report.get("kind") != "crash":
+                return Look.refusal(0, "a crash dump rides a report of kind crash")
+            fmt = dump_format(dump)
+            if fmt is None:
+                return Look.refusal(0, "a crash dump is a minidump (MDMP) or a UTF-8 backtrace")
+            cap = MINIDUMP_MAX if fmt == "minidump" else BACKTRACE_MAX
+            if len(dump) > cap:
+                return Look.refusal(0, f"a {fmt} is sent only up to {cap} bytes")
+            body["dump"] = {"format": fmt, "b64": base64.b64encode(bytes(dump)).decode("ascii"),
+                            "consent": True}
+        return self.post("/api/bugs", body)
 
     # ── a game server's word (ServerKey, elo_sdk/server.py) ─────────────────
     def _send(self, method: str, path: str, data: Optional[bytes], headers: dict):
@@ -747,7 +862,7 @@ class Client:
         return self._signed(key, "POST", "/serverkeys/check")
 
     def _cloud_path(self, key, wallet: str, slot: Optional[str] = None) -> Optional[str]:
-        w = _holder(wallet)
+        w = _player(wallet)
         if w is None or not re.match(r"^[a-z0-9][a-z0-9_.-]{0,47}$", slot or "x"):
             return None
         return f"/cloud/{key.game}/{w}" + (f"/{slot}" if slot is not None else "")
@@ -758,7 +873,7 @@ class Client:
         `if_match` writes only over that etag; `create_only` only if none is there."""
         path = self._cloud_path(key, wallet, slot)
         if path is None:
-            return Look.refusal(0, "a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -")
+            return Look.refusal(0, "a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -")
         extra = {"If-Match": if_match} if if_match else ({"If-None-Match": "*"} if create_only else {})
         return self._signed(key, "PUT", path, bytes(data), content_type="application/octet-stream", extra=extra)
 
@@ -766,13 +881,13 @@ class Client:
         """One save: `{data: bytes, etag, version}`; refused 404 when there is none."""
         path = self._cloud_path(key, wallet, slot)
         if path is None:
-            return Look.refusal(0, "a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -")
+            return Look.refusal(0, "a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -")
         return self._signed(key, "GET", path, raw=True)
 
     def cloud_delete(self, key, wallet: str, slot: str, *, if_match: Optional[str] = None) -> Look:
         path = self._cloud_path(key, wallet, slot)
         if path is None:
-            return Look.refusal(0, "a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -")
+            return Look.refusal(0, "a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -")
         return self._signed(key, "DELETE", path, extra={"If-Match": if_match} if if_match else None)
 
     def cloud_list(self, key, wallet: str) -> Look:
@@ -791,6 +906,55 @@ class Client:
         return self._signed(key, "POST", f"/gamestats/{key.game}/report", body,
                             content_type="application/json")
 
+    # ── the game's economy (/economy/{slug}, docs/store/GAME-ECONOMY.md) ────
+    def _economy_rows(self, key, route: str, field: str, rows: list) -> Look:
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+            return Look.refusal(0, f"{field} is a list of 1 to 100 rows")
+        body = json.dumps({field: rows}, separators=(",", ":")).encode("utf-8")
+        return self._signed(key, "POST", f"/economy/{key.game}/{route}", body,
+                            content_type="application/json")
+
+    def economy_grant(self, key, grants: list) -> Look:
+        """Give players currency or an item: `[{"id", "player", "amount"}]` or
+        `[{"id", "player", "item", "qty"}]`. A row's `id` is yours; a retry
+        answers `replayed`."""
+        return self._economy_rows(key, "grant", "grants", grants)
+
+    def economy_spend(self, key, spends: list) -> Look:
+        """Take currency or an item: the same rows as `economy_grant`."""
+        return self._economy_rows(key, "spend", "spends", spends)
+
+    def economy_buy(self, key, buys: list) -> Look:
+        """Sell a pass or a product at the price in your settings:
+        `[{"id", "player", "item", "qty"}]`. In real mode each row answers the
+        `send` your payer wallet makes; confirm it with `economy_buy_confirm`."""
+        return self._economy_rows(key, "buy", "buys", buys)
+
+    def economy_buy_confirm(self, key, row_id: str, tx: str) -> Look:
+        """A real buy's transaction landed: the item is granted."""
+        if not isinstance(tx, str) or not re.match(r"^0x[0-9a-fA-F]{64}$", tx):
+            return Look.refusal(0, "tx is the transaction hash: 0x and 64 hex")
+        body = json.dumps({"id": row_id, "tx": tx}, separators=(",", ":")).encode("utf-8")
+        return self._signed(key, "POST", f"/economy/{key.game}/buy/confirm", body,
+                            content_type="application/json")
+
+    def _economy_read(self, slug: str, player: str, what: str) -> Look:
+        s = _slug(slug)
+        p = player.strip() if isinstance(player, str) else ""
+        p = p.lower() if texts.is_wallet(p) else (p if re.match(r"^acct_[0-9a-f]{20}$", p) else None)
+        if s is None or p is None:
+            return Look.refusal(0, "a title slug, and a wallet (0x…) or an account (acct_…)")
+        return self.get(f"/api/economy/{s}/{what}/{p}")
+
+    def economy_balance(self, slug: str, player: str) -> Look:
+        """A player's balance: `{balance, mode, currency}`."""
+        return self._economy_read(slug, player, "balance")
+
+    def economy_items(self, slug: str, player: str) -> Look:
+        """The items a player holds: `{items: [{id, name, kind, qty}]}`. A pass
+        is owned when its id is there."""
+        return self._economy_read(slug, player, "items")
+
     # ── reads a game server makes at join ───────────────────────────────────
     def playtest_access(self, slug: str, wallet: str) -> Look:
         """Is this wallet in the playtest (an access code)? The answer is a bool."""
@@ -802,9 +966,9 @@ class Client:
     def workshop_subscribed(self, slug: str, wallet: str) -> Look:
         """The player's subscribed mods for this game, in order, with file urls
         and sha256s to check after download."""
-        s, w = _slug(slug), _holder(wallet)
+        s, w = _slug(slug), _player(wallet)
         if s is None or w is None:
-            return Look.refusal(0, "a title slug and a wallet")
+            return Look.refusal(0, "a title slug, and a wallet or an account (acct_…)")
         return self.get(f"/api/workshop/{s}/subscribed/{w}")
 
     def lobby(self, lobby_id: str) -> Look:
@@ -814,7 +978,7 @@ class Client:
         return self.get(f"/api/lobbies/{lobby_id}")
 
     def lobby_of(self, wallet: str) -> Look:
-        w = _holder(wallet)
+        w = _player(wallet)
         if w is None:
             return Look.refusal(0, "not a wallet")
         return self.get(f"/api/lobbies/of/{w}")
@@ -829,4 +993,5 @@ class Client:
 
 
 __all__ = ["DEFAULT_ORIGIN", "DEFAULT_TIMEOUT", "Look", "classify", "ActError", "BadInput", "Mismatch",
-           "SignRefused", "overlay_signer", "Client"]
+           "SignRefused", "overlay_signer", "Client", "MINIDUMP_MAX", "BACKTRACE_MAX", "DUMP_CONTAINS",
+           "dump_format"]

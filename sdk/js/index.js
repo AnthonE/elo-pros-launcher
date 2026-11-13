@@ -278,6 +278,29 @@ function base64(bytes) {
   return btoa(s);
 }
 
+/* ── a crash dump on a bug report (meter/bugs.py) ──────────────────────── */
+
+export const MINIDUMP_MAX = 4 << 20;
+export const BACKTRACE_MAX = 256 << 10;
+/** What each format holds: show it to the player before they choose to send one. */
+export const DUMP_CONTAINS = Object.freeze({
+  minidump: "memory of the game process at the crash: each thread's stack and registers, the loaded "
+    + "modules, and any heap the game chose to include, which can hold whatever the game had in memory "
+    + "(text typed into it, too)",
+  backtrace: "the text the game wrote as it crashed: its call stack, as function names and source lines",
+});
+
+/** "minidump" (a file starting MDMP: Windows, breakpad, crashpad), "backtrace"
+    (UTF-8 text), or null for anything a report cannot carry. */
+export function dumpFormat(data) {
+  const b = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  if (!(b instanceof Uint8Array) || !b.length) return null;
+  if (b[0] === 0x4d && b[1] === 0x44 && b[2] === 0x4d && b[3] === 0x50) return "minidump";
+  if ((b[0] === 0x7f && b[1] === 0x45 && b[2] === 0x4c && b[3] === 0x46) || b.includes(0)) return null;
+  try { new TextDecoder("utf-8", { fatal: true }).decode(b); } catch { return null; }
+  return "backtrace";
+}
+
 /* ── a game server's key ───────────────────────────────────────────────── */
 
 /** The exact text a game server signs for one request (meter/serverkeys.py):
@@ -571,6 +594,16 @@ const holder = (w) => {
   const t = w.trim();
   return isWallet(t) ? t.toLowerCase() : SOLANA.test(t) ? t : null;
 };
+/* Who a game keeps things for: a wallet (`holder`), or a signed-in account's
+   own `acct_…` id — the `player` a pass check answers for a login that plays
+   without a wallet (`checkPass`). */
+const ACCOUNT = /^acct_[0-9a-f]{20}$/;
+const playerId = (w) => {
+  const h = holder(w);
+  if (h) return h;
+  const t = typeof w === "string" ? w.trim() : "";
+  return ACCOUNT.test(t) ? t : null;
+};
 
 /** A fresh nonce for a sign-in: `n` letters and digits (default 16, at least
     8), from the platform's CSPRNG — the alphabet EIP-4361 requires, so a uuid
@@ -697,8 +730,8 @@ export class Client {
     if (!Array.isArray(wallets) || !wallets.length) return refusal(0, "wallets is a list of addresses");
     const list = [...new Set(wallets.map(holder))];
     if (list.includes(null)) return refusal(0, "every wallet is 0x + 40 hex, or a Solana address");
-    const entitled = {};
-    let game = x, read = 0, failed = null;
+    const entitled = {}, trial_minutes_left = {}, addons = {};
+    let game = x, read = 0, failed = null, ticketed = true;
     for (let i = 0; i < list.length; i += ROSTER_PAGE) {
       const page = list.slice(i, i + ROSTER_PAGE);
       const got = await this.post(`/api/ticket/${x}/check`, { wallets: page });
@@ -711,17 +744,26 @@ export class Client {
       read += 1;
       const v = isObject(got.value) ? got.value : {};
       if (typeof v.game === "string") game = v.game;
-      if (v.ticketed === false || v.every_wallet_entitled === true) {
-        for (const w of list) entitled[w] = true;
-        return answer({ game, ticketed: false, entitled });
-      }
+      const free = v.ticketed === false || v.every_wallet_entitled === true;
       const rows = isObject(v.wallets) ? v.wallets : {};
+      if (free && !Object.keys(rows).length) {
+        for (const w of list) entitled[w] = true;
+        return answer({ game, ticketed: false, entitled, trial_minutes_left: {}, addons: {} });
+      }
+      if (free) ticketed = false;
       for (const w of page) {
-        const row = rows[w];
-        entitled[w] = isObject(row) && typeof row.entitled === "boolean" ? row.entitled : null;
+        const row = isObject(rows[w]) ? rows[w] : {};
+        entitled[w] = free ? true : (typeof row.entitled === "boolean" ? row.entitled : null);
+        if (row.trial === true && Number.isSafeInteger(row.trial_minutes_left)) {
+          trial_minutes_left[w] = row.trial_minutes_left;
+        }
+        if (isObject(row.addons)) {
+          addons[w] = Object.fromEntries(Object.entries(row.addons)
+            .map(([k, b]) => [k, typeof b === "boolean" ? b : null]));
+        }
       }
     }
-    return read ? answer({ game, ticketed: true, entitled }) : failed;
+    return read ? answer({ game, ticketed, entitled, trial_minutes_left, addons }) : failed;
   }
 
   /* ── sign-in ── */
@@ -1009,6 +1051,30 @@ export class Client {
     return this.get(`/api/ticket/${x}/prepare` + (qs ? `?${qs}` : ""));
   }
 
+  /** The unsigned calls that buy several copies and add-ons in one checkout
+      (/api/tickets/bundle/prepare), each at its own posted price:
+      `send.batched` is one EIP-5792 wallet_sendCalls, `txs` the same calls
+      to send one after another. `wallet` leaves out what it already holds
+      (`includeHeld` keeps it). Nothing is sent for you. */
+  async bundleBuy(items, { wallet: w, rail, includeHeld } = {}) {
+    if (!Array.isArray(items) || !items.length) return refusal(0, "items is a list of title and add-on slugs");
+    const slugs = [];
+    for (const it of items) {
+      const x = slug(it);
+      if (!x) return refusal(0, "not a title slug");
+      if (!slugs.includes(x)) slugs.push(x);
+    }
+    let qs = "items=" + slugs.join(",");
+    if (rail) qs += "&rail=" + encodeURIComponent(String(rail).trim());
+    if (w != null) {
+      const y = wallet(w);
+      if (!y) return refusal(0, "wallet must be 0x + 40 hex");
+      qs += "&wallet=" + y;
+    }
+    if (includeHeld) qs += "&include_held=1";
+    return this.get(`/api/tickets/bundle/prepare?${qs}`);
+  }
+
   /** A day's download grant for a copy this wallet owns: the text is rebuilt
       here (entitleText) and signed once; the answer carries `grant`, sent as
       X-Elo-Grant. A wallet with no copy is refused (402). Throws ActError;
@@ -1037,6 +1103,44 @@ export class Client {
       return refusal(0, "kind is agent or human, or leave it out for everyone");
     }
     return this.get(`/api/leaderboard/${x}` + (kind ? `?kind=${kind}` : ""));
+  }
+
+  /* ── bug reports ── */
+
+  /** File an in-game bug report: { id, fingerprint, seen, shot, dump }.
+      `report` is the report document (docs/client/GAMEDEV.md, bug reports).
+      `dump` is a crash dump on a report of kind "crash": a minidump or a
+      backtrace (dumpFormat). Send one only when the player chose to, just
+      now, after reading DUMP_CONTAINS[dumpFormat(dump)], and say so with
+      `playerChoseDump: true`; without it the dump is refused here. */
+  async reportBug(game, report, { shotPng, dump, playerChoseDump = false } = {}) {
+    const g = slug(game);
+    if (!g) return refusal(0, "not a title slug");
+    if (!report || typeof report !== "object" || Array.isArray(report)) {
+      return refusal(0, "report is the report document, an object");
+    }
+    const body = { game: g, report };
+    if (shotPng != null) {
+      const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      if (!(shotPng instanceof Uint8Array) || png.some((v, i) => shotPng[i] !== v)) {
+        return refusal(0, "the screenshot is a PNG");
+      }
+      body.shot_png_b64 = base64(shotPng);
+    }
+    if (dump != null) {
+      if (playerChoseDump !== true) {
+        return refusal(0, "a crash dump goes only when the player chose to send it: ask them, "
+          + "then pass playerChoseDump: true");
+      }
+      if (report.kind !== "crash") return refusal(0, "a crash dump rides a report of kind crash");
+      const bytes = typeof dump === "string" ? new TextEncoder().encode(dump) : dump;
+      const fmt = dumpFormat(bytes);
+      if (!fmt) return refusal(0, "a crash dump is a minidump (MDMP) or a UTF-8 backtrace");
+      const cap = fmt === "minidump" ? MINIDUMP_MAX : BACKTRACE_MAX;
+      if (bytes.length > cap) return refusal(0, `a ${fmt} is sent only up to ${cap} bytes`);
+      body.dump = { format: fmt, b64: base64(bytes), consent: true };
+    }
+    return this.post("/api/bugs", body);
   }
 
   /* ── a game server's word (ServerKey) ── */
@@ -1074,7 +1178,7 @@ export class Client {
   }
 
   _cloudPath(key, w, slot) {
-    const h = holder(w);
+    const h = playerId(w);
     if (!h || (slot !== undefined && !/^[a-z0-9][a-z0-9_.-]{0,47}$/.test(slot))) return null;
     return `/cloud/${key.game}/${h}` + (slot !== undefined ? `/${slot}` : "");
   }
@@ -1083,7 +1187,7 @@ export class Client {
       `createOnly` writes only if no save is there. */
   async cloudPut(key, w, slot, data, { ifMatch, createOnly } = {}) {
     const p = key instanceof ServerKey ? this._cloudPath(key, w, slot) : null;
-    if (!p) return refusal(0, "a ServerKey, a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -");
+    if (!p) return refusal(0, "a ServerKey, a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -");
     const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
     const extra = ifMatch ? { "If-Match": ifMatch } : createOnly ? { "If-None-Match": "*" } : {};
     return this._signed(key, "PUT", p, bytes, { contentType: "application/octet-stream", extra });
@@ -1092,13 +1196,13 @@ export class Client {
   /** One save: { data: Uint8Array, etag, version }; refused 404 when none. */
   async cloudGet(key, w, slot) {
     const p = key instanceof ServerKey ? this._cloudPath(key, w, slot) : null;
-    if (!p) return refusal(0, "a ServerKey, a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -");
+    if (!p) return refusal(0, "a ServerKey, a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -");
     return this._signed(key, "GET", p, undefined, { raw: true });
   }
 
   async cloudDelete(key, w, slot, { ifMatch } = {}) {
     const p = key instanceof ServerKey ? this._cloudPath(key, w, slot) : null;
-    if (!p) return refusal(0, "a ServerKey, a wallet, and a slot of 1 to 48 of a-z 0-9 _ . -");
+    if (!p) return refusal(0, "a ServerKey, a wallet or an account (acct_…), and a slot of 1 to 48 of a-z 0-9 _ . -");
     return this._signed(key, "DELETE", p, undefined, { extra: ifMatch ? { "If-Match": ifMatch } : {} });
   }
 
@@ -1118,6 +1222,48 @@ export class Client {
     return this._signed(key, "POST", `/gamestats/${key.game}/report`, body, { contentType: "application/json" });
   }
 
+  /* ── the game's economy (/economy/{slug}, docs/store/GAME-ECONOMY.md) ── */
+
+  async _economyRows(key, route, field, rows) {
+    if (!(key instanceof ServerKey)) return refusal(0, "sign with a ServerKey");
+    if (!Array.isArray(rows) || rows.length < 1 || rows.length > 100) return refusal(0, `${field} is a list of 1 to 100 rows`);
+    const body = new TextEncoder().encode(JSON.stringify({ [field]: rows }));
+    return this._signed(key, "POST", `/economy/${key.game}/${route}`, body, { contentType: "application/json" });
+  }
+
+  /** Give players currency or an item: [{ id, player, amount }] or [{ id, player, item, qty }].
+      A row's id is yours; a retry answers `replayed`. */
+  economyGrant(key, grants) { return this._economyRows(key, "grant", "grants", grants); }
+
+  /** Take currency or an item: the same rows as economyGrant. */
+  economySpend(key, spends) { return this._economyRows(key, "spend", "spends", spends); }
+
+  /** Sell a pass or a product at the price in your settings: [{ id, player, item, qty }].
+      In real mode each row answers the `send` your payer wallet makes; confirm it with economyBuyConfirm. */
+  economyBuy(key, buys) { return this._economyRows(key, "buy", "buys", buys); }
+
+  /** A real buy's transaction landed: the item is granted. */
+  async economyBuyConfirm(key, id, tx) {
+    if (!(key instanceof ServerKey)) return refusal(0, "sign with a ServerKey");
+    if (typeof tx !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(tx)) return refusal(0, "tx is the transaction hash: 0x and 64 hex");
+    const body = new TextEncoder().encode(JSON.stringify({ id, tx }));
+    return this._signed(key, "POST", `/economy/${key.game}/buy/confirm`, body, { contentType: "application/json" });
+  }
+
+  _economyRead(s, player, what) {
+    const g = slug(s);
+    const t = typeof player === "string" ? player.trim() : "";
+    const p = isWallet(t) ? t.toLowerCase() : /^acct_[0-9a-f]{20}$/.test(t) ? t : null;
+    if (!g || !p) return Promise.resolve(refusal(0, "a title slug, and a wallet (0x…) or an account (acct_…)"));
+    return this.get(`/api/economy/${g}/${what}/${p}`);
+  }
+
+  /** A player's balance: { balance, mode, currency }. */
+  economyBalance(s, player) { return this._economyRead(s, player, "balance"); }
+
+  /** The items a player holds: { items: [{ id, name, kind, qty }] }. A pass is owned when its id is there. */
+  economyItems(s, player) { return this._economyRead(s, player, "items"); }
+
   /* ── reads a game server makes at join ── */
 
   /** Is this wallet in the playtest (an access code)? The value is a boolean. */
@@ -1130,8 +1276,8 @@ export class Client {
 
   /** The player's subscribed Workshop mods for a game, with file urls and sha256s. */
   async workshopSubscribed(s, w) {
-    const g = slug(s), h = holder(w);
-    if (!g || !h) return refusal(0, "a title slug and a wallet");
+    const g = slug(s), h = playerId(w);
+    if (!g || !h) return refusal(0, "a title slug, and a wallet or an account (acct_…)");
     return this.get(`/api/workshop/${g}/subscribed/${h}`);
   }
 
@@ -1142,7 +1288,7 @@ export class Client {
   }
 
   async lobbyOf(w) {
-    const h = holder(w);
+    const h = playerId(w);
     if (!h) return refusal(0, "not a wallet");
     return this.get(`/api/lobbies/of/${h}`);
   }

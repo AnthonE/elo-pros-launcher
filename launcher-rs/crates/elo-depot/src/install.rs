@@ -473,7 +473,9 @@ pub fn verify(path: &Path) -> Verdict {
     }
     let mut extra = Vec::new();
     walk_files(path, path, &mut |rel| {
-        if rel != RECEIPT_NAME && !declared.contains(rel) {
+        // `crashes/` is the launcher's own folder for a game's dumps (`crash.rs`).
+        let dump = rel.starts_with(&format!("{}/", crate::crash::DIR));
+        if rel != RECEIPT_NAME && !dump && !declared.contains(rel) {
             extra.push(rel.to_string());
         }
     });

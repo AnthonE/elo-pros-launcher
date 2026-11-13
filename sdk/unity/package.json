@@ -1,0 +1,20 @@
+{
+  "name": "com.elopros.sdk",
+  "version": "0.1.0",
+  "displayName": "Elo Pros SDK",
+  "description": "Elo Pros for Unity: who is playing, a sign-in your server can check, signatures, names and faces, copies, items and leaderboards, with no key in the game. Desktop builds and the editor talk to the Elo launcher; WebGL builds talk to the player's wallet through elo-3.js. With no launcher and no wallet, the game plays anonymously.",
+  "unity": "2021.3",
+  "license": "MIT",
+  "author": {
+    "name": "Elo Pros",
+    "url": "https://elopros.com"
+  },
+  "keywords": ["elo pros", "sdk", "multiplayer", "sign-in", "wallet", "siwe", "leaderboards"],
+  "samples": [
+    {
+      "displayName": "Sign in",
+      "description": "Start Elo, draw the player's name, sign in to your server, and check their copy.",
+      "path": "Samples~/SignIn"
+    }
+  ]
+}

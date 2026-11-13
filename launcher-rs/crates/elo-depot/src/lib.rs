@@ -36,6 +36,8 @@ pub mod assets;
 /// owns, so one link works for every title and a link for an uninstalled one
 /// is still actionable.
 pub mod deeplink;
+/// Crash dumps a game left in `<install>/crashes/`, and the report that carries one.
+pub mod crash;
 pub mod depot;
 pub mod digest;
 /// Where the client keeps its state, for both binaries.

@@ -1,7 +1,8 @@
 # the elo overlay protocol — v1
 
 What a game says to the running launcher. This is the whole wire; the
-reference clients in `sdk/python/` and `sdk/rust/` implement all of it.
+reference clients in `sdk/python/` and `sdk/rust/` implement all of it, and so
+does the Unity package (`sdk/unity/Runtime/Overlay.cs`).
 
 Design of record: `docs/client/SDK.md`. The server is
 `launcher-rs/crates/elo-broker`.
@@ -62,8 +63,9 @@ of erroring, where on unix it would error. That is a launcher bug in both
 cases; on Windows the game feels it as a freeze. **Call the SDK off your main
 thread** — a consent prompt waits for a human, so that is right regardless.
 
-⚠ **The default MUST agree across three files** — `elo-broker`'s
-`transport.rs`, `sdk/rust/elo_overlay.rs`, and `sdk/python/elo_overlay.py`.
+⚠ **The default MUST agree across four files** — `elo-broker`'s
+`transport.rs`, `sdk/rust/elo_overlay.rs`, `sdk/python/elo_overlay.py` and
+`sdk/unity/Runtime/Overlay.cs` (whose suite reads `transport.rs` to check).
 A mismatch is the worst shape of bug this protocol has: a game finds no
 launcher on a machine that is running one, reports the perfectly normal
 *"playing anonymously"*, and nothing anywhere goes red.

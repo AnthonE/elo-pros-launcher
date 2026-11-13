@@ -106,6 +106,35 @@ pub fn label(x: i32, y: i32, w: i32, h: i32, text: &str, colour: enums::Color,
 /// of it. The escape renders back to the original characters either way.
 ///
 /// Anything a game, an origin or a stranger supplies is drawn through this.
+/// A line cut to fit `w` pixels at `size`, ending on a whole word with "…",
+/// so a long blurb never stops mid-word at the clip.
+pub fn fit_words(text: &str, w: i32, size: i32) -> String {
+    use fltk::draw;
+    draw::set_font(enums::Font::Helvetica, size);
+    let fits = |t: &str| draw::width(t) as i32 <= w;
+    let text = text.trim();
+    if fits(text) {
+        return text.to_string();
+    }
+    let mut cut = String::new();
+    for word in text.split_whitespace() {
+        let next = if cut.is_empty() { word.to_string() } else { format!("{cut} {word}") };
+        if !fits(&format!("{next}…")) {
+            break;
+        }
+        cut = next;
+    }
+    if cut.is_empty() {
+        // one long word: cut by characters
+        let mut chars: Vec<char> = text.chars().collect();
+        while !chars.is_empty() && !fits(&(chars.iter().collect::<String>() + "…")) {
+            chars.pop();
+        }
+        cut = chars.into_iter().collect();
+    }
+    cut.trim_end_matches(|c: char| c == ',' || c == '.' || c == ';' || c == ':').to_string() + "…"
+}
+
 pub fn label_untrusted(x: i32, y: i32, w: i32, h: i32, text: &str, colour: enums::Color,
                        size: i32) -> frame::Frame {
     let safe = defuse(text);

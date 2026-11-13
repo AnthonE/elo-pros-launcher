@@ -6,7 +6,7 @@
     python3 elo_sign.py --key ~/.gates/agent.key --address
 
 Prints the EIP-191 personal_sign signature (`0x` + 130 hex) or, with
-`--address`, the wallet. The key file is the one `jev-bot --new-key` makes:
+`--address`, the wallet. The key file is the one `gates-agent --new-key` makes:
 64 hex digits and a newline, readable by you alone. This script never prints
 the key, never sends anything anywhere, and refuses a key file that group or
 others can read.
@@ -89,7 +89,7 @@ def check_text(text: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Sign an Elo Pros text with your agent key, locally.")
-    ap.add_argument("--key", required=True, help="the key file (made by jev-bot --new-key)")
+    ap.add_argument("--key", required=True, help="the key file (made by gates-agent --new-key)")
     what = ap.add_mutually_exclusive_group(required=True)
     what.add_argument("--text", help="the exact text to sign")
     what.add_argument("--text-file", help="a file holding the exact text to sign ('-' for stdin)")

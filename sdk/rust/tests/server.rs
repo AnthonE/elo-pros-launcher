@@ -324,6 +324,102 @@ fn no_page_read_is_could_not_look_and_a_free_title_is_everyones() {
 }
 
 #[test]
+fn trial_minutes_and_addons_ride_the_roster() {
+    let (a, b, c3) = (w(1), w(2), w(3));
+    let body = json!({"game": "gates", "wallets": {
+        a.clone(): {"entitled": true, "addons": {"gates-maps": true, "gates-x": null}},
+        b.clone(): {"entitled": true, "trial": true, "trial_minutes": 30, "trial_minutes_left": 12,
+                    "trial_seconds_left": 700, "addons": {"gates-maps": false}},
+        c3.clone(): {"entitled": false, "trial": true, "trial_minutes": 30, "trial_minutes_left": 0,
+                     "trial_seconds_left": 0}
+    }})
+    .to_string();
+    let (origin, _) = stub(Box::new(move |_, _| (200, body.clone())));
+    let Look::Answer(r) = client(&origin).check_roster("gates", &[&a, &b, &c3]) else {
+        panic!("not an answer")
+    };
+    assert_eq!(
+        (r.entitled[&a], r.entitled[&b], r.entitled[&c3]),
+        (Some(true), Some(true), Some(false))
+    );
+    assert_eq!(r.trial_minutes_left.len(), 2);
+    assert_eq!(
+        (r.trial_minutes_left[&b], r.trial_minutes_left[&c3]),
+        (12, 0)
+    );
+    assert_eq!(r.addons[&a]["gates-maps"], Some(true));
+    assert_eq!(r.addons[&a]["gates-x"], None);
+    assert_eq!(r.addons[&b]["gates-maps"], Some(false));
+    assert!(!r.addons.contains_key(&c3));
+
+    let (origin, _) = stub(Box::new(|_, body| {
+        let rows: serde_json::Map<String, Value> = body["wallets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| {
+                let k = x.as_str().unwrap().to_string();
+                let held = k == format!("0x{:040x}", 1);
+                (
+                    k,
+                    json!({"entitled": true, "addons": {"free-game-maps": held}}),
+                )
+            })
+            .collect();
+        let doc = json!({"game": "free-game", "ticketed": false,
+                         "every_wallet_entitled": true, "wallets": rows});
+        (200, doc.to_string())
+    }));
+    let Look::Answer(r) = client(&origin).check_roster("free-game", &[&a, &b]) else {
+        panic!("not an answer")
+    };
+    assert!(!r.ticketed);
+    assert_eq!((r.entitled[&a], r.entitled[&b]), (Some(true), Some(true)));
+    assert_eq!(r.addons[&a]["free-game-maps"], Some(true));
+    assert_eq!(r.addons[&b]["free-game-maps"], Some(false));
+}
+
+#[test]
+fn bundle_buy_asks_for_every_item_at_once() {
+    let (origin, seen) = stub(Box::new(|_, _| (200, r#"{"items":[],"txs":[]}"#.into())));
+    let c = client(&origin);
+    let me = w(7);
+    assert!(matches!(
+        c.bundle_buy(
+            &["gates", "gates-maps", "gates"],
+            Some(&me),
+            Some("eth"),
+            false
+        ),
+        Look::Answer(_)
+    ));
+    assert!(matches!(
+        c.bundle_buy(&["gates"], None, None, true),
+        Look::Answer(_)
+    ));
+    assert!(matches!(c.bundle_buy(&[], None, None, false), Look::Refused(r) if r.status == 0));
+    assert!(
+        matches!(c.bundle_buy(&["Not A Slug"], None, None, false), Look::Refused(r) if r.status == 0)
+    );
+    assert!(
+        matches!(c.bundle_buy(&["gates"], Some("0xnope"), None, false), Look::Refused(r) if r.status == 0)
+    );
+    let paths: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(p, _)| p.clone())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![
+            format!("/api/tickets/bundle/prepare?items=gates,gates-maps&rail=eth&wallet={me}"),
+            "/api/tickets/bundle/prepare?items=gates&include_held=1".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn a_bad_roster_is_refused_before_asking() {
     let (origin, seen) = stub(Box::new(|_, _| (200, "{}".into())));
     let c = client(&origin);

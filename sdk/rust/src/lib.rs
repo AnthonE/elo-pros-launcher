@@ -60,26 +60,31 @@ pub use overlay::{
     DEFAULT_TIMEOUT, FAMILIES, PROTOCOL, SOCKET_ENV,
 };
 
+pub mod crash;
 pub mod look;
 pub mod models;
 pub mod payout;
 pub mod texts;
 
 #[cfg(feature = "http")]
+pub mod handoff;
+#[cfg(feature = "http")]
 pub mod http;
 #[cfg(feature = "http")]
 pub mod server;
-#[cfg(feature = "http")]
-pub mod handoff;
 
+pub use crash::{dump_contains, dump_format, BACKTRACE_MAX, MINIDUMP_MAX};
 pub use look::{classify, Look, Refusal};
 pub use payout::{PayoutFile, PayoutRow};
 
 #[cfg(feature = "http")]
-pub use http::{new_nonce, ActError, Client, CloudSave, FaceChange, SignInCheck, DEFAULT_ORIGIN, ROSTER_PAGE};
+pub use handoff::{
+    handoff_text, read_handoff, verify_handoff, Handoff, HandoffDoor, HandoffRefused, KeySource,
+    MemorySeen, Seen,
+};
+#[cfg(feature = "http")]
+pub use http::{
+    new_nonce, ActError, Client, CloudSave, FaceChange, SignInCheck, DEFAULT_ORIGIN, ROSTER_PAGE,
+};
 #[cfg(feature = "http")]
 pub use server::{new_server_nonce, server_text, ServerKey};
-#[cfg(feature = "http")]
-pub use handoff::{
-    handoff_text, read_handoff, verify_handoff, Handoff, HandoffDoor, HandoffRefused, KeySource, MemorySeen, Seen,
-};

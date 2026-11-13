@@ -300,5 +300,49 @@ class Outcomes(unittest.TestCase):
         self.assertTrue(Client(dead, timeout=2).friends(ME).could_not_look, "nobody listening is could-not-look")
 
 
+CRASH = {"format": 1, "kind": "crash", "fingerprint": "0011223344556677", "issue_title": "[crash] x",
+         "read_first": "README.md", "reported": "2026-11-02T12:00:00Z",
+         "build": {"version": "1.0", "commit": "abcdef1", "platform": "linux", "runtime": "desktop"}}
+
+
+class BugReports(unittest.TestCase):
+    def test_a_crash_dump_goes_only_with_the_players_choice(self):
+        sent = []
+
+        def route(path, body):
+            sent.append((path, body))
+            return 201, {"ok": True, "id": "20261102-120000-abcdef12", "seen": 1, "shot": False,
+                         "dump": True}
+
+        stub = Stub(route)
+        try:
+            c = Client(stub.origin)
+            mdmp = b"MDMP\x93\xa7rest"
+            refused = c.report_bug("gates", CRASH, dump=mdmp)
+            self.assertTrue(refused.refused and refused.status == 0 and "chose" in refused.error)
+            self.assertEqual(sent, [], "nothing is sent without the player's choice")
+            self.assertTrue(c.report_bug("gates", {**CRASH, "kind": "look"}, dump=mdmp,
+                                         player_chose_dump=True).refused)
+            self.assertTrue(c.report_bug("gates", CRASH, dump=b"\x7fELF\x02", player_chose_dump=True).refused,
+                            "a core file is never sent")
+            got = c.report_bug("gates", CRASH, dump=mdmp, player_chose_dump=True)
+            self.assertTrue(got.ok, got.error)
+            path, body = sent[-1]
+            self.assertEqual(path, "/api/bugs")
+            self.assertEqual(body["dump"], {"format": "minidump", "b64": "TURNUJOncmVzdA==", "consent": True})
+            self.assertEqual(body["report"]["kind"], "crash")
+        finally:
+            stub.close()
+
+    def test_the_formats(self):
+        from elo_sdk import DUMP_CONTAINS, dump_format
+        self.assertEqual(dump_format(b"MDMP\x00\x00"), "minidump")
+        self.assertEqual(dump_format(b"thread 'main' panicked at a.rs:1"), "backtrace")
+        self.assertIsNone(dump_format(b"\xff\xfe"))
+        self.assertIsNone(dump_format(b"text\x00nul"))
+        self.assertIsNone(dump_format(b""))
+        self.assertIn("memory of the game process", DUMP_CONTAINS["minidump"])
+
+
 if __name__ == "__main__":
     unittest.main()

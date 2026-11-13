@@ -39,8 +39,9 @@ from elo_overlay import (DEFAULT_TIMEOUT as OVERLAY_TIMEOUT, FAMILIES, PROTOCOL,
                          Profile, Result, default_socket, play_message)
 
 from . import models, payout, texts
-from .client import (DEFAULT_ORIGIN, DEFAULT_TIMEOUT, ROSTER_PAGE, ActError, BadInput, Client, Look, Mismatch,
-                     SignRefused, __version__, classify, new_nonce, overlay_signer)
+from .client import (BACKTRACE_MAX, DEFAULT_ORIGIN, DEFAULT_TIMEOUT, DUMP_CONTAINS, MINIDUMP_MAX, ROSTER_PAGE,
+                     ActError, BadInput, Client, Look, Mismatch, SignRefused, __version__, classify, dump_format,
+                     new_nonce, overlay_signer)
 from .payout import PayoutFile, PayoutRow, check_doc, check_row
 from .handoff import Handoff, HandoffDoor, HandoffRefused, handoff_text, read_handoff, verify_handoff
 from .server import ServerKey, new_server_nonce, server_text
@@ -51,5 +52,5 @@ __all__ = [
     "Client", "Look", "Mismatch", "SignRefused", "__version__", "classify", "overlay_signer", "PayoutFile",
     "PayoutRow", "check_doc", "check_row", "ROSTER_PAGE", "new_nonce", "ServerKey", "new_server_nonce",
     "server_text", "Handoff", "HandoffDoor", "HandoffRefused", "handoff_text", "read_handoff",
-    "verify_handoff",
+    "verify_handoff", "MINIDUMP_MAX", "BACKTRACE_MAX", "DUMP_CONTAINS", "dump_format",
 ]

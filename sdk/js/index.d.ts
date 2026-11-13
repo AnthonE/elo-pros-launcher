@@ -114,13 +114,35 @@ export interface Ticket {
   how_to_buy?: Record<string, string>; downloads_gated?: boolean;
   /** Set on a free title. */
   what?: string;
+  /** Minutes of play a wallet with no copy gets; null is no trial. */
+  trial?: { minutes: number; how: string } | null;
+  /** The add-ons this title sells (their prices: `ticket(addon.slug)`). */
+  addons?: Addon[];
+  /** Set when this card is an add-on's own: what it is and its `parent`. */
+  addon?: Addon | null;
   [extra: string]: unknown;
+}
+/** An add-on: paid content for a title, sold as its own ticket at `slug`. */
+export interface Addon {
+  slug: string; id: string; name: string;
+  kind: "map" | "character" | "mode" | "cosmetic" | "story" | "soundtrack" | null;
+  about: string | null;
+  /** What owning it changes in play, as its developer declared; [] is none. */
+  changes: ("stats" | "odds" | "drop_rates" | "progression_speed")[] | null;
+  /** That, in the words a buyer reads before paying. */
+  says: string | null;
+  card: string;
+  parent?: string; declared?: boolean; needs?: string;
 }
 export interface TicketOf {
   game: string; ticketed?: boolean; wallet?: string; copies?: number;
-  /** null is a failed read, never "does not own". */
+  /** null is a failed read, never "does not own". True on a trial with time left. */
   entitled: boolean | null;
   reachable?: boolean; free_left?: number | null; why?: string;
+  /** A wallet with no copy on a title with a trial: entitled while minutes are left. */
+  trial?: boolean; trial_minutes?: number; trial_minutes_left?: number | null;
+  /** Each add-on's slug: held, not held, or null (could not look). */
+  addons?: Record<string, boolean | null>;
 }
 
 /** One roster sweep: kick on `false` only — `null` is a read that failed. */
@@ -128,6 +150,10 @@ export interface Roster {
   game: string; ticketed: boolean;
   /** Keyed 0x-lowercased, or by the Solana address as given. */
   entitled: Record<string, boolean | null>;
+  /** The wallets on a trial, and the minutes each has left (0: used up). */
+  trial_minutes_left: Record<string, number>;
+  /** Each wallet's add-ons: held, not held, or null (could not look). */
+  addons: Record<string, Record<string, boolean | null>>;
 }
 
 /* ── sign-in ── */
@@ -239,6 +265,18 @@ export interface Who {
   found: { wallet?: string; agent?: string; nip05?: string | null; profile?: Face | null;
            [extra: string]: unknown } | null;
   [extra: string]: unknown;
+}
+
+/* ── bug reports ── */
+
+export const MINIDUMP_MAX: number;
+export const BACKTRACE_MAX: number;
+export type DumpFormat = "minidump" | "backtrace";
+export const DUMP_CONTAINS: Readonly<Record<DumpFormat, string>>;
+export function dumpFormat(data: Uint8Array | string): DumpFormat | null;
+export interface BugFiled {
+  ok: true; id: string; fingerprint: string; seen: number; shot: boolean; dump: boolean;
+  dump_contains?: string; dump_expires?: string; [extra: string]: unknown;
 }
 
 /* ── leaderboards ── */
@@ -355,10 +393,16 @@ export class Client {
   guildsOf(wallet: string): Promise<Look<GuildsOf>>;
   who(handle: string): Promise<Look<Who>>;
   leaderboard(slug: string, options?: { kind?: "agent" | "human" }): Promise<Look<Leaderboard>>;
+  /** File an in-game bug report. A crash dump goes only with `playerChoseDump: true`. */
+  reportBug(game: string, report: Record<string, unknown>,
+    options?: { shotPng?: Uint8Array; dump?: Uint8Array | string; playerChoseDump?: boolean }):
+    Promise<Look<BugFiled>>;
   /** A game server's word, signed by its ServerKey. */
   serverCheck(key: ServerKey): Promise<Look<any>>;
   /** A game's public server keys: what a HandoffDoor checks against. */
   serverKeys(game: string): Promise<Look<{ game: string; keys: Array<{ id: string; pub: string }> }>>;
+  /** Cloud saves, keyed by a player: a wallet, or a signed-in account's own `acct_…` id
+      (the `player` checkPass answers for a login that plays without a wallet). */
   cloudPut(key: ServerKey, wallet: string, slot: string, data: Uint8Array | string,
     options?: { ifMatch?: string; createOnly?: boolean }): Promise<Look<any>>;
   cloudGet(key: ServerKey, wallet: string, slot: string): Promise<Look<CloudSave>>;
@@ -366,8 +410,17 @@ export class Client {
   cloudList(key: ServerKey, wallet: string): Promise<Look<any>>;
   statsReport(key: ServerKey, reports: Array<{ wallet: string; stats?: Record<string, number>;
     unlock?: string[]; scores?: Record<string, number>; agent?: boolean }>): Promise<Look<any>>;
+  /** The game's economy: currency and items, on paper or the game's coin (GAME-ECONOMY.md). */
+  economyGrant(key: ServerKey, grants: EconomyRow[]): Promise<Look<any>>;
+  economySpend(key: ServerKey, spends: EconomyRow[]): Promise<Look<any>>;
+  economyBuy(key: ServerKey, buys: Array<{ id: string; player: string; item: string; qty?: number }>): Promise<Look<any>>;
+  economyBuyConfirm(key: ServerKey, id: string, tx: string): Promise<Look<any>>;
+  economyBalance(slug: string, player: string): Promise<Look<any>>;
+  economyItems(slug: string, player: string): Promise<Look<{ game: string; player: string; mode: "paper" | "real";
+    items: Array<{ id: string; name: string | null; kind: "pass" | "product" | null; qty: number }> }>>;
   /** Reads a game server makes at join. */
   playtestAccess(slug: string, wallet: string): Promise<Look<boolean>>;
+  /** `wallet` is a wallet or an account's `acct_…` id, as for cloud saves. */
   workshopSubscribed(slug: string, wallet: string): Promise<Look<any>>;
   lobby(id: string): Promise<Look<any>>;
   lobbyOf(wallet: string): Promise<Look<any>>;
@@ -384,9 +437,15 @@ export class Client {
   boardClaim(me: string, questId: string, sign: Signer): Promise<Look<any>>;
   boardSubmit(me: string, questId: string, url: string, sign: Signer, options?: { note?: string }): Promise<Look<any>>;
   ticketBuy(slug: string, options?: { wallet?: string; rail?: string }): Promise<Look<any>>;
+  /** Several copies and add-ons in one checkout, each at its own posted price. */
+  bundleBuy(items: string[], options?: { wallet?: string; rail?: string; includeHeld?: boolean }): Promise<Look<any>>;
   entitle(slug: string, wallet: string, sign: Signer): Promise<Look<{ grant: string; expires_at: number;
     [extra: string]: unknown }>>;
 }
+
+/** One economy row: an amount of currency, or a qty of an item (`economy.items`). */
+export type EconomyRow = { id: string; player: string; for?: string } &
+  ({ amount: number; item?: never; qty?: never } | { item: string; qty?: number; amount?: never });
 
 export function friendLabel(row: { wallet: string; name?: string | null }): string;
 

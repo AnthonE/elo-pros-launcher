@@ -368,6 +368,24 @@ impl Net {
         Self::told_reply(sent)
     }
 
+    /// A game's build, sent as the zip itself (`elo publish`). A POST like
+    /// [`Net::post_bytes_told`], with the deadline [`Net::put_bytes_told`]
+    /// uses: it grows with the body, because ureq's timeout runs to the last
+    /// byte and a 90 MB zip on a slow line is minutes, not seconds.
+    pub fn put_or_post_zip(&self, url: &str, body: Vec<u8>) -> Fetched<Value> {
+        let deadline = depot_file_deadline(body.len() as i64);
+        let sent = self
+            .agent_for(url)
+            .post(url)
+            .config()
+            .http_status_as_error(false)
+            .timeout_global(Some(deadline))
+            .build()
+            .header("content-type", "application/zip")
+            .send(&body[..]);
+        Self::told_reply(sent)
+    }
+
     fn send_told(&self, url: &str, content_type: &str, body: Vec<u8>) -> Fetched<Value> {
         let sent = self
             .agent_for(url)

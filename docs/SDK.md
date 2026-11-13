@@ -1,7 +1,7 @@
 ---
 status: live
 lane: [platform]
-updated: 2026-10-27
+updated: 2026-11-10
 about: "how a game gets identity, a profile and a signature without ever holding a key — the signer ladder, the broker socket a game knocks on (Steam's pipe, ripped), the reference clients Gates links, and the Rust, Python and JavaScript packages"
 ---
 
@@ -556,6 +556,16 @@ the paged roster sweep (`checkRoster`) and a nonce
 (`newNonce`), and moving a connected player to another of your servers with
 a handoff (`ServerKey.handoff`, `HandoffDoor`; `HANDOFF.md`). Two rules from
 this page hold in each.
+
+The Python, JavaScript and Rust packages also carry a game's economy
+(`GAME-ECONOMY.md`), signed with the same server key: `economy_grant` and
+`economy_spend` (currency, or an item with `item` and `qty`), `economy_buy`
+for a pass or a product at the price in the game's settings, and
+`economy_buy_confirm(key, id, tx)` once a real buy's transaction lands; the
+reads `economy_balance(slug, player)` and `economy_items(slug, player)`, the
+pass check, need no key. JavaScript spells them `economyGrant`,
+`economySpend`, `economyBuy`, `economyBuyConfirm`, `economyBalance`,
+`economyItems`.
 A read keeps "could not look" apart from "no": every call answers an answer, a
 refusal, or could-not-look, and a ticket read that timed out is never "does
 not own". A signed change rebuilds the text it signs locally and refuses a

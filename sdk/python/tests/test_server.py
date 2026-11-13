@@ -219,6 +219,50 @@ class CheckRoster(unittest.TestCase):
         self.assertFalse(got.value.ticketed)
         self.assertEqual(got.value.entitled, {W(1): True, SOLW: True})
 
+    def test_trial_minutes_and_addons_ride_the_roster(self):
+        rows = {W(1): {"entitled": True, "addons": {"gates-maps": True, "gates-x": None}},
+                W(2): {"entitled": True, "trial": True, "trial_minutes": 30, "trial_minutes_left": 12,
+                       "trial_seconds_left": 700, "addons": {"gates-maps": False}},
+                W(3): {"entitled": False, "trial": True, "trial_minutes": 30, "trial_minutes_left": 0,
+                       "trial_seconds_left": 0}}
+        stub = Stub(lambda path, body: (200, {"game": "gates", "wallets": rows}))
+        try:
+            got = Client(stub.origin).check_roster("gates", [W(1), W(2), W(3)])
+        finally:
+            stub.close()
+        self.assertEqual(got.value.entitled, {W(1): True, W(2): True, W(3): False})
+        self.assertEqual(got.value.trial_minutes_left, {W(2): 12, W(3): 0})
+        self.assertEqual(got.value.addons, {W(1): {"gates-maps": True, "gates-x": None},
+                                            W(2): {"gates-maps": False}})
+
+    def test_a_free_title_that_sells_addons_says_which_each_wallet_holds(self):
+        stub = Stub(lambda path, body: (200, {"game": "free-game", "ticketed": False,
+                                              "every_wallet_entitled": True,
+                                              "wallets": {w: {"entitled": True, "addons": {"free-game-maps": w == W(1)}}
+                                                          for w in body["wallets"]}}))
+        try:
+            got = Client(stub.origin).check_roster("free-game", [W(1), W(2)])
+        finally:
+            stub.close()
+        self.assertFalse(got.value.ticketed)
+        self.assertEqual(got.value.entitled, {W(1): True, W(2): True})
+        self.assertEqual(got.value.addons, {W(1): {"free-game-maps": True}, W(2): {"free-game-maps": False}})
+
+    def test_bundle_buy_asks_for_every_item_at_once(self):
+        stub = Stub(lambda path, body: (200, {"items": [], "txs": []}))
+        c = Client(stub.origin)
+        try:
+            self.assertTrue(c.bundle_buy(["gates", "gates-maps", "gates"], wallet=W(7), rail="eth").ok)
+            self.assertTrue(c.bundle_buy(["gates"], include_held=True).ok)
+            for bad in ([], "gates", ["Not A Slug"]):
+                self.assertTrue(c.bundle_buy(bad).refused)
+            self.assertTrue(c.bundle_buy(["gates"], wallet="0xnope").refused)
+        finally:
+            stub.close()
+        self.assertEqual([p for _, p, _ in stub.seen], [
+            f"/api/tickets/bundle/prepare?items=gates,gates-maps&rail=eth&wallet={W(7)}",
+            "/api/tickets/bundle/prepare?items=gates&include_held=1"])
+
     def test_a_bad_roster_is_refused_before_asking(self):
         stub = Stub(lambda path, body: (200, {}))
         c = Client(stub.origin)

@@ -11,13 +11,17 @@ fn fixture() -> Value {
 }
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 #[test]
 fn texts_and_signatures_match_the_fixture() {
     let fx = fixture();
-    let key = ServerKey::from_seed("my-game", "eu-1", &hex(fx["seed_hex"].as_str().unwrap())).unwrap();
+    let key =
+        ServerKey::from_seed("my-game", "eu-1", &hex(fx["seed_hex"].as_str().unwrap())).unwrap();
     assert_eq!(key.public_b64(), fx["public_b64"]);
     for c in fx["cases"].as_array().unwrap() {
         let text = server_text(
@@ -42,14 +46,32 @@ fn pem(body: &str) -> String {
 #[test]
 fn a_pem_gives_the_same_key_and_bad_input_is_refused() {
     let fx = fixture();
-    let key = ServerKey::from_pem("my-game", "eu-1", &pem(fx["private_pkcs8_b64"].as_str().unwrap())).unwrap();
+    let key = ServerKey::from_pem(
+        "my-game",
+        "eu-1",
+        &pem(fx["private_pkcs8_b64"].as_str().unwrap()),
+    )
+    .unwrap();
     assert_eq!(key.public_b64(), fx["public_b64"]);
     assert!(ServerKey::from_seed("My Game", "eu-1", &[0u8; 32]).is_err());
     assert!(ServerKey::from_seed("my-game", "EU", &[0u8; 32]).is_err());
     assert!(ServerKey::from_pem("my-game", "eu-1", &pem("AAAA")).is_err());
     assert!(new_server_nonce(4).is_none());
-    let h = key.headers("PUT", "/cloud/my-game/x/save", b"{}", Some(1), Some("abcdefgh"));
-    let text = server_text("PUT", "/cloud/my-game/x/save", "my-game/eu-1", "1", b"{}", Some("abcdefgh"));
+    let h = key.headers(
+        "PUT",
+        "/cloud/my-game/x/save",
+        b"{}",
+        Some(1),
+        Some("abcdefgh"),
+    );
+    let text = server_text(
+        "PUT",
+        "/cloud/my-game/x/save",
+        "my-game/eu-1",
+        "1",
+        b"{}",
+        Some("abcdefgh"),
+    );
     assert_eq!(h[3].1, key.sign_text(&text));
     assert_ne!(new_server_nonce(22), new_server_nonce(22));
 }

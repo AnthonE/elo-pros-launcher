@@ -11,11 +11,13 @@ mod args;
 mod assets;
 mod credits;
 mod chatkey;
+mod crash;
 mod dev;
 mod friends;
 mod mcp;
 mod mods;
 mod prompt;
+mod publish;
 mod relay;
 mod send;
 mod signer;
@@ -68,6 +70,9 @@ elo — the desktop client
   elo prune   <slug>              remove builds superseded by the newest
   elo uninstall <slug> <build>    remove one build
   elo play    <title>             start the installed build (or open the page)
+  elo report-crash <slug> [build] send the crash dump a game left, with a bug
+                                   report, to its developer — shows what the
+                                   file holds and asks first (--body: a note)
   elo streamer [on|off]           streamer mode: games start with it on, and
                                    the window hides wallets and server addresses
   elo gamemode [on|off]           game mode: GameMode on Linux, above-normal
@@ -149,6 +154,9 @@ elo — the desktop client
                                    the code the browser shows, never a link
   elo publisher <title>           who signed this title's manifest, if anyone
   elo publisher <title> --statement   the exact bytes a publisher signs
+  elo publish <folder>            a browser game from a folder to a page
+                                   players open: lists it if it is new, sends
+                                   the build, waits for the checks
   elo dev                         where this account stands on the store's desk
   elo dev edit <slug> --set k=v   edit your own listing's row
   elo dev image <slug> <file>     upload art for it, no commit needed
@@ -721,6 +729,10 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
         // over — and because the origin half (`meter/devdesk.py`) is where the
         // rules actually live, so this file should stay the dispatcher.
         "dev" => dev::run(a, &host, json_out),
+        // A folder to a play page, in one command: the listing (when new), the
+        // build's zip and its signature. The rules are the origin's
+        // (`meter/openlane.py`, `meter/webhost.py`).
+        "publish" => publish::run(a, &host, json_out),
 
         // ── prove, without a game in the middle ──────────────────────────────
         //
@@ -1903,6 +1915,8 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
             Ok(0)
         }
 
+        "report-crash" => crash::run(a, &host, &games, json_out),
+
         "verify" => {
             let slug = need(a.positional.first(), "a slug")?;
             let build = a.positional.get(1);
@@ -2019,6 +2033,11 @@ fn run(a: &args::Args) -> Result<i32, DepotError> {
                 }
                 session::close(&state, &m.slug, &i.build, ended, status.code())?;
                 println!("played {}", clock::duration(ended - started));
+                // A crash is offered to the player, never sent for them
+                // (`crash.rs`): the dump goes only on a yes typed now.
+                if let Some(how) = elo_depot::crash::abnormal(&status) {
+                    crash::after_play(&host, &i, started, &how);
+                }
                 // The game's exit code is the game's business and never this
                 // process's verdict: a player quitting to the desktop is not a
                 // launcher failure.

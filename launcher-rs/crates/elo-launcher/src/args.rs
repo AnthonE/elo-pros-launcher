@@ -24,7 +24,7 @@ pub struct Args {
 
 /// Flags that take a value. Everything else with a `--` is a switch, and a
 /// `--` that is neither is an error.
-pub const VALUE_FLAGS: [&str; 41] = ["--games", "--host", "--platform", "--browser", "--server",
+pub const VALUE_FLAGS: [&str; 45] = ["--games", "--host", "--platform", "--browser", "--server",
                                      "--wallet", "--room", "--limit", "--status",
                                      // the dev desk
                                      "--set", "--from", "--slot", "--title", "--body",
@@ -44,13 +44,17 @@ pub const VALUE_FLAGS: [&str; 41] = ["--games", "--host", "--platform", "--brows
                                      // elo stage
                                      "--port",
                                      // elo profile, elo agent init
-                                     "--face", "--kind", "--harness", "--model", "--words-file"];
-pub const SWITCHES: [&str; 11] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
+                                     "--face", "--kind", "--harness", "--model", "--words-file",
+                                     // elo publish
+                                     "--slug", "--multiplayer", "--made-with", "--entry"];
+pub const SWITCHES: [&str; 12] = ["--json", "--yes", "--allow-insecure", "--no-reuse", "--dry-run",
                                   "--detach", "--quiet", "--statement", "--no-watch", "--help",
                                   // Which signer signs. Only ever narrows: it forces the local
                                   // keystore over a live browser pairing, and there is no
                                   // `--paired` because pairing is already the deliberate act.
-                                  "--local"];
+                                  "--local",
+                                  // elo publish: the game runs as the whole page
+                                  "--no-frame"];
 
 pub fn parse(argv: &[String]) -> Result<Args, String> {
     let mut out = Args::default();

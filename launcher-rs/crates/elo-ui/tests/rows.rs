@@ -29,6 +29,7 @@ fn shelf(price: Price, installable: bool, installed: bool) -> Shelf {
         installed,
         price,
         icon: None,
+        browser: None,
     }
 }
 
@@ -160,13 +161,25 @@ fn every_shelf_state_offers_the_control_its_sentence_implies() {
     // Already on this disk: never a second copy.
     assert_eq!(shelf(Price::Free, true, true).act(), Act::Installed);
     assert_eq!(shelf(Price::Posted { line: "$10.00".into() }, true, true).act(), Act::Installed);
+    // Free, nothing to install, and a published browser row: a web game,
+    // played where it runs — not "No build yet".
+    let web = Shelf { browser: Some("https://web.example/play".into()),
+                      ..shelf(Price::Free, false, false) };
+    assert_eq!(web.act(), Act::Browser);
+    // …and its money line says where it plays, never "free to download".
+    assert!(web.price_line().contains("browser") && !web.price_line().contains("download"));
+    // A desktop build for this machine still installs first.
+    let both = Shelf { browser: Some("https://web.example/play".into()),
+                       ..shelf(Price::Free, true, false) };
+    assert_eq!(both.act(), Act::Install);
+    assert!(both.price_line().contains("download"));
 }
 
 /// Only the one that cannot be pressed is drawn as unpressable, and the four
 /// that can be pressed all say what they do.
 #[test]
 fn no_shelf_control_is_a_dead_button() {
-    for act in [Act::Install, Act::Buy, Act::Installed, Act::Page] {
+    for act in [Act::Install, Act::Buy, Act::Installed, Act::Page, Act::Browser] {
         assert!(act.pressable(), "{act:?} is offered, so it must do something");
         assert!(!act.label().is_empty());
     }
@@ -182,7 +195,8 @@ fn no_shelf_control_is_a_dead_button() {
 /// primary button" is exactly the thought that paints one green.
 #[test]
 fn nothing_on_the_store_shelf_wears_the_reserved_fill() {
-    for act in [Act::Install, Act::Buy, Act::Installed, Act::Unpublished, Act::Page] {
+    for act in [Act::Install, Act::Buy, Act::Installed, Act::Unpublished, Act::Page,
+                Act::Browser] {
         assert!(!act.tone().is_reserved_fill(),
                 "{act:?} paints the reserved green, and it moves no money here");
     }

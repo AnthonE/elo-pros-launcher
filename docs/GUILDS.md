@@ -1,7 +1,7 @@
 ---
 status: design
 lane: [platform]
-updated: 2026-10-27
+updated: 2026-11-02
 about: "guilds, voice and game lobbies on Elo Pros, so a multiplayer-only store keeps its players' groups and their talk instead of losing them to Discord: what Steam ships, what we already have (the hive's rooms, friends and presence, the launcher's join link, trade chat), the guild as a signed roster with its own room and voice, lobbies that join a server together, self-hosted voice, and the calls only the operator can make"
 ---
 # GUILDS.md — guilds, voice and lobbies
@@ -63,6 +63,34 @@ onto one server, with the party's voice and the game's open room beside it
 either from the launcher. Dark until the voice box runs (`docs/ops/VOICE.md`),
 which is on its own VM because media cannot ride Cloudflare.
 
+**G3, a lobby's text room** (built 2026-11-02, §5): `meter/lobbychat.py`, with
+`test_lobbychat.py`. Every open lobby has one, named `lobby:<id>` like its
+voice, and it closes with the lobby. Inputs, outputs and who can check them:
+- **Post:** a member's chat key signs a hive chat message (kind 9, one `h` tag
+  naming the room, made in the last minute, used once, 1 to 500 characters of
+  plain text) and sends it to `POST /lobbies/{id}/chat`.
+- **Read:** the key signs a NIP-98 event for `POST /lobbies/{id}/chat/read`
+  and gets the messages after a cursor; the read waits up to 20 seconds for
+  one.
+- **Who gets in:** the rule that hands out the lobby's voice ticket
+  (`voicechat.admit`): the wallet the key is linked to is a member now, and
+  neither is on the hive's ban list. A kick, leave or move shuts the room to
+  that wallet on its next request; a close drops the messages.
+- **Who can verify:** anyone holding the transcript. Each message is served
+  with the event its author signed.
+- **Pace:** the hive warden's numbers, per player per room: at most 20
+  messages a minute, and the same text at most four times.
+
+The text is never read to decide anything (invariant 8). The messages live in
+`kvstore`, never on disk, and expire a minute after the lobby is due to close.
+The game page's play together panel shows the room to the party's members
+(`js/lobbychat.js`). A key already linked to the wallet opens it with no
+prompt.
+
+Why not a closed NIP-29 group on the relay, like a guild's rooms: those are
+seated by a loop once a minute (`guild_rooms.py`), and a lobby's members
+change by the second.
+
 What the build settled that this plan left open:
 - **The routes are the friends shape** (`/guilds/prepare` then `/guilds/act`),
   not `/guilds/{tag}/message`, so the page, the MCP tool and an SDK reuse one
@@ -86,7 +114,7 @@ What the build settled that this plan left open:
 | Steam Chat: group chats with text channels | a group's own rooms | the hive: NIP-29 groups on our buzz relay (`HIVE-RUNBOOK.md`) |
 | Voice channels in group chats, party voice | talk while you play | **built, waiting on its box** (§4, `docs/ops/VOICE.md`) |
 | Steam Groups / clans | a named group with members, officers, announcements, events | **none**; `EloCovenant` is not one (§2) |
-| Lobbies and invites (Steamworks matchmaking) | a party forms, readies up, lands on one server together | half: the join link exists, the party does not (§5) |
+| Lobbies and invites (Steamworks matchmaking) | a party forms, readies up, lands on one server together | built: lobbies, quick join and the rated queue, each lobby with a text room and voice (§5) |
 | Overlay | chat and voice over the game | the launcher, later (§6) |
 
 Discord wins on two things Steam never fixed: **voice that just works** and
@@ -206,16 +234,22 @@ Rust and mobile clients. We run it; nothing about a call touches a third party.
 
 A **lobby** is a short-lived party. A friend or guildmate opens one, the others
 join from a link or their friends list, and everyone sees who is in and who is
-ready. The lobby has its own text room and voice room. **Launch** sends every
+ready. The lobby has its own text room (`lobbychat.py`) and voice room
+(`voicechat.py`), both built. **Launch** sends every
 member the same `elo://join/<title>/<host:port>` (the launcher already owns it;
 the web build gets the same link), so the party lands together.
 
-- **Routes:**
-  - `POST /lobbies` to open one
-  - `GET /lobbies/{id}`
-  - `POST /lobbies/{id}/act` for join, ready, leave and launch
-  - a server-sent stream for the room's state
-- **Signing:** every act is signed with the chat key, never a wallet prompt.
+- **Routes**, as built (`lobbies.py` has the full list):
+  - `POST /lobbies/prepare`, then `POST /lobbies/act`, for open, join, ready,
+    leave, kick, invite, launch, close, queue and unqueue (a party opens for
+    anyone with the link, the host's friends, or only those the host invites)
+  - `GET /lobbies/{id}`, which names the text room under `chat`
+  - `POST /lobbies/{id}/chat` to post in the text room, and
+    `POST /lobbies/{id}/chat/read` to read it (a read waits for the next
+    message)
+  - not built: a server-sent stream for the lobby's state (members poll)
+- **Signing:** a lobby act is one wallet signature (G2 above). The text room
+  and the voice take the chat key, never a wallet prompt.
 - **Lifetime:** a lobby closes when its last member leaves, or an hour after
   launch.
 - **A lobby picks a server from the title's shard list** (`launcher.py`). The
@@ -237,7 +271,7 @@ the web, because the web is where a guild page is shared.
 | G1 | guilds: the roster and its signed acts, the guild's hive rooms, `/g/<tag>`, the profile's guild line, MCP | ✅ built; the rooms wait on the first armed run (`HIVE-RUNBOOK.md` §1a) |
 | G1b | the tag in every game: `wear`, `/guilds/tags`, the face's `guild`, the SDK calls, Gates draws it | ✅ built (§3a) |
 | G2 | voice: LiveKit on the box, tokens for chat keys, guild channels, the open `lfg` rooms | ✅ built 2026-10-27; the voice box (`docs/ops/VOICE.md`) |
-| G3 | lobbies: party, ready, launch together, lobby voice | ✅ built (the game page's play together); a lobby's text room is not |
+| G3 | lobbies: party, ready, launch together, lobby voice, the lobby's text room | ✅ built (the game page's play together); the text room 2026-11-02 |
 | G4 | the launcher: guild rail, lobbies, voice, the overlay | G1–G3 |
 
 ## 8 · The calls only the operator makes

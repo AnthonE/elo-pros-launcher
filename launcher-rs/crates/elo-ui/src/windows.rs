@@ -545,6 +545,10 @@ pub struct Shelf {
     pub installed: bool,
     pub price: Price,
     pub icon: Option<Icon>,
+    /// The manifest's published browser row, an `https://` url: a game that
+    /// runs in the browser (a community web game has only this row). Play
+    /// opens it, as `elo play` does.
+    pub browser: Option<String>,
 }
 
 impl Shelf {
@@ -552,6 +556,9 @@ impl Shelf {
     /// for a read that failed.
     pub fn price_line(&self) -> String {
         match &self.price {
+            // a row that only plays in the browser has nothing to download
+            Price::Free if !self.installable && self.browser.is_some() =>
+                "free to play in your browser — nothing to install".into(),
             Price::Free => "free to download — no copy is for sale yet".into(),
             Price::Posted { line } => format!("a copy costs {line}"),
             Price::Unknown { why } => format!("the price could not be read — {why}"),
@@ -577,6 +584,7 @@ impl Shelf {
             (Price::Unknown { .. }, _, _) => Act::Page,
             (_, _, true) => Act::Install,
             (Price::Posted { .. }, _, false) => Act::Buy,
+            (Price::Free, _, false) if self.browser.is_some() => Act::Browser,
             (Price::Free, _, false) => Act::Unpublished,
         }
     }
@@ -597,6 +605,8 @@ pub enum Act {
     /// Already on this disk. Points at Games rather than offering a second
     /// copy.
     Installed,
+    /// Nothing to install, and it runs in the browser: open its play url.
+    Browser,
     /// Nothing this machine can install yet. Drawn and not pressable — hiding
     /// it would make a listed title look unlisted.
     Unpublished,
@@ -611,6 +621,7 @@ impl Act {
             Act::Install => "Install",
             Act::Buy => "Buy a copy…",
             Act::Installed => "Installed",
+            Act::Browser => "Play in browser",
             Act::Unpublished => "No build yet",
             Act::Page => "Open the page…",
         }
@@ -629,6 +640,7 @@ impl Act {
             Act::Install => "download it, check every file, and add it to Games",
             Act::Buy => "open the buy box in your browser and pay from your wallet",
             Act::Installed => "already on this disk — start it from Games",
+            Act::Browser => "open it in your browser — it runs there, nothing to install",
             Act::Unpublished => "listed, but there is no build for this computer yet",
             Act::Page => "the price couldn't be read here — see it on the title's page",
         }
@@ -661,6 +673,8 @@ impl Act {
 pub struct ShelfControls {
     pub slug: String,
     pub act: Act,
+    /// Where [`Act::Browser`] goes: the row's [`Shelf::browser`].
+    pub browser: Option<String>,
     /// The main control — install, buy, or open the page.
     pub button: button::Button,
     /// Always offered, whatever the main control says: reading about a game
@@ -753,7 +767,10 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
             let mut state = chrome::label_untrusted(352, y + 2, 88, 15, &row.state,
                                                     state_ink, 10);
             state.set_align(enums::Align::Right | enums::Align::Inside | enums::Align::Clip);
-            chrome::label_untrusted(80, y + 19, 360, 15, &row.blurb, theme::MUTED, 11);
+            let mut blurb = chrome::label_untrusted(80, y + 19, 360, 15,
+                                                    &chrome::fit_words(&row.blurb, 356, 11),
+                                                    theme::MUTED, 11);
+            blurb.set_tooltip(&chrome::defuse(&row.blurb));
             let price_ink = match row.price {
                 Price::Unknown { .. } => theme::GOLD,
                 _ => theme::DIM,
@@ -777,7 +794,13 @@ pub fn store(rows: &[Shelf], reachable: bool, why: &str) -> StoreWindow {
             let mut page = chrome::button(page_x, y + 8, 84, 28, "Page…", Tone::Plain);
             page.set_align(enums::Align::Center | enums::Align::Inside);
             page.set_tooltip("open this title's page in your browser");
-            controls.push(ShelfControls { slug: row.slug.clone(), act, button, page });
+            controls.push(ShelfControls {
+                slug: row.slug.clone(),
+                act,
+                browser: row.browser.clone(),
+                button,
+                page,
+            });
             y += SHELF_H;
         }
     }

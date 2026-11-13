@@ -79,6 +79,10 @@ if let Look::Answer(save) = elo.cloud_get(&key, player, "save") {
 }
 ```
 
+The same key signs a game's economy (`economy_grant`, `economy_spend`,
+`economy_buy`, `economy_buy_confirm`); `economy_items(slug, player)`, the
+pass check, and `economy_balance` need no key.
+
 ## Quick start
 
 ```rust

@@ -33,6 +33,21 @@ test("ticket ownership: a failed chain read is could-not-look", () => {
   assert.equal(card.all_rails[0].buyable, true);
 });
 
+test("add-ons and the trial", () => {
+  const t = fx("ticket.json");
+  const card = answer(t.with_addons);
+  assert.equal(card.trial.minutes, 30);
+  assert.deepEqual(card.addons.map((a) => [a.slug, a.kind, a.changes]), [["gates-maps", "map", []]]);
+  assert.match(card.addons[0].says, /^Changes no stats/);
+  assert.equal(answer(t.addon).addon.parent, "gates");
+  const o = fx("ticket_of.json");
+  assert.deepEqual(answer(o.owned_with_addons).addons, { "gates-maps": true, "gates-soundtrack": true });
+  const trial = answer(o.trial);
+  assert.deepEqual([trial.entitled, trial.trial, trial.trial_minutes_left, trial.copies], [true, true, 20, 0]);
+  const spent = answer(o.trial_used_up);
+  assert.deepEqual([spent.entitled, spent.trial, spent.trial_minutes_left], [false, true, 0]);
+});
+
 test("items: an index that timed out is not an empty wallet", () => {
   const i = fx("items_of.json");
   const held = answer(i.held);

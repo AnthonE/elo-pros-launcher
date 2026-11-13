@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The package's tests, outside Unity: dotnet run, with this folder as the project.
+       Compiles Runtime/ as C# 9 (Unity 2021.3's language), without UNITY_*
+       defines, so the Unity-only files compile to nothing and the rest runs
+       against sdk/testdata and the real headless broker. A folder ending in
+       ~ is invisible to Unity. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Runtime/**/*.cs" />
+    <Compile Include="Tests.cs" />
+  </ItemGroup>
+</Project>

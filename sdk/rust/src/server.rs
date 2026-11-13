@@ -58,7 +58,14 @@ fn unb64(s: &str) -> Option<Vec<u8>> {
 }
 
 /// The exact text a game server signs for one request.
-pub fn server_text(method: &str, path: &str, who: &str, at: &str, body: &[u8], nonce: Option<&str>) -> String {
+pub fn server_text(
+    method: &str,
+    path: &str,
+    who: &str,
+    at: &str,
+    body: &[u8],
+    nonce: Option<&str>,
+) -> String {
     let tail = nonce.map(|n| format!("{n}\n")).unwrap_or_default();
     format!(
         "elo server\n{}\n{path}\n{who}\n{at}\n{tail}{}",
@@ -74,7 +81,11 @@ pub fn new_server_nonce(n: usize) -> Option<String> {
     }
     let mut buf = vec![0u8; n];
     ring::rand::SystemRandom::new().fill(&mut buf).ok()?;
-    Some(buf.iter().map(|b| NONCE_ABC[(*b & 63) as usize] as char).collect())
+    Some(
+        buf.iter()
+            .map(|b| NONCE_ABC[(*b & 63) as usize] as char)
+            .collect(),
+    )
 }
 
 fn id_ok(s: &str) -> bool {
@@ -82,7 +93,8 @@ fn id_ok(s: &str) -> bool {
     !b.is_empty()
         && b.len() <= 31
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
 fn slug_ok(s: &str) -> bool {
@@ -90,7 +102,8 @@ fn slug_ok(s: &str) -> bool {
     !b.is_empty()
         && b.len() <= 63
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
 /// One of a game's server keys.
@@ -111,7 +124,11 @@ impl ServerKey {
         }
         let pair = Ed25519KeyPair::from_seed_unchecked(seed)
             .map_err(|_| "an Ed25519 private key is a 32-byte seed".to_string())?;
-        Ok(ServerKey { game: game.into(), key_id: key_id.into(), pair })
+        Ok(ServerKey {
+            game: game.into(),
+            key_id: key_id.into(),
+            pair,
+        })
     }
 
     /// From a PKCS#8 PEM, the file `openssl genpkey -algorithm ed25519` writes.
@@ -162,9 +179,15 @@ impl ServerKey {
         nonce: Option<&str>,
     ) -> Vec<(&'static str, String)> {
         let at = at.unwrap_or_else(|| {
-            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
         });
-        let nonce = nonce.map(str::to_string).or_else(|| new_server_nonce(22)).unwrap_or_default();
+        let nonce = nonce
+            .map(str::to_string)
+            .or_else(|| new_server_nonce(22))
+            .unwrap_or_default();
         let at_s = at.to_string();
         let text = server_text(
             method,

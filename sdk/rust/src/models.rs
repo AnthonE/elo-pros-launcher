@@ -191,6 +191,39 @@ model! {
         /// Set on a free title: what that means.
         pub what: Option<String>,
         pub scope: Option<String>,
+        /// Minutes of play a wallet with no copy gets; `None` is no trial.
+        pub trial: Option<Trial>,
+        /// The add-ons this title sells (their prices: `ticket(&addon.slug)`).
+        pub addons: Vec<Addon>,
+        /// Set when this card is an add-on's own: what it is and its `parent`.
+        pub addon: Option<Addon>,
+    }
+}
+
+model! {
+    pub struct Trial {
+        pub minutes: u64,
+        pub how: Option<String>,
+    }
+}
+
+model! {
+    /// An add-on: paid content for a title, sold as its own ticket at `slug`.
+    pub struct Addon {
+        pub slug: String,
+        pub id: String,
+        pub name: String,
+        /// `map`, `character`, `mode`, `cosmetic`, `story` or `soundtrack`.
+        pub kind: Option<String>,
+        pub about: Option<String>,
+        /// What owning it changes in play, as its developer declared: any of
+        /// `stats`, `odds`, `drop_rates`, `progression_speed`; empty is none.
+        pub changes: Vec<String>,
+        /// That, in the words a buyer reads before paying.
+        pub says: Option<String>,
+        pub card: Option<String>,
+        /// On the add-on's own card: the title it plays in.
+        pub parent: Option<String>,
     }
 }
 
@@ -244,6 +277,13 @@ model! {
         pub reachable: Option<bool>,
         pub free_left: Option<u64>,
         pub why: Option<String>,
+        /// A wallet with no copy on a title with a trial: entitled while
+        /// `trial_minutes_left` is above 0, as the game's servers measured it.
+        pub trial: bool,
+        pub trial_minutes: Option<u64>,
+        pub trial_minutes_left: Option<u64>,
+        /// Each add-on's slug: held, not held, or `None` (could not look).
+        pub addons: BTreeMap<String, Option<bool>>,
     }
 }
 
@@ -257,6 +297,10 @@ pub struct Roster {
     /// False for a free title: every wallet is entitled.
     pub ticketed: bool,
     pub entitled: BTreeMap<String, Option<bool>>,
+    /// The wallets on a trial, and the minutes each has left (0: used up).
+    pub trial_minutes_left: BTreeMap<String, u64>,
+    /// Each wallet's add-ons: held, not held, or `None` (could not look).
+    pub addons: BTreeMap<String, BTreeMap<String, Option<bool>>>,
 }
 
 // ── sign-in ─────────────────────────────────────────────────────────────────

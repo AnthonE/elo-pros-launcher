@@ -97,6 +97,11 @@ pub fn hex_lower(bytes: &[u8]) -> String {
     s
 }
 
+/// sha256 of bytes already in memory — a build `elo publish` just packed.
+pub fn sha256_bytes(bytes: &[u8]) -> String {
+    hex_lower(ring::digest::digest(&ring::digest::SHA256, bytes).as_ref())
+}
+
 /// sha256 of a file, streamed. Same chunk size as the Python port so a large
 /// build behaves the same way on the same disk.
 ///

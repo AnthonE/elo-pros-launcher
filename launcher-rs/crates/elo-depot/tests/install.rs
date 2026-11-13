@@ -610,6 +610,34 @@ fn the_launcher_env_wins_over_the_depots() {
 }
 
 #[test]
+fn every_launch_names_the_crash_folder_and_a_depot_cannot_move_it() {
+    // The folder a game's crash handler writes to is the install's own
+    // `crashes/` (`crash.rs`); a depot pointing it anywhere else is overridden.
+    let tmp = tempfile::tempdir().unwrap();
+    let (files, served) = fixture();
+    install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    let mut i = installed(tmp.path()).remove(0);
+    i.launch_env = BTreeMap::from([("ELO_CRASH_DIR".into(), "/tmp/elsewhere".into())]);
+    let l = launch::resolve(&i, &BTreeMap::new(), &BTreeMap::new()).unwrap();
+    assert_eq!(
+        Path::new(&l.env[elo_depot::crash::ENV]),
+        i.path.join("crashes").as_path()
+    );
+}
+
+#[test]
+fn a_crash_dump_is_not_a_file_the_depot_never_listed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (files, served) = fixture();
+    install(&depot_for("1", &files), tmp.path(), &serving(served, None), None, None).unwrap();
+    let i = installed(tmp.path()).remove(0);
+    std::fs::create_dir_all(i.path.join("crashes")).unwrap();
+    std::fs::write(i.path.join("crashes/1.dmp"), b"MDMP").unwrap();
+    let v = verify(&i.path);
+    assert!(v.ok && v.extra.is_empty(), "{:?}", v.extra);
+}
+
+#[test]
 fn launching_re_checks_what_the_installer_already_checked() {
     // A receipt is a file on disk and a build directory can be edited after it
     // is written. Trusting our own past output is how a verified install

@@ -2628,6 +2628,20 @@ fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool,
                 })
             })
             .unwrap_or(false);
+        // A published browser row: the url `elo play` opens. Only https — a
+        // row the origin left relative or blank stays a slot.
+        let browser = m
+            .get("builds")
+            .and_then(Value::as_array)
+            .and_then(|bs| {
+                bs.iter().find_map(|b| {
+                    (b.get("kind").and_then(Value::as_str) == Some("browser"))
+                        .then(|| b.get("url").and_then(Value::as_str))
+                        .flatten()
+                        .filter(|u| u.starts_with("https://"))
+                        .map(str::to_string)
+                })
+            });
         rows.push(windows::Shelf {
             slug: slug.to_string(),
             name: name.to_string(),
@@ -2641,6 +2655,7 @@ fn read_shelf(host: &str, root: &std::path::Path) -> (Vec<windows::Shelf>, bool,
             installed: on_disk.iter().any(|i| i.slug == slug),
             price,
             icon,
+            browser,
         });
     }
     (rows, true, String::new())

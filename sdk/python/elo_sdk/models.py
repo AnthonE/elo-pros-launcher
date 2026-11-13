@@ -235,6 +235,12 @@ class Ticket:
     downloads_gated: bool = False
     what: Optional[str] = None
     raw: dict = field(default_factory=dict, repr=False)
+    #: minutes of play a wallet with no copy gets; None is no trial
+    trial_minutes: Optional[int] = None
+    #: the add-ons this title sells (their prices: Client.ticket(addon.slug))
+    addons: List["Addon"] = field(default_factory=list)
+    #: set when this card is an add-on's own: what it is and its `parent`
+    addon: Optional["Addon"] = None
 
     @classmethod
     def from_json(cls, d) -> "Ticket":
@@ -248,13 +254,48 @@ class Ticket:
                    free_mint=(FreeMint(_b(fm.get("open")), _i(fm.get("per_wallet")), _b(fm.get("sponsored")),
                                        _s(fm.get("how"))) if isinstance(fm, dict) else None),
                    how_to_buy={k: v for k, v in _d(d.get("how_to_buy")).items() if isinstance(v, str)},
-                   downloads_gated=_b(d.get("downloads_gated")), what=_s(d.get("what")), raw=d)
+                   downloads_gated=_b(d.get("downloads_gated")), what=_s(d.get("what")), raw=d,
+                   trial_minutes=_i(_d(d.get("trial")).get("minutes")),
+                   addons=_l(d.get("addons"), Addon.from_json),
+                   addon=Addon.from_json(d["addon"]) if isinstance(d.get("addon"), dict) else None)
+
+
+@dataclass
+class Addon:
+    """An add-on: paid content for a title, sold as its own ticket at `slug`.
+    `changes` is what owning it changes in play, as its developer declared
+    (stats, odds, drop_rates, progression_speed; empty is none), and `says`
+    is that in the words a buyer reads. `parent` is set on the add-on's own card."""
+    slug: str = ""
+    id: str = ""
+    name: str = ""
+    kind: Optional[str] = None
+    about: Optional[str] = None
+    changes: List[str] = field(default_factory=list)
+    says: Optional[str] = None
+    parent: Optional[str] = None
+
+    @classmethod
+    def from_json(cls, d) -> "Addon":
+        d = _d(d)
+        return cls(_s(d.get("slug")) or "", _s(d.get("id")) or "", _s(d.get("name")) or "",
+                   _s(d.get("kind")), _s(d.get("about")),
+                   [c for c in (d.get("changes") or []) if isinstance(c, str)]
+                   if isinstance(d.get("changes"), list) else [],
+                   _s(d.get("says")), _s(d.get("parent")))
+
+
+def _addons_held(v) -> Dict[str, Optional[bool]]:
+    return {k: (x if isinstance(x, bool) else None) for k, x in _d(v).items() if isinstance(k, str)}
 
 
 @dataclass
 class TicketOf:
     """GET /api/ticket/{slug}/of/{wallet}. `entitled` None is a failed read,
-    never "does not own"."""
+    never "does not own". A wallet with no copy on a title with a trial is
+    `trial` True: entitled while `trial_minutes_left` is above 0, as the
+    game's servers measured it. `addons` maps each add-on's slug to whether
+    the wallet holds it (None: could not look)."""
     game: str = ""
     ticketed: Optional[bool] = None
     wallet: Optional[str] = None
@@ -263,22 +304,32 @@ class TicketOf:
     reachable: Optional[bool] = None
     free_left: Optional[int] = None
     why: Optional[str] = None
+    trial: bool = False
+    trial_minutes: Optional[int] = None
+    trial_minutes_left: Optional[int] = None
+    addons: Dict[str, Optional[bool]] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, d) -> "TicketOf":
         d = _d(d)
         return cls(_s(d.get("game")) or "", _ob(d.get("ticketed")), _s(d.get("wallet")), _i(d.get("copies")),
-                   _ob(d.get("entitled")), _ob(d.get("reachable")), _i(d.get("free_left")), _s(d.get("why")))
+                   _ob(d.get("entitled")), _ob(d.get("reachable")), _i(d.get("free_left")), _s(d.get("why")),
+                   _b(d.get("trial")), _i(d.get("trial_minutes")), _i(d.get("trial_minutes_left")),
+                   _addons_held(d.get("addons")))
 
 
 @dataclass
 class Roster:
     """One roster sweep (`Client.check_roster`). `entitled` maps each wallet —
     0x lowercased, or the Solana address as given — to True, False or None.
-    Kick on False only: None is a read that failed."""
+    Kick on False only: None is a read that failed. `trial_minutes_left`
+    names the wallets playing on a trial (0: used up, and entitled False);
+    `addons` maps each wallet to the add-ons it holds."""
     game: str = ""
     ticketed: bool = True
     entitled: Dict[str, Optional[bool]] = field(default_factory=dict)
+    trial_minutes_left: Dict[str, int] = field(default_factory=dict)
+    addons: Dict[str, Dict[str, Optional[bool]]] = field(default_factory=dict)
 
 
 # ── sign-in ─────────────────────────────────────────────────────────────────
@@ -602,5 +653,5 @@ class Leaderboard:
 
 
 __all__ = ["Playing", "BuddyTag", "Friend", "Ask", "Presence", "Limits", "FriendsView", "FriendsActed",
-           "Rail", "ChainRail", "FreeMint", "Ticket", "TicketOf", "Item", "Items", "Face", "WhoFound", "Who",
+           "Rail", "ChainRail", "FreeMint", "Ticket", "Addon", "TicketOf", "Roster", "Item", "Items", "Face", "WhoFound", "Who",
            "Entry", "Board", "Leaderboard"]

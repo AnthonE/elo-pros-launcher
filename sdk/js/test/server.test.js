@@ -178,9 +178,55 @@ test("no page read is could_not_look; a free title is everyone's", async () => {
   const free = await stub(() => [200, { game: "free-game", ticketed: false, every_wallet_entitled: true }]);
   try {
     const got = await new Client(free.origin).checkRoster("free-game", [W(1), SOLW]);
-    assert.deepEqual(got.value, { game: "free-game", ticketed: false, entitled: { [W(1)]: true, [SOLW]: true } });
+    assert.deepEqual(got.value, { game: "free-game", ticketed: false, entitled: { [W(1)]: true, [SOLW]: true },
+      trial_minutes_left: {}, addons: {} });
   } finally {
     await free.close();
+  }
+});
+
+test("checkRoster carries each wallet's trial minutes and add-ons", async () => {
+  const rows = {
+    [W(1)]: { entitled: true, addons: { "gates-maps": true, "gates-x": null } },
+    [W(2)]: { entitled: true, trial: true, trial_minutes: 30, trial_minutes_left: 12, trial_seconds_left: 700,
+      addons: { "gates-maps": false } },
+    [W(3)]: { entitled: false, trial: true, trial_minutes: 30, trial_minutes_left: 0, trial_seconds_left: 0 },
+  };
+  const s = await stub(() => [200, { game: "gates", wallets: rows }]);
+  try {
+    const got = await new Client(s.origin).checkRoster("gates", [W(1), W(2), W(3)]);
+    assert.deepEqual(got.value.entitled, { [W(1)]: true, [W(2)]: true, [W(3)]: false });
+    assert.deepEqual(got.value.trial_minutes_left, { [W(2)]: 12, [W(3)]: 0 });
+    assert.deepEqual(got.value.addons, { [W(1)]: { "gates-maps": true, "gates-x": null },
+      [W(2)]: { "gates-maps": false } });
+  } finally {
+    await s.close();
+  }
+  const free = await stub((url, body) => [200, { game: "free-game", ticketed: false, every_wallet_entitled: true,
+    wallets: Object.fromEntries(body.wallets.map((w) => [w, { entitled: true, addons: { "free-game-maps": w === W(1) } }])) }]);
+  try {
+    const got = await new Client(free.origin).checkRoster("free-game", [W(1), W(2)]);
+    assert.equal(got.value.ticketed, false);
+    assert.deepEqual(got.value.entitled, { [W(1)]: true, [W(2)]: true });
+    assert.deepEqual(got.value.addons, { [W(1)]: { "free-game-maps": true }, [W(2)]: { "free-game-maps": false } });
+  } finally {
+    await free.close();
+  }
+});
+
+test("bundleBuy asks for every item at once", async () => {
+  const s = await stub(() => [200, { items: [], txs: [] }]);
+  try {
+    const c = new Client(s.origin);
+    assert.equal((await c.bundleBuy(["gates", "gates-maps", "gates"], { wallet: W(7), rail: "eth" })).kind, "answer");
+    assert.equal((await c.bundleBuy(["gates"], { includeHeld: true })).kind, "answer");
+    for (const bad of [[], "gates", ["Not A Slug"]]) assert.equal((await c.bundleBuy(bad)).status, 0);
+    assert.equal((await c.bundleBuy(["gates"], { wallet: "0xnope" })).status, 0);
+    assert.deepEqual(s.seen.map((x) => x.url), [
+      `/api/tickets/bundle/prepare?items=gates,gates-maps&rail=eth&wallet=${W(7)}`,
+      "/api/tickets/bundle/prepare?items=gates&include_held=1"]);
+  } finally {
+    await s.close();
   }
 });
 
